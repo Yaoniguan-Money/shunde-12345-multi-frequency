@@ -66,6 +66,10 @@ def upgrade() -> None:
           RETURN NEW;
         END;
         $$;
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER work_orders_raw_immutable
         BEFORE UPDATE ON work_orders
         FOR EACH ROW EXECUTE FUNCTION prevent_work_order_raw_mutation();

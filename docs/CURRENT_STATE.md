@@ -58,12 +58,12 @@
 
 ## PostgreSQL / pgvector
 
-- Container：`shunde-12345-postgres-1`（当前 Docker Desktop 未启动，运行态验证暂时 BLOCKED）
+- Container：`shunde-12345-postgres-1`，Docker Desktop 已启动并 healthy
 - PostgreSQL：`17.8`
 - pgvector extension：`0.8.1`
 - Port：`127.0.0.1:5432`
-- Alembic revision：`fff93032eb16` → `6b7c8d9e0f10`（待 Docker 恢复后 upgrade 验证）
-- 表：18 张要求的业务骨架表 + `alembic_version`，共 19 张 public tables。
+- Alembic revision：`6b7c8d9e0f10 (head)`；新增可恢复导入字段、失败行表与 raw immutability trigger
+- 表：18 张要求的业务骨架表 + `import_row_errors` + `alembic_version`，共 20 张 public tables。
 - 已在空开发库实测 `alembic downgrade base` → `alembic upgrade head` 成功。
 - Docker Hub 曾出现 TLS handshake timeout；随后通过 DaoCloud 的 Docker Hub 镜像代理拉取同名 tag，digest 为 `sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21`。
 
@@ -73,9 +73,9 @@
 |---|---|---|
 | 0 factual inspection | DONE | Excel、地名包/OpenAPI、硬件、WSL2、Docker、工具链均已只读实测 |
 | 1 repo hardening | DONE | Git checkpoint、uv/pnpm lock、FastAPI、React 19 + Vite 8、PostgreSQL + pgvector、Alembic、CI、health、typed ports、18 表骨架 |
-| 2 import | PARTIAL | Polars + fastexcel 真实 reader、字段映射、坏行继续、SHA 幂等、checkpoint、失败行表与 `/imports` API 已完成；8 个应用/知识库单测通过；真实 PostgreSQL 迁移/12.8 万行入库被 Docker Desktop 未启动阻塞 |
-| 3 gazetteer | PARTIAL | 已从真实 SQLite 构建 229 实体运行时快照，真实 `/openapi.json` 发现 `/batch` 并实测凤城/人民医院/未知地点；`/entities/resolve` 已接入；服务/快照 smoke 通过 |
-| 4 AI structured understanding | PARTIAL | LLM/Embedding/Reranker 等 typed ports 已存在，新增 WorkOrderUnderstanding Pydantic schema；本地模型未配置，未运行 LLM |
+| 2 import | DONE | 真实 Excel 已导入 PostgreSQL：batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb`，128,278/128,278 成功，0 失败，checkpoint 128,278；第二次真实运行返回 `idempotent=true`，数据库仍 128,278 行 |
+| 3 gazetteer | DONE | 已从真实 SQLite 构建 229 实体运行时快照，真实 `/openapi.json` 发现 `/batch` 并实测凤城/人民医院/未知地点；`/entities/resolve` 已接入，未知明确 unresolved |
+| 4-lite AI provider preparation | DONE | LLM/Embedding/Reranker typed ports 已存在，新增 WorkOrderUnderstanding Pydantic schema；未运行全量 LLM（属于后续 Phase 4 acceptance） |
 | 5 retrieval/rerank | PLANNED | 无 Gold Set benchmark，不报告质量数字 |
 | 6 event matching/clustering | PLANNED | 只有 interface/schema skeleton，无生产 matcher |
 | 7 product loop | PLANNED | 前端仅工程/health 骨架，不是四页业务产品 |
@@ -98,9 +98,9 @@
 ```text
 uv sync --locked                         PASS
 uv run ruff check .                      PASS — All checks passed
-uv run ruff format --check .             PASS — 43 files already formatted
+uv run ruff format --check .             PASS — 71 files already formatted
 uv run pyright backend                   PASS — 0 errors, 0 warnings
-uv run pytest -q                         PASS — 8 passed, 1 skipped（PostgreSQL raw immutability integration test；Docker 未启动）
+uv run pytest -q                         PASS — 9 passed（含 PostgreSQL raw immutability integration test）
 pnpm install --frozen-lockfile           PASS
 pnpm lint                                PASS
 pnpm test --run                          PASS — 1 test file / 1 test passed
@@ -114,16 +114,17 @@ GET gazetteer /normalize?text=凤城        PASS — 大良街道 / 0.98
 uv run python scripts/gazetteer_smoke.py PASS — OpenAPI 1.0；快照 229 entities；凤城 resolved；未知地点 unresolved
 uv run ruff check .                      PASS — 本轮导入/知识库/AI schema 后
 uv run pyright backend                   PASS — 0 errors, 0 warnings
-uv run pytest -q                         PASS — 8 passed
-docker compose up -d postgres            BLOCKED — Docker API npipe 不存在，Docker Desktop 未运行
-uv run alembic upgrade head              BLOCKED — PostgreSQL 连接被拒绝（同一 Docker blocker）
-uv run python scripts/import_real_smoke.py BLOCKED — 必须先完成数据库迁移；命令已写入 docs/DEVELOPMENT.md
+uv run pytest -q                         PASS — 9 passed
+docker compose up -d postgres            PASS — healthy，pgvector 0.8.1
+uv run alembic upgrade head              PASS — 6b7c8d9e0f10
+uv run python scripts/import_real_smoke.py PASS — 128,278 success / 0 failure / checkpoint 128,278
+uv run python scripts/import_real_smoke.py PASS — second run idempotent=true
+psql count check                          PASS — import_batches=1, work_orders=128,278
 ```
 
 ## Known blockers / decisions needed later
 
 - `BLOCKED`（Phase 4 acceptance）：尚未选择、部署并验证真实本地模型；Phase 1 不要求模型 inference。
-- `BLOCKED`（Phase 2 runtime acceptance）：Docker Desktop 当前未启动；PostgreSQL 迁移、raw immutability trigger 与政府 Excel 真实入库待用户启动 Docker 后执行。
 - `BLOCKED`（quality acceptance）：尚无业务方确认的 Gold Set、3–5 组官方同事件正例与 hard negatives。
 - `BLOCKED`（domain decision）：同一持续事件与复发事件的时间边界未确认。
 - `BLOCKED`（delete behavior）：软删除、硬删除或 audit tombstone 规则未由业务方确认。
