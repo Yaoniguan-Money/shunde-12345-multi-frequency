@@ -1,5 +1,6 @@
 from typing import Protocol
 
+from backend.app.domain.analysis import TextSegment
 from backend.app.domain.types import (
     ClusterProposal,
     EmbeddingRequest,
@@ -22,6 +23,10 @@ class EmbeddingProvider(Protocol):
     async def embed_batch(
         self, requests: tuple[EmbeddingRequest, ...]
     ) -> tuple[EmbeddingResult, ...]: ...
+
+
+class WorkOrderSegmenter(Protocol):
+    def segment(self, title: str | None, content: str) -> tuple["TextSegment", ...]: ...
 
 
 class RerankerProvider(Protocol):

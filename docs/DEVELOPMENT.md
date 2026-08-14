@@ -48,3 +48,32 @@ uv run pytest -q
 ```
 
 前端和 Docker 检查仍由 `scripts/check.ps1` 统一执行。Docker Desktop 未启动时，数据库迁移、真实导入和原始字段不可变触发器的运行态验证均应标记 `BLOCKED`，不得用内存 fake 冒充通过。
+
+## 本地 AI 理解与检索
+
+Ollama 只在 WSL2/本机运行，当前采用官方模型仓库：
+
+```bash
+ollama serve
+ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
+```
+
+Windows PowerShell 中运行真实批次 smoke（先完成 `alembic upgrade head`）：
+
+```powershell
+$env:SHUNDE_MODEL_API_BASE_URL = 'http://127.0.0.1:11434'
+$env:SHUNDE_LLM_MODEL_ID = 'qwen2.5:3b'
+$env:SHUNDE_EMBEDDING_MODEL_ID = 'nomic-embed-text'
+uv run python scripts/run_understanding.py --limit 4 --chunk-size 2
+```
+
+去掉 `--limit` 会从 durable checkpoint 继续直到该真实导入批次完成；失败不会伪造成功。检索 benchmark 使用：
+
+```powershell
+uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text
+```
+
+没有业务确认的 Gold Set 时只报告硬件、吞吐、P50/P95 与候选数，不报告 Recall/Precision；Gold Set JSON 必须显式传入 `--gold-set`。
+
+本轮真实运行记录（2026-08-15）：WSL2 Ubuntu 使用 Ollama `0.32.13`，通过官方 Ollama registry 拉取 `qwen2.5:3b` 与 `nomic-embed-text:latest`；GPU 为 RTX 3080 Laptop 16 GiB。实际 smoke 处理 11/128,278 条，写入 11 个事件与 11 个 768 维向量。没有配置可信模型镜像时不擅自替换模型来源；后续下载仍遵循“正规镜像优先、官方源可回退、记录版本/校验、缓存不入 Git”的规则。

@@ -41,6 +41,7 @@ class WorkOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class ComplaintSegment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "complaint_segments"
+    __table_args__ = (UniqueConstraint("work_order_id", "ordinal"),)
 
     work_order_id: Mapped[UUID] = mapped_column(
         ForeignKey("work_orders.id", ondelete="CASCADE"), index=True

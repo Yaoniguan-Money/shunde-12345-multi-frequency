@@ -15,6 +15,7 @@ from backend.app.infrastructure.db.models.base import (
 
 class EventInstance(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
     __tablename__ = "event_instances"
+    __table_args__ = (UniqueConstraint("work_order_id", "ordinal", "pipeline_version"),)
 
     work_order_id: Mapped[UUID] = mapped_column(
         ForeignKey("work_orders.id", ondelete="CASCADE"), index=True

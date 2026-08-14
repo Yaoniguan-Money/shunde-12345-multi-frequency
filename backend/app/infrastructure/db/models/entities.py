@@ -52,6 +52,7 @@ class EntityAliasRuntime(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class EntityMention(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
     __tablename__ = "entity_mentions"
+    __table_args__ = (UniqueConstraint("work_order_id", "ordinal", "pipeline_version"),)
 
     work_order_id: Mapped[UUID] = mapped_column(
         ForeignKey("work_orders.id", ondelete="CASCADE"), index=True

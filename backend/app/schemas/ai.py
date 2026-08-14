@@ -27,6 +27,8 @@ class ExtractedMention(BaseModel):
     end_offset: int | None = Field(default=None, ge=0)
     canonical_entity_id: UUID | None = None
     resolution_state: str = "unresolved"
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    evidence: list[str] = Field(default_factory=_empty_strings)
 
 
 class ExtractedEvent(BaseModel):
@@ -51,4 +53,4 @@ class WorkOrderUnderstanding(BaseModel):
     current_request: str | None = None
     mentions: list[ExtractedMention] = Field(default_factory=lambda: list[ExtractedMention]())
     events: list[ExtractedEvent] = Field(default_factory=lambda: list[ExtractedEvent]())
-    trace: UnderstandingTrace
+    trace: UnderstandingTrace | None = None

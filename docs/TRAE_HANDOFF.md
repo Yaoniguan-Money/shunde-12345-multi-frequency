@@ -40,6 +40,14 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - 当前前端只是 health 工程骨架，不是业务页面完成态。
 - 当前没有生产 mock/fake 数据；测试 fake 只在 `backend/tests`。
 
+## AI understanding / retrieval（当前为可运行的后端合同）
+
+- 本地模型运行时：Ollama `http://127.0.0.1:11434`；结构化抽取使用 `qwen2.5:3b`，向量使用 `nomic-embed-text`（768 维）。生产 adapter 拒绝云端 URL，不做云回退。
+- `uv run python scripts/run_understanding.py --limit N --chunk-size K`：从真实导入批次 checkpoint 继续执行“规则分段 → 批量结构化抽取 → 批量地名解析 → event/mention/segment 持久化 → embedding 写入”。省略 `--limit` 才会继续到全量，当前只实测了前 11 条，不要在演示环境无意触发全量。
+- `uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text`：运行 pgvector candidate retrieval 性能测试；没有业务 Gold Set 时 `quality` 必须保持 `null`。
+- 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id` 等 trace 字段。
+- 当前阶段尚未提供事件聚类、同事件判定或业务详情 API；TRAE 不应为这些目标态能力制作静态“已完成”页面。未知/未解析状态必须原样显示。
+
 # TRAE 可以改
 
 - React 页面布局、组件、动效、图标、信息层级

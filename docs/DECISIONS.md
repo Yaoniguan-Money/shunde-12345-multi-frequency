@@ -29,3 +29,8 @@ For dependency downloads, use a trusted regular mirror first when it is material
 Status: accepted
 
 The real gazetteer OpenAPI exposes normalization and a batch query, but no entity enumeration/export operation. The handoff SQLite schema is therefore validated and read in `mode=ro` to build a deterministic runtime snapshot. The HTTP adapter discovers the batch operation from `/openapi.json`; it does not guess endpoint names. Snapshot aliases are the hot path, and unresolved mentions are sent in one remote batch call.
+
+# ADR-007: Local Ollama is the only model runtime for this phase
+Status: accepted
+
+The model seam is an OpenAI-compatible local chat endpoint plus Ollama's local embedding endpoint. Production adapters reject non-local URLs, require structured JSON validation, and persist model/config/schema/pipeline trace fields. The current smoke models are `qwen2.5:3b` for Chinese structured extraction and `nomic-embed-text` for 768-dimensional vectors; neither is a cloud fallback.

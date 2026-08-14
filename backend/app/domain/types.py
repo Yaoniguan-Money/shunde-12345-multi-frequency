@@ -92,6 +92,8 @@ class LLMRequest:
     request_id: str
     prompt: str
     output_schema: dict[str, object]
+    schema_version: str = "understanding.v1"
+    pipeline_version: str = "understanding.v1"
 
 
 @dataclass(frozen=True, slots=True)
