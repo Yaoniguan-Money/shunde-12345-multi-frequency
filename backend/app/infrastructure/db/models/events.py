@@ -1,0 +1,107 @@
+from uuid import UUID
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from backend.app.infrastructure.db.models.base import (
+    AITraceMixin,
+    Base,
+    TimestampMixin,
+    UUIDPrimaryKeyMixin,
+)
+
+
+class EventInstance(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
+    __tablename__ = "event_instances"
+
+    work_order_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(128), index=True)
+    behavior: Mapped[str | None] = mapped_column(Text)
+    normalized_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    location_signals: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    time_signals: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+
+
+class WorkOrderEmbedding(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
+    __tablename__ = "work_order_embeddings"
+    __table_args__ = (UniqueConstraint("work_order_id", "content_hash", "model_id"),)
+
+    work_order_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+    )
+    event_instance_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("event_instances.id", ondelete="CASCADE"), index=True
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(), nullable=False)
+
+
+class EventCandidate(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
+    __tablename__ = "event_candidates"
+    __table_args__ = (UniqueConstraint("query_event_id", "candidate_event_id", "analysis_run_id"),)
+
+    query_event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event_instances.id", ondelete="CASCADE"), index=True
+    )
+    candidate_event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event_instances.id", ondelete="CASCADE"), index=True
+    )
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), index=True
+    )
+    retrieval_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    retrieval_score: Mapped[float] = mapped_column(Float, nullable=False)
+    rerank_score: Mapped[float | None] = mapped_column(Float)
+    evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+
+
+class EventMatchEdge(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
+    __tablename__ = "event_match_edges"
+    __table_args__ = (UniqueConstraint("left_event_id", "right_event_id", "analysis_run_id"),)
+
+    left_event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event_instances.id", ondelete="CASCADE"), index=True
+    )
+    right_event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event_instances.id", ondelete="CASCADE"), index=True
+    )
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), index=True
+    )
+    same_event: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+
+
+class EventCluster(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
+    __tablename__ = "event_clusters"
+
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    handling_status: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class EventClusterMember(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "event_cluster_members"
+    __table_args__ = (UniqueConstraint("event_cluster_id", "event_instance_id"),)
+
+    event_cluster_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event_clusters.id", ondelete="CASCADE"), index=True
+    )
+    event_instance_id: Mapped[UUID] = mapped_column(
+        ForeignKey("event_instances.id", ondelete="CASCADE"), index=True
+    )
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), index=True
+    )
+    membership_confidence: Mapped[float] = mapped_column(Float, nullable=False)

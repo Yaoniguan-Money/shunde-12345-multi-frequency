@@ -26,7 +26,7 @@ data/raw/
 *.parquet
 *.db
 *.sqlite*
-models/
+/models/
 *.gguf
 *.safetensors
 
@@ -35,4 +35,3 @@ models/
 *.log
 .DS_Store
 Thumbs.db
-

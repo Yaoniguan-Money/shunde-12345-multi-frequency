@@ -29,6 +29,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+      - run: git ls-files --error-unmatch backend/app/infrastructure/db/models/base.py
       - run: uv sync --locked
       - run: uv run alembic upgrade head
       - run: uv run ruff check .
