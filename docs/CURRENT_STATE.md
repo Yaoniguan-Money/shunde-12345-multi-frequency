@@ -9,7 +9,7 @@
 - Branch：`main`
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
 - Hard-install checkpoint：`75ea7e7`（Phase 0–3 已推送）
-- 本轮 AI understanding/retrieval 变更：提交时会在交接汇报中给出最终 commit；本文件记录该提交的实测证据，不把未完成的全量分析标成 DONE。
+- 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本文件记录该提交的实测证据，不把未完成的全量分析标成 DONE。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
 
