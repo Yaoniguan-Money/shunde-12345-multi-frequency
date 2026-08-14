@@ -8,8 +8,9 @@
 
 - Branch：`main`
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
-- Phase 1 commit：将在本轮验证提交后补记
-- Remote：将在 Phase 1 commit 后创建/验证 private GitHub remote；此前为 `REMOTE_PENDING`
+- Phase 1 commit：`f7ea6703ae6dc6ce72953d45518a0a5202bafd6a`
+- Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
+- Push：`REMOTE_PENDING` — 当前 GitHub OAuth token 缺少 `workflow` scope，GitHub 拒绝包含 `.github/workflows/ci.yml` 的 push。需运行 `gh auth refresh -h github.com -s workflow` 后重试
 
 ## Environment
 
