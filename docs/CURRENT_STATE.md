@@ -8,7 +8,7 @@
 
 - Branch：`main`
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
-- Phase 1 commit：`382588f70617fa368c48df4a17815e7ba27c84d3`
+- Hard-install checkpoint：`93d8d96058d0340fe77065dd38827c0640eaecb1`
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
 
