@@ -1,0 +1,38 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# Frontend
+node_modules/
+frontend/dist/
+coverage/
+
+# Runtime and private data
+data/runtime/
+data/raw/
+*.xlsx
+*.xls
+*.csv
+*.parquet
+*.db
+*.sqlite*
+models/
+*.gguf
+*.safetensors
+
+# Local tools and logs
+.tmp_artifact/
+*.log
+.DS_Store
+Thumbs.db
+
