@@ -19,3 +19,8 @@ Current corpus size does not justify additional vector infrastructure until benc
 Status: accepted
 
 Human review is not a mandatory gate; correction/audit remains.
+
+# ADR-005: Trusted mirrors first, lockfiles remain authoritative
+Status: accepted
+
+For dependency downloads, use a trusted regular mirror first when it is materially faster on the deployment network. Preserve upstream package identity, pinned versions and lockfile integrity; record container digests where practical. Fall back to the official source if the mirror is unavailable, and never use an untrusted binary mirror.

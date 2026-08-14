@@ -1,0 +1,25 @@
+from functools import lru_cache
+
+from pydantic import AnyHttpUrl, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="SHUNDE_",
+        extra="ignore",
+    )
+
+    app_name: str = "顺德 12345 多频工单智能研判"
+    environment: str = "development"
+    database_url: SecretStr = SecretStr("postgresql+asyncpg://shunde:shunde@127.0.0.1:5432/shunde")
+    gazetteer_api_base_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8000")
+    model_api_base_url: AnyHttpUrl | None = None
+    dependency_timeout_seconds: float = 2.0
+    cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

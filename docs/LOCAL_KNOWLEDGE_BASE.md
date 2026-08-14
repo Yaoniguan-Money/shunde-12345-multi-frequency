@@ -6,6 +6,12 @@ Expected Windows package root:
 
 `C:\Users\Lenovo\Desktop\顺德地名库交接包`
 
+Phase 0 live inspection on 2026-08-15 confirmed OpenAPI version `1.0` and these exact paths:
+
+`/`, `/batch`, `/match`, `/normalize`, `/search`, `/stats`
+
+The live `/stats` response reported 217 standard places, 232 aliases, 12 organization synonyms, 8 suffix rules and 488 semantic candidates. The README states 545 semantic candidates; this discrepancy remains documented and unresolved. Live behavior is evidence, but the upstream package must not be silently rewritten.
+
 User-provided handoff instructions say:
 
 - drag `顺德地名库` into an Obsidian vault;

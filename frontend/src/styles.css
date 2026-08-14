@@ -1,0 +1,63 @@
+:root {
+  font-family: Inter, "Microsoft YaHei", sans-serif;
+  color: #17211b;
+  background: #f3f5f1;
+  font-synthesis: none;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+main {
+  box-sizing: border-box;
+  width: min(760px, calc(100% - 48px));
+  margin: 15vh auto 0;
+  padding: 40px;
+  border: 1px solid #cdd6ce;
+  background: #ffffff;
+}
+
+.eyebrow {
+  color: #4e6756;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1 {
+  margin: 16px 0;
+  font-size: clamp(32px, 6vw, 56px);
+  line-height: 1.08;
+}
+
+.description {
+  max-width: 620px;
+  color: #526058;
+  line-height: 1.75;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 32px 0 0;
+}
+
+dl div {
+  padding: 16px;
+  background: #edf2ed;
+}
+
+dt {
+  color: #69766e;
+  font-size: 12px;
+}
+
+dd {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+

@@ -1,0 +1,23 @@
+name: shunde-12345
+
+services:
+  postgres:
+    image: ${SHUNDE_POSTGRES_IMAGE:-m.daocloud.io/docker.io/pgvector/pgvector:0.8.1-pg17}
+    environment:
+      POSTGRES_DB: shunde
+      POSTGRES_USER: shunde
+      POSTGRES_PASSWORD: shunde
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - shunde_postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shunde -d shunde"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  shunde_postgres_data:

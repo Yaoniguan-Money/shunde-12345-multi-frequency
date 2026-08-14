@@ -15,6 +15,28 @@ TRAE 的目标不是重新设计后端，而是在不破坏硬装的前提下让
 4. `docs/CURRENT_STATE.md`
 5. OpenAPI / 前端 typed API client
 
+# 真实数据位置（不要移动或修改）
+
+政府 Excel 的完整路径：
+
+`C:\Users\Lenovo\Desktop\政数局资料-顺德区12345热线工单（2025年1月至3月）.xlsx`
+
+地名库交接包：
+
+`C:\Users\Lenovo\Desktop\顺德地名库交接包`
+
+TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得为了页面演示制造替代数据。当前 Phase 1 没有导入 API；真实导入属于 Phase 2。
+
+# Phase 1 已稳定的运行合同
+
+- Backend：`http://127.0.0.1:8080`
+- Frontend dev：`http://127.0.0.1:5173`
+- Gazetteer（只允许 backend adapter 调用）：`http://127.0.0.1:8000`
+- PostgreSQL：`127.0.0.1:5432`
+- Health：`/health/live`、`/health/ready`、`/health/dependencies`
+- 当前前端只是 health 工程骨架，不是业务页面完成态。
+- 当前没有生产 mock/fake 数据；测试 fake 只在 `backend/tests`。
+
 # TRAE 可以改
 
 - React 页面布局、组件、动效、图标、信息层级
