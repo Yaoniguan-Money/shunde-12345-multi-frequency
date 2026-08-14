@@ -27,12 +27,14 @@ TRAE works in the same repo, updates `TRAE_CHANGELOG.md`, and does not create a 
 
 - Private repository created: `https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - `origin` is configured for fetch/push.
-- Initial push was rejected because the authenticated OAuth token lacks the `workflow` scope required to create `.github/workflows/ci.yml`.
-- Recovery:
+- Initial push was rejected because the OAuth token lacked the `workflow` scope required to create `.github/workflows/ci.yml`.
+- `gh auth refresh -h github.com -s workflow` was completed; token scopes now include `workflow`.
+- `main` was pushed successfully, tracks `origin/main`, and the private remote/default branch were verified.
+- Verification commands:
 
 ```powershell
-gh auth refresh -h github.com -s workflow
-git push -u origin main
+gh auth status
+git push
 git ls-remote origin refs/heads/main
 ```
 

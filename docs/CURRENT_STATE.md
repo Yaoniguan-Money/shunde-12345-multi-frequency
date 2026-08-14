@@ -10,7 +10,7 @@
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
 - Phase 1 commit：`f7ea6703ae6dc6ce72953d45518a0a5202bafd6a`
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
-- Push：`REMOTE_PENDING` — 当前 GitHub OAuth token 缺少 `workflow` scope，GitHub 拒绝包含 `.github/workflows/ci.yml` 的 push。需运行 `gh auth refresh -h github.com -s workflow` 后重试
+- Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`，首次远端验证 head 为 `68be130d7b3e89d92ae006de1a2d2a6512d42697`
 
 ## Environment
 
