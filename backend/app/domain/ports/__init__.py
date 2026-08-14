@@ -8,6 +8,7 @@ from backend.app.domain.ports.analysis import (
 )
 from backend.app.domain.ports.export import Exporter
 from backend.app.domain.ports.gazetteer import GazetteerProvider
+from backend.app.domain.ports.imports import ImportBatchRepository, TabularReader
 from backend.app.domain.ports.repositories import (
     EventRepository,
     JobRepository,
@@ -23,7 +24,9 @@ __all__ = [
     "GazetteerProvider",
     "JobRepository",
     "LLMProvider",
+    "ImportBatchRepository",
     "RerankerProvider",
     "SameEventMatcher",
     "WorkOrderRepository",
+    "TabularReader",
 ]

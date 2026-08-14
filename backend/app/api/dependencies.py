@@ -3,7 +3,10 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from backend.app.application.handlers.health import HealthCheckHandler
+from backend.app.application.handlers.imports import ImportHandler
 from backend.app.infrastructure.health import DependencyHealthProbe
+from backend.app.infrastructure.imports import SourceStager
+from backend.app.infrastructure.knowledge.resolver import RuntimeEntityResolver
 
 
 def get_health_probe(request: Request) -> DependencyHealthProbe:
@@ -18,3 +21,24 @@ def get_health_handler() -> HealthCheckHandler:
 
 
 HealthHandlerDependency = Annotated[HealthCheckHandler, Depends(get_health_handler)]
+
+
+def get_import_handler(request: Request) -> ImportHandler:
+    return request.app.state.import_handler
+
+
+ImportHandlerDependency = Annotated[ImportHandler, Depends(get_import_handler)]
+
+
+def get_source_stager(request: Request) -> SourceStager:
+    return request.app.state.source_stager
+
+
+SourceStagerDependency = Annotated[SourceStager, Depends(get_source_stager)]
+
+
+def get_entity_resolver(request: Request) -> RuntimeEntityResolver | None:
+    return getattr(request.app.state, "entity_resolver", None)
+
+
+ResolverDependency = Annotated[RuntimeEntityResolver | None, Depends(get_entity_resolver)]

@@ -25,7 +25,7 @@ TRAE 的目标不是重新设计后端，而是在不破坏硬装的前提下让
 
 `C:\Users\Lenovo\Desktop\顺德地名库交接包`
 
-TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得为了页面演示制造替代数据。当前 Phase 1 没有导入 API；真实导入属于 Phase 2。
+TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得为了页面演示制造替代数据。当前已提供真实 Phase 2 导入 API；Excel 仍只从上述绝对路径读取。
 
 # Phase 1 已稳定的运行合同
 
@@ -34,6 +34,9 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - Gazetteer（只允许 backend adapter 调用）：`http://127.0.0.1:8000`
 - PostgreSQL：`127.0.0.1:5432`
 - Health：`/health/live`、`/health/ready`、`/health/dependencies`
+- Import preview：`POST /imports/preview`（multipart，真实表头预览）
+- Import：`POST /imports`（multipart + mapping JSON；批次幂等、checkpoint 可恢复）
+- Entity resolve：`POST /entities/resolve`（快照优先，剩余 mention 单次批量查询）
 - 当前前端只是 health 工程骨架，不是业务页面完成态。
 - 当前没有生产 mock/fake 数据；测试 fake 只在 `backend/tests`。
 
@@ -57,6 +60,7 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - 不得删除人工纠错与审计信息。
 - 不得隐藏失败/未知状态以制造“全部成功”的观感。
 - 不得把本地模型改成云 API。
+- `partial`、`failed`、`ambiguous`、`unresolved` 必须原样呈现，不能视觉上抹平。
 
 # API 改动规则
 

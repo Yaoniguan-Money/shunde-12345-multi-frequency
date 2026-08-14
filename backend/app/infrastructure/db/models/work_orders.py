@@ -19,6 +19,8 @@ class ImportBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     successful_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     duplicate_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    checkpoint_row: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error_code: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
@@ -48,3 +50,15 @@ class ComplaintSegment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     start_offset: Mapped[int | None] = mapped_column(Integer)
     end_offset: Mapped[int | None] = mapped_column(Integer)
+
+
+class ImportRowError(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "import_row_errors"
+    __table_args__ = (UniqueConstraint("import_batch_id", "source_row_number", "error_code"),)
+
+    import_batch_id: Mapped[UUID] = mapped_column(
+        ForeignKey("import_batches.id", ondelete="CASCADE"), index=True
+    )
+    source_row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    error_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)

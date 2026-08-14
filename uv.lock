@@ -118,6 +118,22 @@ wheels = [
 ]
 
 [[package]]
+name = "fastexcel"
+version = "0.20.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/96/96/24314765a3204081a55ecc96e83dfdbd2ef82aa80a521ac3005b2c91e941/fastexcel-0.20.2.tar.gz", hash = "sha256:a4be10eb0f4dd819d2b36950b3f26bf87260b53e54150ac02b78e524c7063902", size = 60862, upload-time = "2026-05-04T12:28:36.01Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/29/29/acc5b2eb95fb4eaeb3486b6f034f2d9754dcc0cc0b5dbc79b2fa9a31f66b/fastexcel-0.20.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2a240b9f4b6af42cafc247c1b8c956cf32f5393a3956ad0ed49e07b2b5bf0e09", size = 3432179, upload-time = "2026-05-04T12:28:24.611Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3f/2b/f78a2df2d93ec4a23d7fc94ed967bf004d5115e1f4d2da389bb888d2cc32/fastexcel-0.20.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:6c7e58cf83c873743c18006e3866d5c2b69c34df7a4a253a72e81169853ddf0e", size = 3260476, upload-time = "2026-05-04T12:28:26.191Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/36/9c/a8f45e5c195a70a408893b348595bae4c113091dddba7d1b029e9c980b8e/fastexcel-0.20.2-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cdab3cc439c18c4ee14c4ec2b321e1d927cae84f557525f390a3c28517f6e721", size = 3625132, upload-time = "2026-05-04T12:28:12.173Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/b4/01/da0ae9b3ee86daca5ac9f0a7b05477cf0c1624321d95f1e52492a772dba5/fastexcel-0.20.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:15d41bcc4433bb3ab778426ecaeaf3a5f38d949555c631a83e958c57bb0a116e", size = 3789901, upload-time = "2026-05-04T12:28:13.884Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c5/15/80c614c8b07c631c7c2acd015e7f2e1cd683cd04279e5615b39c36a0e43b/fastexcel-0.20.2-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:441f9b7e97b4fd1c9487e5c0a0d9cad7aa4097a39e65fcd494551f5ec3e5d02f", size = 3792388, upload-time = "2026-05-04T12:28:15.448Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c0/80/4548305ce4d70a0ecf38205988e5caeb9347dae7e5d06bcd2b939586fc52/fastexcel-0.20.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:8b15f21baef3e4914071e34f176d8692dd79e3464c10f8373047aab1384cfaae", size = 3960316, upload-time = "2026-05-04T12:28:16.821Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/22/b3/7de6b49406fda63c9fee817d5fc70fe3f52c24431605f1de2f7b0f3a0938/fastexcel-0.20.2-cp310-abi3-win_amd64.whl", hash = "sha256:ce28748390ae6a7d286ba29d8ee2badcfb6478d32ed700db6c2030de32a16e7b", size = 3275637, upload-time = "2026-05-04T12:28:30.45Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d8/3b/c251f38596d630e87280c191f53803e7409e7723e95e53a477f6760c7298/fastexcel-0.20.2-cp310-abi3-win_arm64.whl", hash = "sha256:c3e58f5053bc05b0ee8fa735056cea7af6e1c41c39fc4b2b06cc86c1025d140b", size = 2990952, upload-time = "2026-05-04T12:28:32.434Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.5.5"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -312,6 +328,34 @@ wheels = [
 ]
 
 [[package]]
+name = "polars"
+version = "1.43.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "polars-runtime-32" },
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/89/13/3873f213304bcbaaf39e63c8b905ceb460a0524448d57f86a829f6d4d0fd/polars-1.43.2.tar.gz", hash = "sha256:c699671b99eb71ff53334d237917aaa3db5ad4dda480abcb6c80e0eaee7b677b", size = 750312, upload-time = "2026-08-01T06:28:30.872Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/2b/fe/0888040a24e4504098b85d8ad486b14cb01cf6b030bbe479dfc2dcffc2ac/polars-1.43.2-py3-none-any.whl", hash = "sha256:22aa0cb92a1ee2d60d6a15a638b2e8e0dd99aea21ac0cd8fb29da8e382e075a9", size = 847150, upload-time = "2026-08-01T06:27:15.543Z" },
+]
+
+[[package]]
+name = "polars-runtime-32"
+version = "1.43.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d4/06/11b578eeef05f867e3ee31b2a2fdd8e7684c2aa47822c49935d1be789c38/polars_runtime_32-1.43.2.tar.gz", hash = "sha256:d7b7c486bccee75a6af0158b87077da3d054657e3c60036b28644f4e1c7fdbf7", size = 3095669, upload-time = "2026-08-01T06:28:32.315Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/59/fc/12e6d4ca34d820297651134cfa35f86c33e898539fc6629cbb35d0089697/polars_runtime_32-1.43.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:91abf205d4ec93f92ba95386b7f8776559ae3dfce425ed2e527efa75d117d04a", size = 53088908, upload-time = "2026-08-01T06:27:18.268Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/32/81/833b0853551deb810854f96b43dea342b6e6c9b0ea1afcccf774157d519d/polars_runtime_32-1.43.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:2cc3ff96fd44789b02eb5c15b98dfcb000101636b177d3034fae2feec19b118f", size = 47540529, upload-time = "2026-08-01T06:27:21.391Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/83/55/7b2a75af14c9294d97f3bec132dd3018ddcd988bef32b5d28322150b8c11/polars_runtime_32-1.43.2-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:10ed36e615ab362feb7406e6d084e124b445ad284caa73bd93ae7e65745ed894", size = 51366340, upload-time = "2026-08-01T06:27:24.776Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/62/60/64deacb3abc70c52e2d88a808a052d1621c86a48fe9194f2c065579ab1cd/polars_runtime_32-1.43.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6d5a7ae004a2723ebf4427f6d6a639f30f86af4cf077075f6b35d04711154fc3", size = 57304599, upload-time = "2026-08-01T06:27:27.875Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/52/95/d6e3a236d7630e17c40d0ddee839bf2be9acf548fdc0e5ad65ed9ff0cac6/polars_runtime_32-1.43.2-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:09339eacc6d392206e78aabbaaa37d7276eb969b798f46cb1f367fd718798c60", size = 51520580, upload-time = "2026-08-01T06:27:30.913Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/b6/5a/2deb8eac70e9a2ac26d88a66ae7cf52612865026f4f4a5e7ab11ad9d52bf/polars_runtime_32-1.43.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:452b400e59e7f56e4c6437f435e796903272a9388feee12de2bea049ae87025e", size = 55204471, upload-time = "2026-08-01T06:27:33.886Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/29/9e/647401ae8a607bc0cc40ed7b8592d5b1be90ded0dc9b9d6d3aeb03f9524b/polars_runtime_32-1.43.2-cp310-abi3-win_amd64.whl", hash = "sha256:00e33c28e321410c8d66e814a90043101e3bdd9ed2c6dabda07565aa8adbbdf1", size = 52572176, upload-time = "2026-08-01T06:27:37.048Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/96/8d/60a50c3f36c85218a7ffcb48c6fe2ce1f7bec799152d68b8658ebed2179c/polars_runtime_32-1.43.2-cp310-abi3-win_arm64.whl", hash = "sha256:350a4868cae85bf8b3f81b33ba47927c15256bd9264dfc8c0753f1b927eac9d3", size = 46582513, upload-time = "2026-08-01T06:27:40.025Z" },
+]
+
+[[package]]
 name = "pydantic"
 version = "2.13.4"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -446,6 +490,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-multipart"
+version = "0.0.32"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -506,9 +559,12 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "fastapi" },
+    { name = "fastexcel" },
     { name = "httpx" },
     { name = "pgvector" },
+    { name = "polars" },
     { name = "pydantic-settings" },
+    { name = "python-multipart" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
@@ -527,9 +583,12 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.16,<2" },
     { name = "asyncpg", specifier = ">=0.30,<1" },
     { name = "fastapi", specifier = ">=0.116,<1" },
+    { name = "fastexcel", specifier = ">=0.17,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pgvector", specifier = ">=0.4,<1" },
+    { name = "polars", specifier = ">=1.35,<2" },
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
+    { name = "python-multipart", specifier = ">=0.0.20,<1" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.41,<3" },
     { name = "structlog", specifier = ">=25.4,<26" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1" },

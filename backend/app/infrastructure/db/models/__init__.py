@@ -22,6 +22,7 @@ from backend.app.infrastructure.db.models.events import (
 from backend.app.infrastructure.db.models.work_orders import (
     ComplaintSegment,
     ImportBatch,
+    ImportRowError,
     WorkOrder,
 )
 
@@ -42,6 +43,7 @@ __all__ = [
     "EventMatchEdge",
     "HumanCorrection",
     "ImportBatch",
+    "ImportRowError",
     "KnowledgeSnapshot",
     "WorkOrder",
     "WorkOrderEmbedding",
