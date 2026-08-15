@@ -1,12 +1,22 @@
-export type Liveness = { status: "alive" };
+import { apiRequest } from "./client";
+import type {
+  DependenciesResponse,
+  LivenessResponse,
+  ReadinessResponse,
+} from "../types/api";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8080";
+export type { DependenciesResponse, LivenessResponse, ReadinessResponse };
 
-export async function fetchLiveness(signal?: AbortSignal): Promise<Liveness> {
-  const response = await fetch(`${apiBaseUrl}/health/live`, { signal });
-  if (!response.ok) {
-    throw new Error(`Backend health check failed with ${response.status}`);
-  }
-  return (await response.json()) as Liveness;
+export function fetchLiveness(signal?: AbortSignal): Promise<LivenessResponse> {
+  return apiRequest<LivenessResponse>("/health/live", { signal });
 }
 
+export function fetchReadiness(signal?: AbortSignal): Promise<ReadinessResponse> {
+  return apiRequest<ReadinessResponse>("/health/ready", { signal });
+}
+
+export function fetchDependencies(
+  signal?: AbortSignal,
+): Promise<DependenciesResponse> {
+  return apiRequest<DependenciesResponse>("/health/dependencies", { signal });
+}
