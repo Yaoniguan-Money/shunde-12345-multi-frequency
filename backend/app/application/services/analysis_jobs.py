@@ -11,7 +11,11 @@ from backend.app.application.services.analysis import (
     DemoAnalysisOrchestrator,
 )
 from backend.app.config import Settings
-from backend.app.domain.analysis_jobs import AnalysisJobView, UnderstandingRepository
+from backend.app.domain.analysis_jobs import (
+    AnalysisJobState,
+    AnalysisJobView,
+    UnderstandingRepository,
+)
 from backend.app.domain.types import ProviderMode
 from backend.app.infrastructure.ai.config import build_provider_plan
 from backend.app.infrastructure.db.analysis import SQLAlchemyUnderstandingRepository
@@ -82,22 +86,41 @@ class AnalysisJobService:
             total_rows=batch.total_rows,
             selected_rows=len(sources),
             selection_mode=selection_mode,
+            batch_id=batch_id,
+            max_work_orders=max_work_orders,
         )
         view = await self._repository.get_job_view(state.job_id)
         if view is None:
             raise LookupError(f"analysis job not found after creation: {state.job_id}")
-        if view.status != "completed" and state.job_id not in self._tasks:
-            self._tasks[state.job_id] = asyncio.create_task(
-                self._execute(
-                    state.job_id,
-                    state.run_id,
-                    batch_id,
-                    max_work_orders,
-                    selection_mode,
-                    idempotency_key,
-                )
+        if view.status != "completed":
+            self._schedule(
+                state,
+                batch_id,
+                max_work_orders,
+                selection_mode,
+                idempotency_key,
             )
         return view
+
+    async def resume_incomplete(self) -> int:
+        resumable = await self._repository.list_resumable_jobs()
+        for item in resumable:
+            self._schedule(
+                AnalysisJobState(
+                    item.job_id,
+                    item.run_id,
+                    item.checkpoint_source_row,
+                    "queued",
+                    item.rows_processed,
+                    item.events_extracted,
+                    item.embeddings_written,
+                ),
+                item.batch_id,
+                item.max_work_orders,
+                item.selection_mode,
+                item.idempotency_key,
+            )
+        return len(resumable)
 
     async def get(self, job_id: UUID) -> AnalysisJobView | None:
         return await self._repository.get_job_view(job_id)
@@ -116,22 +139,45 @@ class AnalysisJobService:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
 
-    async def _execute(
+    def _schedule(
         self,
-        job_id: UUID,
-        run_id: UUID,
+        state: AnalysisJobState,
         batch_id: UUID,
         max_work_orders: int,
         selection_mode: str,
         idempotency_key: str,
     ) -> None:
+        if state.job_id in self._tasks:
+            return
+        self._tasks[state.job_id] = asyncio.create_task(
+            self._execute(
+                state,
+                batch_id,
+                max_work_orders,
+                selection_mode,
+                idempotency_key,
+            )
+        )
+
+    async def _execute(
+        self,
+        state: AnalysisJobState,
+        batch_id: UUID,
+        max_work_orders: int,
+        selection_mode: str,
+        idempotency_key: str,
+    ) -> None:
+        job_id = state.job_id
+        run_id = state.run_id
         try:
+            await self._repository.mark_running(job_id, run_id, "understanding")
             orchestrator = await self._orchestrator_factory()
             execution = await orchestrator.run_import_batch(
                 batch_id,
                 max_work_orders,
                 idempotency_key=idempotency_key,
                 selection_mode=selection_mode,
+                analysis_state=state,
             )
             await self._repository.finish(
                 job_id,
@@ -144,6 +190,9 @@ class AnalysisJobService:
                     "embeddings_written": execution.embeddings_written,
                 },
             )
+        except asyncio.CancelledError:
+            await self._repository.requeue_interrupted(job_id, run_id, "service_shutdown")
+            raise
         except Exception as error:
             await self._repository.fail(job_id, run_id, "analysis_failed", str(error))
         finally:

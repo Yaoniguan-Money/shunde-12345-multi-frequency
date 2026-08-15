@@ -10,6 +10,15 @@ from backend.app.schemas.catalog import TraceResponse
 
 AnalysisJobStatus = Literal["queued", "running", "completed", "failed"]
 AnalysisSelectionMode = Literal["sequential", "recurrence_candidates"]
+AnalysisJobStage = Literal[
+    "queued",
+    "understanding",
+    "embedding",
+    "retrieval",
+    "matching",
+    "clustering",
+    "completed",
+]
 
 
 class AnalysisJobCreate(BaseModel):
@@ -21,6 +30,7 @@ class AnalysisJobCreate(BaseModel):
 class AnalysisJobResponse(BaseModel):
     job_id: UUID
     status: AnalysisJobStatus
+    current_stage: AnalysisJobStage
     total_rows: int
     selected_rows: int
     processed_rows: int

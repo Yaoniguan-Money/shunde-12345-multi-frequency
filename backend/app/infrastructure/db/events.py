@@ -208,6 +208,17 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
             ).all()
             return tuple(_edge_record(row) for row in rows)
 
+    async def list_match_edges(self, run_id: UUID) -> tuple[EventMatchEdgeRecord, ...]:
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    select(EventMatchEdge)
+                    .where(EventMatchEdge.analysis_run_id == run_id)
+                    .order_by(EventMatchEdge.created_at, EventMatchEdge.id)
+                )
+            ).all()
+            return tuple(_edge_record(row) for row in rows)
+
     async def save_cluster(
         self,
         run_id: UUID,
@@ -280,9 +291,14 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                 run = await session.get(AnalysisRun, run_id)
                 if run is None:
                     raise LookupError(f"analysis run not found: {run_id}")
+                job = await session.get(AnalysisJob, run.analysis_job_id)
+                if job is None:
+                    raise LookupError(f"analysis job not found for run: {run_id}")
                 run.status = "completed"
                 run.completed_at = datetime.now(UTC)
                 run.metrics = {**(run.metrics or {}), **metrics}
+                job.status = "completed"
+                job.current_stage = "completed"
 
 
 def _is_uuid(value: object) -> bool:

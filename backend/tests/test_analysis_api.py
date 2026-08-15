@@ -36,6 +36,7 @@ class _AnalysisFixture:
                 provider="remote-openai-compatible",
             ),
             selection_mode="recurrence_candidates",
+            current_stage="completed" if status == "completed" else "matching",
         )
 
     async def submit(self, batch_id, max_work_orders, selection_mode="sequential"):
@@ -78,6 +79,7 @@ async def test_analysis_job_api_exposes_bounded_progress_and_trace() -> None:
     assert created.json()["event_count"] == 4
     assert created.json()["match_edge_count"] == 2
     assert created.json()["cluster_count"] == 1
+    assert created.json()["current_stage"] == "completed"
     assert created.json()["trace"]["model_id"] == "qwen-plus"
     assert progress.status_code == 200
     assert fixture.last_request == (fixture.batch_id, 3, "recurrence_candidates")

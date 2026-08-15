@@ -29,6 +29,9 @@ class AnalysisJobState:
     run_id: UUID
     checkpoint_source_row: int
     status: str
+    rows_processed: int = 0
+    events_extracted: int = 0
+    embeddings_written: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +57,21 @@ class AnalysisJobView:
     error: str | None
     trace: VersionTrace | None
     selection_mode: str = "sequential"
+    current_stage: str = "queued"
+
+
+@dataclass(frozen=True, slots=True)
+class ResumableAnalysisJob:
+    job_id: UUID
+    run_id: UUID
+    batch_id: UUID
+    max_work_orders: int
+    selection_mode: str
+    idempotency_key: str
+    checkpoint_source_row: int
+    rows_processed: int
+    events_extracted: int
+    embeddings_written: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +96,21 @@ class UnderstandingRepository(Protocol):
         total_rows: int,
         selected_rows: int,
         selection_mode: str,
+        batch_id: UUID,
+        max_work_orders: int,
     ) -> AnalysisJobState: ...
 
     async def get_job_view(self, job_id: UUID) -> AnalysisJobView | None: ...
+
+    async def list_resumable_jobs(self) -> tuple[ResumableAnalysisJob, ...]: ...
+
+    async def mark_running(self, job_id: UUID, run_id: UUID, stage: str) -> None: ...
+
+    async def update_progress(
+        self, job_id: UUID, run_id: UUID, stage: str, metrics: dict[str, object]
+    ) -> None: ...
+
+    async def requeue_interrupted(self, job_id: UUID, run_id: UUID, reason: str) -> None: ...
 
     async def select_work_orders(
         self, batch_id: UUID, limit: int, selection_mode: str

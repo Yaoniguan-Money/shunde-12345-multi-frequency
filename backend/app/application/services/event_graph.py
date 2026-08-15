@@ -1,6 +1,7 @@
 """Candidate retrieval, remote SameEvent decisions and consistent clusters."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -21,6 +22,9 @@ class EventGraphRunResult:
     run_id: UUID
     decisions: tuple[EventMatchEdgeRecord, ...]
     cluster_ids: tuple[UUID, ...]
+
+
+EventGraphProgress = Callable[[str, dict[str, object]], Awaitable[None]]
 
 
 class EventGraphService:
@@ -49,7 +53,9 @@ class EventGraphService:
         self,
         event_ids: tuple[EventInstanceId, ...],
         *,
+        run_id: UUID,
         candidate_limit: int = 10,
+        progress: EventGraphProgress | None = None,
     ) -> EventGraphRunResult:
         if not event_ids:
             raise ValueError("at least one event is required")
@@ -67,11 +73,13 @@ class EventGraphService:
         events = tuple(loaded_events)
         events_by_id = {event.event_id: event for event in events}
         selected_ids = {event.event_id for event in events}
-        _job_id, run_id = await self._graph.start_run(
-            pipeline_version=self._pipeline_version,
-            schema_version=self._schema_version,
-        )
-        decisions: list[EventMatchEdgeRecord] = []
+        if progress is not None:
+            await progress("retrieval", {"event_count": len(events)})
+        existing_decisions = await self._graph.list_match_edges(run_id)
+        existing_pairs = {
+            tuple(sorted((edge.left_event_id, edge.right_event_id), key=str))
+            for edge in existing_decisions
+        }
         seen_pairs: set[tuple[EventInstanceId, EventInstanceId]] = set()
         retrieval_semaphore = asyncio.Semaphore(self._concurrency)
 
@@ -108,7 +116,18 @@ class EventGraphService:
                 if pair in seen_pairs:
                     continue
                 seen_pairs.add(pair)
+                if pair in existing_pairs:
+                    continue
                 pairs.append(pair)
+
+        if progress is not None:
+            await progress(
+                "matching",
+                {
+                    "candidate_pair_count": len(seen_pairs),
+                    "match_edge_count": len(existing_decisions),
+                },
+            )
 
         match_semaphore = asyncio.Semaphore(self._concurrency)
 
@@ -117,15 +136,33 @@ class EventGraphService:
         ) -> EventMatchEdgeRecord:
             async with match_semaphore:
                 decision = await self._matcher.match(pair[0], pair[1])
-                return _edge(pair[0], pair[1], decision)
+                edge = _edge(pair[0], pair[1], decision)
+                await self._graph.save_match_edge(
+                    run_id,
+                    edge,
+                    pipeline_version=self._pipeline_version,
+                    schema_version=self._schema_version,
+                )
+                return edge
 
-        decisions.extend(await asyncio.gather(*(match(pair) for pair in pairs)))
-        for edge in decisions:
-            await self._graph.save_match_edge(
-                run_id,
-                edge,
-                pipeline_version=self._pipeline_version,
-                schema_version=self._schema_version,
+        if pairs:
+            tasks = [asyncio.create_task(match(pair)) for pair in pairs]
+            try:
+                await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+        decisions = list(await self._graph.list_match_edges(run_id))
+        if progress is not None:
+            await progress(
+                "clustering",
+                {
+                    "candidate_pair_count": len(seen_pairs),
+                    "match_edge_count": len(decisions),
+                },
             )
         positive = tuple(edge for edge in decisions if edge.same_event)
         proposals = EventClusterBuilder().build(events, positive)
@@ -161,15 +198,6 @@ class EventGraphService:
                     schema_version=self._schema_version,
                 )
             )
-        await self._graph.finish_run(
-            run_id,
-            {
-                "events": len(events),
-                "candidate_pairs": len(decisions),
-                "positive_edges": len(positive),
-                "clusters": len(cluster_ids),
-            },
-        )
         return EventGraphRunResult(run_id, tuple(decisions), tuple(cluster_ids))
 
 

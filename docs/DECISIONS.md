@@ -136,3 +136,16 @@ counts. Human `review_status` is independent of `handling_status`. Removing a
 member may make a cluster inactive in the multi-frequency list, but direct detail
 access, corrections and handling history remain available so the operator can
 undo the decision. Reruns do not silently restore human-removed membership.
+
+# ADR-017: One bounded analysis owns one durable lifecycle
+Status: accepted
+
+The HTTP analysis job is the terminal owner of understanding, embedding,
+retrieval, SameEvent matching and clustering. Sub-pipelines receive the existing
+`AnalysisJob`/`AnalysisRun`; they may checkpoint progress but cannot create a
+hidden graph job or mark the outer job complete. SameEvent edges are persisted
+as each remote decision completes and retries skip pairs already stored for the
+same run. Request bounds and cumulative progress live in the existing run JSONB
+metrics so queued/running work can be reconstructed after process restart
+without a schema migration. Only the outer application service writes completed
+or failed, preventing the UI from observing completed before graph persistence.

@@ -167,7 +167,7 @@ $job = Invoke-RestMethod -Method Post -Uri "$base/analysis-jobs" `
 do {
   Start-Sleep -Seconds 2
   $progress = Invoke-RestMethod "$base/analysis-jobs/$($job.job_id)"
-  $progress | Select-Object status,total_rows,selected_rows,processed_rows,event_count,match_edge_count,cluster_count,error
+  $progress | Select-Object status,current_stage,total_rows,selected_rows,processed_rows,event_count,match_edge_count,cluster_count,error
 } while ($progress.status -in @('queued','running'))
 ```
 
@@ -178,6 +178,13 @@ provider/model/config hash/schema/pipeline，不含 API key。后台链路复用
 embedding、pgvector candidate retrieval、`RemoteSameEventMatcher` 和
 `EventGraphService`。上限是硬门禁，省略 `max_work_orders` 或填写大于 300 会被拒绝，不能误触
 128,278 条全量公网推理；remote 失败必须显示 `failed`，不得伪装 `completed`。
+
+一次 HTTP 研判从 understanding 到 clustering 只使用一个 `AnalysisJob/AnalysisRun`。
+`current_stage` 依次为 `queued / understanding / embedding / retrieval / matching /
+clustering / completed`；只有聚类阶段返回后才允许 `status=completed`。匹配边完成一条即
+写入当前 run，进程重启会恢复 queued/running 任务并跳过已持久化 pair。正常停机将任务
+重新排队，不会留下无人执行的 `running` 状态。`cluster_count=0` 只有在完整 SameEvent
+流程确实没有 positive edge 时才是合法结果。
 
 只验证确定性选择、不调用 AI：
 

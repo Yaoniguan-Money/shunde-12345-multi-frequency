@@ -108,3 +108,41 @@ async def test_indexing_pipeline_never_reads_past_bounded_selection() -> None:
     assert summary.rows_processed == 3
     assert repository.limits == [(2, 3), (1, 3)]
     assert repository.checkpoints == [2, 3]
+
+
+@pytest.mark.asyncio
+async def test_composed_indexing_preserves_cumulative_progress_without_finishing_job() -> None:
+    repository = _BoundedRepository()
+    pipeline = UnderstandingAndIndexingPipeline(
+        repository,
+        _Understanding(),
+        _Embedding(),
+        pipeline_version="understanding.v2",
+        schema_version="understanding.v2",
+        model_id="qwen-plus",
+        embedding_model_id="qwen3.7-text-embedding",
+        chunk_size=2,
+    )
+    state = AnalysisJobState(
+        uuid4(),
+        uuid4(),
+        5,
+        "running",
+        rows_processed=5,
+        events_extracted=7,
+        embeddings_written=7,
+    )
+
+    summary = await pipeline.run(
+        uuid4(),
+        total_rows=100,
+        max_rows=5,
+        analysis_state=state,
+        manage_job_lifecycle=False,
+    )
+
+    assert summary.status == "indexed"
+    assert summary.rows_processed == 5
+    assert summary.events_extracted == 7
+    assert summary.embeddings_written == 7
+    assert repository.limits == []

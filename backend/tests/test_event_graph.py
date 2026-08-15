@@ -143,6 +143,9 @@ async def test_event_graph_never_matches_events_from_the_same_work_order() -> No
             raise AssertionError("same-work-order events must not reach SameEventMatcher")
 
     class Graph:
+        async def list_match_edges(self, _run_id):
+            return ()
+
         async def start_run(self, **_kwargs):
             return uuid4(), uuid4()
 
@@ -156,11 +159,137 @@ async def test_event_graph_never_matches_events_from_the_same_work_order() -> No
             return None
 
     result = await EventGraphService(Events(), Graph(), Retriever(), Matcher()).run(
-        (left.event_id, right.event_id)
+        (left.event_id, right.event_id), run_id=uuid4()
     )
 
     assert result.decisions == ()
     assert result.cluster_ids == ()
+
+
+@pytest.mark.asyncio
+async def test_event_graph_uses_the_callers_analysis_run() -> None:
+    """The HTTP analysis lifecycle must not fork a hidden event_graph job/run."""
+    entity = EntityId(uuid4())
+    left = _event(
+        event_id=EventInstanceId(uuid4()),
+        entity=entity,
+        location="同一地点",
+        summary="商铺夜间施工噪声",
+    )
+    right = _event(
+        event_id=EventInstanceId(uuid4()),
+        entity=entity,
+        location="同一地点",
+        summary="再次反映该商铺深夜施工扰民",
+    )
+    run_id = uuid4()
+
+    class Events:
+        async def get_for_matching(self, event_id):
+            return {left.event_id: left, right.event_id: right}[event_id]
+
+    class Retriever:
+        async def retrieve(self, query):
+            other = right.event_id if query.event_id == left.event_id else left.event_id
+            return (EventCandidate(other, 0.99),)
+
+    class Matcher:
+        async def match(self, _left_event_id, _right_event_id):
+            return SameEventDecision(
+                True,
+                0.95,
+                SameEventEvidence(True, True, True, True),
+                _remote_trace(),
+            )
+
+    class Graph:
+        def __init__(self) -> None:
+            self.saved_edges: list[tuple[object, EventMatchEdgeRecord]] = []
+
+        async def start_run(self, **_kwargs):
+            raise AssertionError("EventGraphService must not create a second analysis run")
+
+        async def list_match_edges(self, requested_run_id):
+            assert requested_run_id == run_id
+            return tuple(edge for _, edge in self.saved_edges)
+
+        async def save_match_edge(self, requested_run_id, edge, **_kwargs):
+            self.saved_edges.append((requested_run_id, edge))
+
+        async def save_cluster(self, requested_run_id, *_args, **_kwargs):
+            assert requested_run_id == run_id
+            return uuid4()
+
+        async def finish_run(self, _run_id, _metrics):
+            raise AssertionError("the outer analysis service owns terminal status")
+
+    graph = Graph()
+    result = await EventGraphService(Events(), graph, Retriever(), Matcher()).run(
+        (left.event_id, right.event_id), run_id=run_id
+    )
+
+    assert result.run_id == run_id
+    assert len(result.decisions) == 1
+    assert graph.saved_edges[0][0] == run_id
+    assert len(result.cluster_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_event_graph_resume_skips_match_edges_already_persisted_for_run() -> None:
+    entity = EntityId(uuid4())
+    left = _event(
+        event_id=EventInstanceId(uuid4()),
+        entity=entity,
+        location="同一地点",
+        summary="商铺夜间施工噪声",
+    )
+    right = _event(
+        event_id=EventInstanceId(uuid4()),
+        entity=entity,
+        location="同一地点",
+        summary="再次反映该商铺施工扰民",
+    )
+    run_id = uuid4()
+    persisted = EventMatchEdgeRecord(
+        left.event_id,
+        right.event_id,
+        True,
+        0.95,
+        SameEventEvidence(True, True, True, True),
+        _remote_trace(),
+    )
+
+    class Events:
+        async def get_for_matching(self, event_id):
+            return {left.event_id: left, right.event_id: right}[event_id]
+
+    class Retriever:
+        async def retrieve(self, query):
+            other = right.event_id if query.event_id == left.event_id else left.event_id
+            return (EventCandidate(other, 0.99),)
+
+    class Matcher:
+        async def match(self, *_args):
+            raise AssertionError("a resumed run must not repeat a persisted remote decision")
+
+    class Graph:
+        async def list_match_edges(self, requested_run_id):
+            assert requested_run_id == run_id
+            return (persisted,)
+
+        async def save_match_edge(self, *_args, **_kwargs):
+            raise AssertionError("persisted edge must not be inserted again")
+
+        async def save_cluster(self, requested_run_id, *_args, **_kwargs):
+            assert requested_run_id == run_id
+            return uuid4()
+
+    result = await EventGraphService(Events(), Graph(), Retriever(), Matcher()).run(
+        (left.event_id, right.event_id), run_id=run_id
+    )
+
+    assert result.decisions == (persisted,)
+    assert len(result.cluster_ids) == 1
 
 
 @pytest.mark.asyncio
@@ -212,11 +341,17 @@ async def test_event_graph_uses_bounded_concurrency_for_remote_work() -> None:
             )
 
     class Graph:
+        def __init__(self) -> None:
+            self.edges = []
+
+        async def list_match_edges(self, _run_id):
+            return tuple(self.edges)
+
         async def start_run(self, **_kwargs):
             return uuid4(), uuid4()
 
-        async def save_match_edge(self, *_args, **_kwargs):
-            return None
+        async def save_match_edge(self, _run_id, edge, **_kwargs):
+            self.edges.append(edge)
 
         async def save_cluster(self, *_args, **_kwargs):
             raise AssertionError("negative decisions must not create a cluster")
@@ -227,7 +362,7 @@ async def test_event_graph_uses_bounded_concurrency_for_remote_work() -> None:
     retriever = Retriever()
     matcher = Matcher()
     result = await EventGraphService(Events(), Graph(), retriever, matcher, concurrency=4).run(
-        tuple(event.event_id for event in events)
+        tuple(event.event_id for event in events), run_id=uuid4()
     )
 
     assert len(result.decisions) == 4

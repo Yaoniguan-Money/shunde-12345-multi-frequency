@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import or_, select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -10,6 +10,7 @@ from backend.app.domain.analysis_jobs import (
     AnalysisJobState,
     AnalysisJobView,
     PersistedEvent,
+    ResumableAnalysisJob,
     UnderstandingRecord,
     UnderstandingRepository,
     WorkOrderSource,
@@ -23,7 +24,9 @@ from backend.app.infrastructure.db.models import (
     ComplaintSegment,
     EntityAliasRuntime,
     EntityMention,
+    EventClusterMember,
     EventInstance,
+    EventMatchEdge,
     ImportBatch,
     KnowledgeSnapshot,
     WorkOrder,
@@ -106,6 +109,8 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
         total_rows: int,
         selected_rows: int,
         selection_mode: str,
+        batch_id: UUID,
+        max_work_orders: int,
     ) -> AnalysisJobState:
         metrics = {
             "total_rows": total_rows,
@@ -115,6 +120,8 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
             "match_edge_count": 0,
             "cluster_count": 0,
             "selection_mode": selection_mode,
+            "import_batch_id": str(batch_id),
+            "max_work_orders": max_work_orders,
         }
         async with self._session_factory() as session:
             async with session.begin():
@@ -179,12 +186,25 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     job.error_code = None
                     job.error_metadata = None
                     run.status = "queued"
-                    run.metrics = {**(run.metrics or {}), **metrics}
+                    existing_metrics = run.metrics or {}
+                    run.metrics = {
+                        **existing_metrics,
+                        "total_rows": total_rows,
+                        "selected_rows": selected_rows,
+                        "selection_mode": selection_mode,
+                        "import_batch_id": str(batch_id),
+                        "max_work_orders": max_work_orders,
+                    }
+                    run.completed_at = None
+                current_metrics = run.metrics or {}
                 return AnalysisJobState(
                     job.id,
                     run.id,
                     self._checkpoint(job.checkpoint_cursor),
                     job.status,
+                    self._metric_int(current_metrics, "rows_processed", "processed_rows"),
+                    self._metric_int(current_metrics, "events_extracted", "event_count"),
+                    self._metric_int(current_metrics, "embeddings_written", "embeddings_persisted"),
                 )
 
     async def get_job_view(self, job_id: UUID) -> AnalysisJobView | None:
@@ -212,8 +232,19 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     error=self._error_message(job.error_metadata),
                     trace=None,
                     selection_mode="sequential",
+                    current_stage=job.current_stage or "queued",
                 )
             metrics = run.metrics or {}
+            persisted_edge_count = await session.scalar(
+                select(func.count(EventMatchEdge.id)).where(
+                    EventMatchEdge.analysis_run_id == run.id
+                )
+            )
+            persisted_cluster_count = await session.scalar(
+                select(func.count(distinct(EventClusterMember.event_cluster_id))).where(
+                    EventClusterMember.analysis_run_id == run.id
+                )
+            )
             return AnalysisJobView(
                 job_id=job.id,
                 status=job.status,
@@ -221,8 +252,12 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 selected_rows=self._metric_int(metrics, "selected_rows"),
                 processed_rows=self._metric_int(metrics, "processed_rows", "rows_processed"),
                 event_count=self._metric_int(metrics, "event_count", "events_extracted"),
-                match_edge_count=self._metric_int(metrics, "match_edge_count"),
-                cluster_count=self._metric_int(metrics, "cluster_count"),
+                match_edge_count=max(
+                    self._metric_int(metrics, "match_edge_count"), persisted_edge_count or 0
+                ),
+                cluster_count=max(
+                    self._metric_int(metrics, "cluster_count"), persisted_cluster_count or 0
+                ),
                 started_at=run.created_at,
                 finished_at=run.completed_at,
                 error=self._error_message(job.error_metadata),
@@ -235,7 +270,98 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     provider=run.provider,
                 ),
                 selection_mode=self._metric_str(metrics, "selection_mode", "sequential"),
+                current_stage=job.current_stage or "queued",
             )
+
+    async def list_resumable_jobs(self) -> tuple[ResumableAnalysisJob, ...]:
+        resumable: list[ResumableAnalysisJob] = []
+        async with self._session_factory() as session:
+            jobs = (
+                await session.scalars(
+                    select(AnalysisJob)
+                    .where(
+                        AnalysisJob.job_type == "demo_analysis",
+                        AnalysisJob.status.in_(("queued", "running")),
+                    )
+                    .order_by(AnalysisJob.created_at)
+                )
+            ).all()
+            for job in jobs:
+                run = await session.scalar(
+                    select(AnalysisRun)
+                    .where(AnalysisRun.analysis_job_id == job.id)
+                    .order_by(AnalysisRun.run_number.desc())
+                )
+                if run is None:
+                    continue
+                metrics = run.metrics or {}
+                raw_batch_id = metrics.get("import_batch_id")
+                max_work_orders = metrics.get("max_work_orders")
+                selection_mode = metrics.get("selection_mode")
+                try:
+                    batch_id = UUID(str(raw_batch_id))
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(max_work_orders, int) or not isinstance(selection_mode, str):
+                    continue
+                resumable.append(
+                    ResumableAnalysisJob(
+                        job.id,
+                        run.id,
+                        batch_id,
+                        max_work_orders,
+                        selection_mode,
+                        job.idempotency_key,
+                        self._checkpoint(job.checkpoint_cursor),
+                        self._metric_int(metrics, "rows_processed", "processed_rows"),
+                        self._metric_int(metrics, "events_extracted", "event_count"),
+                        self._metric_int(metrics, "embeddings_written", "embeddings_persisted"),
+                    )
+                )
+        return tuple(resumable)
+
+    async def mark_running(self, job_id: UUID, run_id: UUID, stage: str) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                job = await session.get(AnalysisJob, job_id)
+                run = await session.get(AnalysisRun, run_id)
+                if job is None or run is None:
+                    raise LookupError("analysis job or run not found")
+                job.status = "running"
+                job.current_stage = stage
+                job.attempts += 1
+                job.error_code = None
+                job.error_metadata = None
+                run.status = "running"
+                run.completed_at = None
+
+    async def update_progress(
+        self, job_id: UUID, run_id: UUID, stage: str, metrics: dict[str, object]
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                job = await session.get(AnalysisJob, job_id)
+                run = await session.get(AnalysisRun, run_id)
+                if job is None or run is None:
+                    raise LookupError("analysis job or run not found")
+                job.current_stage = stage
+                run.metrics = {**(run.metrics or {}), **metrics}
+
+    async def requeue_interrupted(self, job_id: UUID, run_id: UUID, reason: str) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                job = await session.get(AnalysisJob, job_id)
+                run = await session.get(AnalysisRun, run_id)
+                if job is None or run is None:
+                    return
+                if job.status == "completed":
+                    return
+                job.status = "queued"
+                job.current_stage = "queued"
+                job.locked_by = None
+                job.locked_at = None
+                run.status = "queued"
+                run.metrics = {**(run.metrics or {}), "last_interruption": reason}
 
     async def select_work_orders(
         self, batch_id: UUID, limit: int, selection_mode: str
@@ -290,7 +416,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         job_type="understanding_and_embedding",
                         status="running",
                         pipeline_version=pipeline_version,
-                        current_stage="segment",
+                        current_stage="understanding",
                         checkpoint_cursor="0",
                         attempts=1,
                         max_attempts=3,
@@ -333,9 +459,18 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 checkpoint = self._checkpoint(job.checkpoint_cursor)
                 if job.status != "completed":
                     job.status = "running"
-                    job.current_stage = "segment"
+                    job.current_stage = "understanding"
                     run.status = "running"
-                return AnalysisJobState(job.id, run.id, checkpoint, job.status)
+                metrics = run.metrics or {}
+                return AnalysisJobState(
+                    job.id,
+                    run.id,
+                    checkpoint,
+                    job.status,
+                    self._metric_int(metrics, "rows_processed", "processed_rows"),
+                    self._metric_int(metrics, "events_extracted", "event_count"),
+                    self._metric_int(metrics, "embeddings_written", "embeddings_persisted"),
+                )
 
     async def load_work_orders(
         self,
@@ -667,7 +802,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 if job is None or run is None:
                     raise LookupError("analysis job or run not found")
                 job.checkpoint_cursor = str(source_row)
-                job.current_stage = "embed"
+                job.current_stage = "embedding"
                 run.metrics = {**(run.metrics or {}), **metrics}
 
     async def finish(self, job_id: UUID, run_id: UUID, metrics: dict[str, object]) -> None:

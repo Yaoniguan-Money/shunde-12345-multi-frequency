@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { ImportsPage } from "./ImportsPage";
@@ -48,6 +49,7 @@ const TRACE = {
 const JOB_QUEUED = {
   job_id: "job-uuid-queued",
   status: "queued",
+  current_stage: "queued",
   total_rows: 100,
   selected_rows: 50,
   processed_rows: 0,
@@ -63,6 +65,7 @@ const JOB_QUEUED = {
 const JOB_RUNNING = {
   ...JOB_QUEUED,
   status: "running",
+  current_stage: "matching",
   processed_rows: 25,
   started_at: "2026-08-15T01:00:00Z",
 };
@@ -70,6 +73,7 @@ const JOB_RUNNING = {
 const JOB_COMPLETED = {
   ...JOB_QUEUED,
   status: "completed",
+  current_stage: "completed",
   processed_rows: 50,
   event_count: 48,
   match_edge_count: 12,
@@ -100,13 +104,18 @@ interface RenderOptions {
 }
 
 function renderPage({ initialPath = "/imports" }: RenderOptions = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        <Route path="/imports" element={<ImportsPage />} />
-        <Route path="/events" element={<div>EVENTS_PAGE_STUB</div>} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/imports" element={<ImportsPage />} />
+          <Route path="/events" element={<div>EVENTS_PAGE_STUB</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -419,6 +428,9 @@ describe("ImportsPage - analysis stage", () => {
     );
 
     expect(getCount).toBeGreaterThanOrEqual(2);
+    expect(
+      within(screen.getByTestId("analysis-job")).getByText("完整研判完成"),
+    ).toBeInTheDocument();
 
     // 完成后展示 CTA
     expect(

@@ -36,7 +36,7 @@
 
 当前验收数据集：`C:\Users\Lenovo\Desktop\顺德12345热线精选工单数据集（含重复工单）.xlsx`（100 条精选工单；原 128,278 条政府全量 Excel 保留为归档参考，不作为当前验收库）。
 
-2026-08-15 验收环境已重置：旧导入、AI 派生结果、cluster、analysis job、人工纠错、处理记录和审计记录清空；数据库结构及地名知识快照保留。精选数据重新导入 100/100，无失败。当前服务：backend `http://127.0.0.1:8080`、frontend `http://127.0.0.1:5173`，ready/live 均通过。
+2026-08-15 最终验收环境已再次重置：导入批次、工单、AI 派生结果、cluster、analysis job/run、人工纠错、处理记录和审计记录均为 0；数据库结构、地名知识快照和桌面原始 Excel 保留。8000 地名 OpenAPI、8080 backend ready/live、5173 frontend 均已重启并返回成功，等待操作者亲自重新导入精选 100 条并启动 AI 研判。
 
 | 项目 | 实测结果 |
 |---|---|
@@ -333,3 +333,18 @@ pnpm --dir frontend build                    PASS — Vite 8.2.1
 selection_smoke.py --limit 100               PASS — deterministic only, no AI
 repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/unknown=16/16
 ```
+
+## Analysis job / event graph 生命周期一致性修复（2026-08-15）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| 单一 job/run | DONE | HTTP understanding、embedding、retrieval、SameEvent、cluster 复用同一 `AnalysisJob/AnalysisRun`；`EventGraphService` 不再隐式创建 `event_graph` job |
+| 终态一致性 | DONE | indexing 只 checkpoint；只有完整 graph 返回后外层 service 才写 `completed`，graph 异常写 `failed` |
+| restart/resume | DONE | metrics 保存 batch/limit/selection 和累计进度；启动恢复 queued/running，正常停机重新排队；已持久化 SameEvent pair 不重复调用云端 |
+| 增量持久化 | DONE | SameEvent decision 完成一条即写一条；API 从同一 run 实时统计 edge/cluster，不再等全批结束后一次落库 |
+| HTTP/UI contract | DONE | `GET /analysis-jobs/{id}` 增加 `current_stage`；前端 matching/clustering 期间继续轮询，完整 completed 后失效 cluster 列表缓存 |
+| 回归门禁 | DONE | 原数据库复现为 `RED: outer completed while graph is running and cluster_count=0`；修复后 backend 48 tests、frontend 28 tests、Ruff/format/Pyright/lint/build 和 `scripts/check.ps1` 全通过 |
+| 验收数据清理 | DONE | 精确删除 batch `42b89baa-fa13-4f60-b526-ab3fc17dd1f5`、2 个错误生命周期 job 及全部派生记录；最终 import/work order/event/embedding/edge/cluster/job/run/handling/correction/audit 均为 0 |
+
+本轮没有重新发送 100 条政务工单到云端。数据库清理不可从数据库恢复，但桌面原始
+`顺德12345热线精选工单数据集（含重复工单）.xlsx` 未修改，可由操作者重新导入验收。

@@ -10,6 +10,7 @@ from backend.app.domain.analysis_jobs import AnalysisJobView
 from backend.app.schemas.analysis import (
     AnalysisJobCreate,
     AnalysisJobResponse,
+    AnalysisJobStage,
     AnalysisJobStatus,
     AnalysisSelectionMode,
 )
@@ -54,6 +55,7 @@ def _response(view: AnalysisJobView) -> AnalysisJobResponse:
     return AnalysisJobResponse(
         job_id=view.job_id,
         status=_status(view.status),
+        current_stage=_stage(view.current_stage),
         total_rows=view.total_rows,
         selected_rows=view.selected_rows,
         processed_rows=view.processed_rows,
@@ -83,3 +85,19 @@ def _status(value: str) -> AnalysisJobStatus:
     if value in {"queued", "running", "completed", "failed"}:
         return cast(AnalysisJobStatus, value)
     return "failed"
+
+
+def _stage(value: str) -> AnalysisJobStage:
+    aliases = {"segment": "understanding", "embed": "embedding"}
+    normalized = aliases.get(value, value)
+    if normalized in {
+        "queued",
+        "understanding",
+        "embedding",
+        "retrieval",
+        "matching",
+        "clustering",
+        "completed",
+    }:
+        return cast(AnalysisJobStage, normalized)
+    return "queued"

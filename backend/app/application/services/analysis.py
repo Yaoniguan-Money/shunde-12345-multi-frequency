@@ -6,11 +6,15 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.app.application.services.event_graph import EventGraphRunResult, EventGraphService
+from backend.app.application.services.event_graph import (
+    EventGraphProgress,
+    EventGraphRunResult,
+    EventGraphService,
+)
 from backend.app.application.services.indexing import UnderstandingAndIndexingPipeline
 from backend.app.application.services.understanding import WorkOrderUnderstandingService
 from backend.app.config import Settings
-from backend.app.domain.analysis_jobs import UnderstandingRecord, WorkOrderSource
+from backend.app.domain.analysis_jobs import AnalysisJobState, UnderstandingRecord, WorkOrderSource
 from backend.app.domain.services.segmentation import RuleBasedWorkOrderSegmenter
 from backend.app.domain.types import (
     EmbeddingRequest,
@@ -123,6 +127,7 @@ class DemoAnalysisOrchestrator:
         max_work_orders: int,
         *,
         idempotency_key: str,
+        analysis_state: AnalysisJobState,
         candidate_limit: int = 10,
         selection_mode: str = "sequential",
     ) -> AnalysisExecution:
@@ -144,15 +149,38 @@ class DemoAnalysisOrchestrator:
             max_rows=len(sources),
             selected_work_order_ids=tuple(source.work_order_id for source in sources),
             idempotency_key=idempotency_key,
+            analysis_state=analysis_state,
+            manage_job_lifecycle=False,
         )
         event_ids = await self._event_repository.list_event_ids(
             tuple(WorkOrderId(source.work_order_id) for source in sources),
             self._settings.analysis_pipeline_version,
         )
-        graph = await self._run_graph(event_ids, candidate_limit=candidate_limit)
+        await self._understanding_repository.update_progress(
+            analysis_state.job_id,
+            analysis_state.run_id,
+            "retrieval",
+            {
+                "processed_rows": indexing.rows_processed,
+                "event_count": len(event_ids),
+                "embeddings_written": indexing.embeddings_written,
+            },
+        )
+
+        async def report_progress(stage: str, metrics: dict[str, object]) -> None:
+            await self._understanding_repository.update_progress(
+                analysis_state.job_id, analysis_state.run_id, stage, metrics
+            )
+
+        graph = await self._run_graph(
+            event_ids,
+            run_id=analysis_state.run_id,
+            candidate_limit=candidate_limit,
+            progress=report_progress,
+        )
         return AnalysisExecution(
-            job_id=indexing.job_id,
-            run_id=indexing.run_id,
+            job_id=analysis_state.job_id,
+            run_id=analysis_state.run_id,
             work_order_ids=tuple(source.work_order_id for source in sources),
             event_ids=event_ids,
             decisions=graph.decisions,
@@ -222,16 +250,20 @@ class DemoAnalysisOrchestrator:
             "demo-embedding.v1",
             self._settings.analysis_schema_version,
         )
+        event_ids = tuple(EventInstanceId(event.event_id) for event in persisted_events)
+        graph = await self._run_graph(
+            event_ids, run_id=understanding_run_id, candidate_limit=candidate_limit
+        )
         await self._event_repository.finish_run(
             understanding_run_id,
             {
                 "work_orders": len(sources),
                 "events": len(persisted_events),
                 "embeddings": len(embedding_results),
+                "match_edge_count": len(graph.decisions),
+                "cluster_count": len(graph.cluster_ids),
             },
         )
-        event_ids = tuple(EventInstanceId(event.event_id) for event in persisted_events)
-        graph = await self._run_graph(event_ids, candidate_limit=candidate_limit)
         return AnalysisExecution(
             job_id=graph_job_id,
             run_id=understanding_run_id,
@@ -273,12 +305,19 @@ class DemoAnalysisOrchestrator:
         )
 
     async def _run_graph(
-        self, event_ids: tuple[EventInstanceId, ...], *, candidate_limit: int
+        self,
+        event_ids: tuple[EventInstanceId, ...],
+        *,
+        run_id: UUID,
+        candidate_limit: int,
+        progress: EventGraphProgress | None = None,
     ) -> EventGraphRunResult:
         if candidate_limit < 1:
             raise ValueError("candidate_limit must be positive")
         if not event_ids:
-            return EventGraphRunResult(UUID(int=0), (), ())
+            if progress is not None:
+                await progress("clustering", {"match_edge_count": 0, "cluster_count": 0})
+            return EventGraphRunResult(run_id, (), ())
         remote_embedding = self._providers.plan.remote_embedding
         if remote_embedding is None:
             raise RuntimeError("remote embedding provider is not configured")
@@ -299,7 +338,12 @@ class DemoAnalysisOrchestrator:
             matcher,
             concurrency=self._settings.model_concurrency,
         )
-        return await graph.run(event_ids, candidate_limit=candidate_limit)
+        return await graph.run(
+            event_ids,
+            run_id=run_id,
+            candidate_limit=candidate_limit,
+            progress=progress,
+        )
 
 
 async def _build_gazetteer(

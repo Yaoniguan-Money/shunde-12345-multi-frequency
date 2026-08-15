@@ -91,6 +91,14 @@ export interface MatchEdgeResponse {
 export type ClusterStatus = string;
 export type HandlingStatus = string;
 export type AnalysisJobStatus = "queued" | "running" | "completed" | "failed";
+export type AnalysisJobStage =
+  | "queued"
+  | "understanding"
+  | "embedding"
+  | "retrieval"
+  | "matching"
+  | "clustering"
+  | "completed";
 export type AnalysisSelectionMode = "sequential" | "recurrence_candidates";
 export type ReviewStatus = "pending_review" | "confirmed" | "rejected";
 
@@ -145,6 +153,7 @@ export interface HumanCorrectionResponse {
 export interface AnalysisJobResponse {
   job_id: UUID;
   status: AnalysisJobStatus;
+  current_stage: AnalysisJobStage;
   total_rows: number;
   selected_rows: number;
   processed_rows: number;

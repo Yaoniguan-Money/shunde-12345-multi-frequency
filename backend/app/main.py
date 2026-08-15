@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             str(settings.gazetteer_api_base_url), settings.dependency_timeout_seconds
         )
         app.state.entity_resolver = RuntimeEntityResolver(snapshot, remote)
+    await analysis_job_service.resume_incomplete()
     yield
     await analysis_job_service.shutdown()
     await engine.dispose()

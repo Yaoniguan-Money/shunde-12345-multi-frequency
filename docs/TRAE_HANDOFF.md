@@ -105,6 +105,12 @@ RemoteSameEventMatcher 与 EventGraphService；请求不会同步等待整批模
 必须显式使用 `SHUNDE_AI_PROVIDER_MODE=remote`、`qwen-plus` 和
 `qwen3.7-text-embedding`，不会自动回退本地，API key 永不进入响应。
 
+响应还包含 `current_stage=queued|understanding|embedding|retrieval|matching|clustering|completed`。
+TRAE 必须在 `status` 仍为 queued/running 时继续轮询；即使 `processed_rows == selected_rows`，
+matching/clustering 尚未结束也不得显示“研判完成”。只有后端返回 `status=completed` 才刷新
+多频事件列表。一次研判的事件、匹配边、cluster 都属于同一个 analysis run，前端不得自行
+拼接历史 run 或以 0 个 cluster 推断接口没有执行。
+
 `POST /analysis-jobs` 新增可选 `selection_mode=sequential|recurrence_candidates`，默认 `sequential` 保持兼容。Demo 建议显式选择 `recurrence_candidates` 且按操作者当前要求使用 `max_work_orders=100`。页面必须同时显示 `total_rows=128278`、`selected_rows=100`和真实 `processed_rows`，不得写成“13 万条已全部 AI 研判”。候选规则仅路由工单，不是 SameEvent 结论。
 
 ### Product semantics contracts

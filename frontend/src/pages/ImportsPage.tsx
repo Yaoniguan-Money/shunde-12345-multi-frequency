@@ -10,6 +10,7 @@ import {
   type JSX,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
@@ -66,6 +67,16 @@ const TARGET_FIELDS: TargetFieldDef[] = [
     hint: "工单正文列（必填，AI 研判的核心输入）",
   },
 ];
+
+const ANALYSIS_STAGE_LABELS: Record<AnalysisJobResponse["current_stage"], string> = {
+  queued: "等待执行",
+  understanding: "工单理解",
+  embedding: "向量索引",
+  retrieval: "候选召回",
+  matching: "同事件判定",
+  clustering: "多频事件聚类",
+  completed: "完整研判完成",
+};
 
 const UNMAPPED_VALUE = "";
 const UNMAPPED_LABEL = "未映射";
@@ -610,6 +621,10 @@ function AnalysisStage({
             </div>
             <div className="analysis-job__stats">
               <span>
+                <span className="analysis-job__stat-key">当前阶段</span>
+                <strong>{ANALYSIS_STAGE_LABELS[job.current_stage]}</strong>
+              </span>
+              <span>
                 <span className="analysis-job__stat-key">AI 事件</span>
                 <strong>{job.event_count}</strong>
               </span>
@@ -679,6 +694,7 @@ function AnalysisStage({
 
 export function ImportsPage(): JSX.Element {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const toastCtx = useContext(ToastContext);
   const push = toastCtx?.push;
   const pushToast = useCallback(
@@ -796,13 +812,16 @@ export function ImportsPage(): JSX.Element {
       setJob(data);
       setJobError(null);
       pushToast(`已创建研判任务 ${data.job_id.slice(0, 8)}…`, "success");
+      if (data.status === "completed") {
+        await queryClient.invalidateQueries({ queryKey: ["clusters"] });
+      }
     } catch (e) {
       setCreateError(e);
       pushToast(`创建研判失败：${describeApiError(e)}`, "error");
     } finally {
       setIsCreating(false);
     }
-  }, [importResult, maxWorkOrders, pushToast]);
+  }, [importResult, maxWorkOrders, pushToast, queryClient]);
 
   const handleRetry = useCallback(() => {
     setJobId(null);
@@ -841,6 +860,7 @@ export function ImportsPage(): JSX.Element {
         if (controller.signal.aborted) return;
         setJob(data);
         if (data.status === "completed") {
+          await queryClient.invalidateQueries({ queryKey: ["clusters"] });
           pushToast("研判完成", "success");
         } else if (data.status === "failed") {
           pushToast("研判失败", "error");
@@ -854,7 +874,7 @@ export function ImportsPage(): JSX.Element {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [jobId, job, pushToast]);
+  }, [jobId, job, pushToast, queryClient]);
 
   return (
     <section ref={containerRef}>

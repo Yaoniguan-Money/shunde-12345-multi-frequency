@@ -5,6 +5,7 @@ from uuid import UUID
 
 from backend.app.application.services.understanding import WorkOrderUnderstandingService
 from backend.app.domain.analysis_jobs import (
+    AnalysisJobState,
     UnderstandingRecord,
     UnderstandingRepository,
 )
@@ -64,9 +65,11 @@ class UnderstandingAndIndexingPipeline:
         max_source_row: int | None = None,
         selected_work_order_ids: tuple[UUID, ...] | None = None,
         idempotency_key: str | None = None,
+        analysis_state: AnalysisJobState | None = None,
+        manage_job_lifecycle: bool = True,
     ) -> IndexingSummary:
         started = time.perf_counter()
-        state = await self._repository.start_or_resume(
+        state = analysis_state or await self._repository.start_or_resume(
             idempotency_key=idempotency_key or f"understanding:{batch_id}",
             pipeline_version=self._pipeline_version,
             schema_version=self._schema_version,
@@ -75,7 +78,7 @@ class UnderstandingAndIndexingPipeline:
             model_config_hash=self._model_config_hash,
             total_rows=total_rows,
         )
-        if state.status == "completed":
+        if state.status == "completed" and manage_job_lifecycle:
             return IndexingSummary(
                 state.job_id,
                 state.run_id,
@@ -87,9 +90,9 @@ class UnderstandingAndIndexingPipeline:
                 time.perf_counter() - started,
                 True,
             )
-        rows_processed = 0
-        events_extracted = 0
-        embeddings_written = 0
+        rows_processed = state.rows_processed
+        events_extracted = state.events_extracted
+        embeddings_written = state.embeddings_written
         checkpoint = state.checkpoint_source_row
         sources = ()
         try:
@@ -99,7 +102,7 @@ class UnderstandingAndIndexingPipeline:
                     return IndexingSummary(
                         state.job_id,
                         state.run_id,
-                        "paused",
+                        "paused" if manage_job_lifecycle else "indexed",
                         rows_processed,
                         events_extracted,
                         embeddings_written,
@@ -178,7 +181,7 @@ class UnderstandingAndIndexingPipeline:
                     return IndexingSummary(
                         state.job_id,
                         state.run_id,
-                        "paused",
+                        "paused" if manage_job_lifecycle else "indexed",
                         rows_processed,
                         events_extracted,
                         embeddings_written,
@@ -186,19 +189,20 @@ class UnderstandingAndIndexingPipeline:
                         time.perf_counter() - started,
                         False,
                     )
-            await self._repository.finish(
-                state.job_id,
-                state.run_id,
-                {
-                    "rows_processed": rows_processed,
-                    "events_extracted": events_extracted,
-                    "embeddings_written": embeddings_written,
-                },
-            )
+            if manage_job_lifecycle:
+                await self._repository.finish(
+                    state.job_id,
+                    state.run_id,
+                    {
+                        "rows_processed": rows_processed,
+                        "events_extracted": events_extracted,
+                        "embeddings_written": embeddings_written,
+                    },
+                )
             return IndexingSummary(
                 state.job_id,
                 state.run_id,
-                "completed",
+                "completed" if manage_job_lifecycle else "indexed",
                 rows_processed,
                 events_extracted,
                 embeddings_written,
@@ -215,5 +219,8 @@ class UnderstandingAndIndexingPipeline:
                     "analysis_failed",
                     str(error),
                 )
-            await self._repository.fail(state.job_id, state.run_id, "analysis_failed", str(error))
+            if manage_job_lifecycle:
+                await self._repository.fail(
+                    state.job_id, state.run_id, "analysis_failed", str(error)
+                )
             raise
