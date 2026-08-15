@@ -9,7 +9,7 @@
 - Branch：`main`
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
 - Hard-install checkpoint：`75ea7e7`（Phase 0–3 已推送）
-- 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 变更尚未提交时，本文件只记录已实测事实，不把未完成的全量分析标成 DONE。
+- 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 提交：`8954e18`（已推送 `origin/main`）。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
 
@@ -145,11 +145,11 @@ benchmark artifact                         PASS — `data/runtime/benchmarks/ret
 
 ```text
 uv run alembic upgrade head                  PASS — 7a8b9c0d1e2f -> 8b9c0d1e2f3a
-uv run pytest -q                             PASS — 16 passed
+uv run pytest -q                             PASS — 18 passed
 uv run ruff check backend/app scripts/...    PASS
 uv run ruff format --check ...               PASS
 uv run pyright backend                       PASS — 0 errors
-provider contract/routing tests              PASS — 4 passed；公网 local URL 被拒绝；remote key 不进 trace
+provider contract/routing tests              PASS — 6 passed；公网 local URL 被拒绝；remote key 不进 trace
 Ollama qwen2.5:3b structured smoke           PASS — RTX 3080 Laptop 16 GiB，真实 JSON 返回
 quality sample selector (500)                PASS — 6 strata，500 个真实 work_order_id
 quality review run                           PARTIAL — 按操作者指示停止本地 300 条运行；未把 partial artifact 当质量指标
