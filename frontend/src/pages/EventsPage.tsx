@@ -51,7 +51,7 @@ function EventCard({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Elemen
         <div className="event-card__row event-card__row--bottom">
           <div className="event-card__stats">
             <span className="event-card__stat">📋 {cluster.work_order_count} 个关联工单</span>
-            <span className="event-card__stat">📌 {cluster.event_count} 个 AI 事件</span>
+            <span className="event-card__stat">📌 {cluster.event_count} 项研判结果</span>
             <span className="event-card__stat">置信度 {Math.round(cluster.confidence * 100)}%</span>
             <span className={`event-card__signal event-card__signal--${signalTone}`}>
               {signalLabel}

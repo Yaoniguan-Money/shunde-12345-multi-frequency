@@ -309,7 +309,7 @@ scripts/check.ps1                            PASS — backend 36 tests; frontend
 |---|---|---|
 | `removed_members` detail projection | DONE | `GET /multi-frequency-events/{cluster_id}` 按最新 HumanCorrection 状态返回已移出事件；保留 event/work-order/raw/AI trace、event_instance_id 与 correction metadata；不可解析事件明确 `can_restore=false` |
 | Restore validation | DONE | 既有 `confirm_member` 只接受此前确实 `remove_member` 的事件；active member 重复恢复和未移出事件返回 409；不新增表、不改 raw work order |
-| Frontend restore UX | DONE | 详情页新增“已移出事件”区，操作员 ID 默认 `demo-operator` 可编辑，恢复理由必填可编辑，二次确认、提交期间禁用、成功后 refetch detail/invalidate cluster list |
+| Frontend restore UX | DONE | 详情页新增“已移出事件”区，操作员编号默认“演示操作员”且可编辑，恢复理由必填，二次确认、提交期间禁用、成功后重新读取详情并刷新多频列表 |
 | Regression coverage | DONE | 后端移除→详情投影→恢复/重复恢复回归；API `removed_members` contract；前端独立区域、显式 actor/reason、恢复 POST body 与 refetch 回归 |
 | Validation | DONE | `uv run pytest -q` 48 passed；`pnpm lint`、`pnpm test --run` 29 passed、`pnpm build`、`scripts/check.ps1` 全部通过 |
 
@@ -401,7 +401,8 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 
 | 项目 | 状态 | 真实结果 |
 |---|---|---|
-| 多频/工单详情默认视图 | DONE | 去除默认显示的 cluster/work order 标题、UUID、原始 evidence JSON、模型追踪标签和内部字段；不改 API、不改原始数据 |
-| 中文展示映射 | DONE | 事件类型、处理状态、研判阶段和纠错类型统一显示中文；未知后端状态显示“状态待同步” |
-| 工作人员审计字段 | DONE | 原始扩展字段仅在“工作人员查看”折叠区保留；匹配证据只展示结构化中文摘要，避免向客户暴露内部 ID |
-| 前端验证 | DONE | `pnpm --dir frontend test --run` 32 passed；`pnpm --dir frontend lint` passed；`pnpm --dir frontend build` passed |
+| 多频/工单详情默认视图 | DONE | 详情页重构为业务概览、关联工单、关联判断、处理记录和人工纠错分区；移除 UUID、原始 evidence JSON、模型追踪、源行号和原始扩展字段直出；不改 API、不改原始数据 |
+| 中文展示映射 | DONE | 问题类型、处理状态、研判阶段、纠错类型、判断依据和历史操作员统一为中文业务表达；未知后端状态显示“状态待同步” |
+| 渐进式操作 | DONE | “调整事件归属”和“新增办理记录”默认收起，非技术用户先看结论和证据，需要操作时再展开；状态使用真实后端值映射的绿/橙/红信号点 |
+| 真实页面复核 | DONE | 本地真实 cluster 页面检查未发现 `complete_link_guard`、`demo-operator`、provider/model/schema/pipeline、内部状态枚举等可见术语；未知证据键不再显示英文 |
+| 前端验证 | DONE | `pnpm --dir frontend test --run` 33 passed；`pnpm --dir frontend lint` passed；`pnpm --dir frontend build` passed |

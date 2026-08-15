@@ -142,7 +142,7 @@ export function EventsListPage(): JSX.Element {
       ) : total === 0 ? (
         <EmptyState
           title="暂无多频事件"
-          description="后端尚未产生任何多频事件。请通过“数据导入与 AI 研判”流程触发研判后再返回查看。"
+          description="后端尚未产生任何多频事件。请通过“数据导入与智能研判”流程触发研判后再返回查看。"
         />
       ) : processedItems.length === 0 ? (
         <EmptyState
@@ -185,7 +185,7 @@ export function EventsListPage(): JSX.Element {
                   </span>
                 </span>
                 <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">AI 事件</span>
+                  <span className="cluster-card__meta-key">研判事项</span>
                   <span className="cluster-card__meta-value">{cluster.event_count}</span>
                 </span>
                 <span className="cluster-card__meta-item">
@@ -207,7 +207,7 @@ export function EventsListPage(): JSX.Element {
               </div>
               <div className="cluster-card__evidence">
                 <span className="eyebrow" style={{ display: "block", marginBottom: 4 }}>
-                  AI 判断依据摘要
+                  智能判断摘要
                 </span>
                 {summarizeEvidence(cluster.evidence)}
               </div>

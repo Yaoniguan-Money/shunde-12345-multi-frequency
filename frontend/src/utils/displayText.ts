@@ -67,3 +67,35 @@ export function displayValue(value: unknown): string {
   }
   return "已记录";
 }
+
+export function displayEvidenceValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "未提供";
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "无";
+    const readable = value.filter(
+      (item): item is string => typeof item === "string" && /[\u3400-\u9fff]/.test(item),
+    );
+    return readable.length > 0 ? readable.join("、") : "已汇总";
+  }
+  if (typeof value === "string") {
+    const known: Record<string, string> = {
+      complete_link_guard: "已通过关联完整性检查",
+      complete: "信息完整",
+      consistent: "信息一致",
+    };
+    if (known[value]) return known[value];
+    if (/^[a-z0-9_.-]+$/i.test(value)) return "已记录";
+    return value;
+  }
+  return "已记录";
+}
+
+export function displayActor(value: string | null | undefined): string {
+  if (!value) return "未记录";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "demo-operator") return "演示操作员";
+  if (/^[a-z0-9_.-]+$/i.test(value)) return "操作员（编号已记录）";
+  return value;
+}

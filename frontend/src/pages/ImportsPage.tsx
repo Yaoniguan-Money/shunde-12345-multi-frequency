@@ -114,7 +114,7 @@ function Stepper({ current }: { current: Step }): JSX.Element {
     { n: 1, label: "上传文件" },
     { n: 2, label: "解析预览" },
     { n: 3, label: "确认导入" },
-    { n: 4, label: "AI研判" },
+    { n: 4, label: "智能研判" },
   ];
   return (
     <div className="steps-horizontal">
@@ -411,12 +411,12 @@ function StageImportProgress({
           </div>
       </div>
       <label style={{ display: "block", margin: "16px 0", maxWidth: 360 }}>
-        <span className="text-muted">本次 AI 研判工单上限（1–300）</span>
+        <span className="text-muted">本次智能研判工单上限（1–300）</span>
         <input data-testid="max-work-orders" type="number" min={1} max={300} value={maxWorkOrders} onChange={(event) => onMaxWorkOrdersChange(Number(event.target.value))} style={{ display: "block", width: "100%", marginTop: 6 }} />
       </label>
       {maxWorkOrdersError ? <p className="text-danger">{maxWorkOrdersError}</p> : null}
       <p className="text-muted">本次只研判 <strong>{maxWorkOrders}</strong> 条工单，不会自动处理全部数据。</p>
-        <button data-testid="create-job-btn" className="btn btn--primary btn--lg" disabled={Boolean(maxWorkOrdersError)} onClick={onStartAnalysis}>开始AI研判</button>
+        <button data-testid="create-job-btn" className="btn btn--primary btn--lg" disabled={Boolean(maxWorkOrdersError)} onClick={onStartAnalysis}>开始智能研判</button>
       </div>
     </div>
   );
@@ -464,7 +464,7 @@ function StageAnalysis({
   if (error) {
     return (
       <div className="import-stage" data-testid="analysis-job">
-        <div className="error-banner"><CloseIcon size={12} />AI研判失败：{error}</div>
+        <div className="error-banner"><CloseIcon size={12} />智能研判失败：{error}</div>
         <button data-testid="retry-job-btn" className="btn btn--secondary" onClick={onRetry}>重新设置研判上限</button>
       </div>
     );
@@ -788,10 +788,10 @@ export function ImportsPage(): JSX.Element {
 
   const aiStatusText = useMemo(() => {
     if (job?.status === "queued") return "研判任务排队中...";
-    if (job?.status === "running") return "正在进行AI智能研判...";
+    if (job?.status === "running") return "正在进行智能研判...";
     const runningIdx = aiStepStatuses.findIndex((s) => s === "running");
     if (runningIdx >= 0) return `正在进行${AI_STEPS[runningIdx].label}...`;
-    if (aiStepStatuses.every((s) => s === "done")) return "AI研判已完成";
+    if (aiStepStatuses.every((s) => s === "done")) return "智能研判已完成";
     return "等待后端研判任务状态...";
   }, [job, aiStepStatuses]);
 
@@ -799,8 +799,8 @@ export function ImportsPage(): JSX.Element {
     <section>
       <div className="page-header--imports">
         <div>
-          <h1 className="page-header--imports__title">数据导入与AI研判</h1>
-          <p className="page-header--imports__subtitle">支持Excel/CSV批量导入，AI自动研判多频事件</p>
+          <h1 className="page-header--imports__title">数据导入与智能研判</h1>
+          <p className="page-header--imports__subtitle">支持表格文件批量导入，自动研判多频事件</p>
         </div>
         <button className="btn-secondary" onClick={handleHistory}>历史记录</button>
       </div>
@@ -862,9 +862,9 @@ export function ImportsPage(): JSX.Element {
         <summary className="help-collapse__summary">📖 使用说明</summary>
         <div className="help-collapse__body">
           <ol>
-            <li>准备好符合规范的Excel/CSV文件</li>
+            <li>准备好符合规范的表格文件</li>
             <li>上传后自动校验，无效数据会提示修改</li>
-            <li>导入完成后可启动AI研判</li>
+            <li>导入完成后可启动智能研判</li>
             <li>研判结果可在多频事件页面查看</li>
             <li>支持人工复核和修正</li>
           </ol>

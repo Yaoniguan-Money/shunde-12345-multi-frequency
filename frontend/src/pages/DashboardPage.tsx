@@ -66,7 +66,7 @@ function ClusterRow({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Eleme
       </div>
       <div className="dashboard-cluster-card__meta">
         <span>关联工单：{cluster.work_order_count}</span>
-        <span>AI 事件：{cluster.event_count}</span>
+        <span>研判事项：{cluster.event_count}</span>
         <span>置信度：{Math.round(cluster.confidence * 100)}%</span>
       </div>
       <div className="dashboard-cluster-card__footer">
@@ -125,7 +125,7 @@ function BackendOnlyNotice(): JSX.Element {
     <div className="evidence-box" style={{ marginBottom: 20 }}>
       <span className="evidence-box__label">数据口径</span>
       <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
-        首页只展示后端 API 已返回并能通过真实 ID 关联的数据。后端未提供的趋势、
+        首页只展示后端接口已返回并能可靠关联的数据。后端未提供的趋势、
         高频等级、准确率或活动记录不再用模拟数字填充。
       </p>
     </div>
@@ -194,7 +194,7 @@ export function DashboardPage(): JSX.Element {
           loading={workOrdersQuery.isPending}
         />
         <StatCard
-          label="AI 事件总数"
+          label="研判事项总数"
           value={eventsQuery.data?.total ?? null}
           description="来自事件目录，仅展示真实数据"
           loading={eventsQuery.isPending}

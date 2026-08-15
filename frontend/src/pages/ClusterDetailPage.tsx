@@ -36,22 +36,21 @@ import {
   describeEvidence,
   formatConfidence,
 } from "../utils/evidence";
-import { displayEventType, displayStatus } from "../utils/displayText";
+import {
+  displayActor,
+  displayEventType,
+  displayEvidenceValue,
+  displayStatus,
+} from "../utils/displayText";
 
 gsap.registerPlugin(useGSAP);
 
-const DEFAULT_ACTOR_ID = "demo-operator";
+const DEFAULT_ACTOR_ID = "演示操作员";
 const STATUS_SUGGESTIONS = [
   { value: "unhandled", label: "未处理" },
   { value: "investigating", label: "处理中" },
   { value: "resolved", label: "已办结" },
 ];
-
-function formatEvidenceValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return "已记录";
-}
 
 function ClusterEvidenceSummary({
   evidence,
@@ -63,7 +62,7 @@ function ClusterEvidenceSummary({
   );
   return (
     <div className="evidence-box">
-      <span className="evidence-box__label">AI 判断依据摘要</span>
+      <span className="evidence-box__label">智能判断摘要</span>
       {items.length === 0 ? (
         <p className="text-muted" style={{ margin: 0 }}>
           暂无可展示的结构化判断依据。
@@ -82,7 +81,7 @@ function ClusterEvidenceSummary({
                       : "edge-evidence-row__value"
                 }
               >
-                {formatEvidenceValue(item.value)}
+                {displayEvidenceValue(item.value)}
               </span>
             </div>
           ))}
@@ -118,22 +117,21 @@ function EventUnderstanding({
         <span className="member-card__field-value">{event.normalized_summary}</span>
       </div>
       <div className="member-card__field">
-        <span className="member-card__field-key">事件类型</span>
+        <span className="member-card__field-key">问题类型</span>
         <span className="member-card__field-value">{displayEventType(event.event_type)}</span>
       </div>
       <div className="member-card__field">
-        <span className="member-card__field-key">行为</span>
+        <span className="member-card__field-key">诉求内容</span>
         <span className="member-card__field-value">{event.behavior ?? "—"}</span>
       </div>
       {event.entities.length > 0 ? (
         <div className="member-card__field">
-          <span className="member-card__field-key">实体</span>
+          <span className="member-card__field-key">涉及对象</span>
           <div className="member-card__chips">
             {event.entities.map((entity) => (
               <span
                 className="chip chip--entity"
                 key={entity.entity_id}
-                title={entity.entity_type ?? undefined}
               >
                 {entity.standard_name ?? entity.entity_id.slice(0, 8)}
               </span>
@@ -143,7 +141,7 @@ function EventUnderstanding({
       ) : null}
       {event.location_signals.length > 0 ? (
         <div className="member-card__field">
-          <span className="member-card__field-key">地点信号</span>
+          <span className="member-card__field-key">涉及地点</span>
           <div className="member-card__chips">
             {event.location_signals.map((location, index) => (
               <span className="chip chip--location" key={`${location}-${index}`}>
@@ -155,7 +153,7 @@ function EventUnderstanding({
       ) : null}
       {event.time_signals.length > 0 ? (
         <div className="member-card__field">
-          <span className="member-card__field-key">时间信号</span>
+          <span className="member-card__field-key">反映时间</span>
           <div className="member-card__chips">
             {event.time_signals.map((time, index) => (
               <span className="chip chip--time" key={`${time}-${index}`}>
@@ -165,7 +163,8 @@ function EventUnderstanding({
           </div>
         </div>
       ) : null}
-      <div className="member-card__event-actions">
+      <details className="member-card__event-actions">
+        <summary>调整事件归属</summary>
         <div className="event-action-row">
           <div className="event-action-row__actor">
             <label
@@ -181,7 +180,7 @@ function EventUnderstanding({
               value={actorId}
               onChange={(e) => onActorIdChange(e.target.value)}
               disabled={isRemoved}
-              placeholder="操作员 ID"
+              placeholder="请输入操作员编号"
             />
           </div>
           {isRemoved ? (
@@ -204,7 +203,7 @@ function EventUnderstanding({
             </button>
           )}
         </div>
-      </div>
+      </details>
     </section>
   );
 }
@@ -250,7 +249,7 @@ function RemovedMemberCard({
             </span>
           </div>
           <div className="member-card__field">
-            <span className="member-card__field-key">地点信号</span>
+            <span className="member-card__field-key">涉及地点</span>
             <span className="member-card__field-value">
               {event?.location_signals?.join("、") || "—"}
             </span>
@@ -258,7 +257,7 @@ function RemovedMemberCard({
           <div className="member-card__field">
             <span className="member-card__field-key">移出记录</span>
             <span className="member-card__field-value">
-              {item.actor_id} · {new Date(item.removed_at).toLocaleString("zh-CN")}
+              {displayActor(item.actor_id)} · {new Date(item.removed_at).toLocaleString("zh-CN")}
               {item.reason ? ` · ${item.reason}` : ""}
             </span>
           </div>
@@ -292,7 +291,7 @@ function RemovedMemberCard({
                   value={actorId}
                   onChange={(e) => onActorChange(e.target.value)}
                   disabled={isRestoring}
-                  placeholder="demo-operator"
+                  placeholder="请输入操作员编号"
                 />
               </div>
               <div className="action-form__field">
@@ -354,22 +353,20 @@ function WorkOrderCard({
           {workOrder.raw_title ??
             `工单 ${workOrder.external_work_order_number ?? "未命名"}`}
         </h4>
-        <span className="uuid-mono">#{workOrder.source_row_number}</span>
+        <span className="uuid-mono">
+          {workOrder.external_work_order_number ?? "工单编号未提供"}
+        </span>
       </header>
       <div className="member-card__body">
         <div className="member-card__region member-card__region--raw">
           <div className="member-card__region-label member-card__region-label--raw">
-            原始工单
+            市民诉求原文
           </div>
           <div className="member-card__field">
-            <span className="member-card__field-key">外部工单号</span>
+            <span className="member-card__field-key">工单编号</span>
             <span className="member-card__field-value">
               {workOrder.external_work_order_number ?? "—"}
             </span>
-          </div>
-          <div className="member-card__field">
-            <span className="member-card__field-key">原始标题</span>
-            <span className="member-card__field-value">{workOrder.raw_title ?? "—"}</span>
           </div>
           <div className="member-card__field">
             <span className="member-card__field-key">原始内容</span>
@@ -378,7 +375,7 @@ function WorkOrderCard({
             </span>
           </div>
           <div className="member-card__field">
-            <span className="member-card__field-key">创建时间</span>
+            <span className="member-card__field-key">入库时间</span>
             <span className="member-card__field-value">
               {new Date(workOrder.created_at).toLocaleString("zh-CN")}
             </span>
@@ -386,7 +383,7 @@ function WorkOrderCard({
         </div>
         <div className="member-card__region member-card__region--ai">
           <div className="member-card__region-label member-card__region-label--ai">
-            智能研判 · {events.length} 个事件
+            智能研判结果 · {events.length} 项
           </div>
           {events.map((event) => (
             <EventUnderstanding
@@ -424,16 +421,14 @@ function HandlingTimeline({
             <div className="timeline__head">
               <span className="timeline__status">
                 {displayStatus(record.previous_status)}
-                <span className="internal-status-value">{record.previous_status ?? ""}</span>
               </span>
               <span className="timeline__arrow" aria-hidden>
                 →
               </span>
               <span className="timeline__status">
                 {displayStatus(record.new_status)}
-                <span className="internal-status-value">{record.new_status}</span>
               </span>
-              <span className="timeline__actor">{record.actor_id}</span>
+              <span className="timeline__actor">{displayActor(record.actor_id)}</span>
               <span className="timeline__time">
                 {new Date(record.created_at).toLocaleString("zh-CN")}
               </span>
@@ -509,7 +504,7 @@ function CorrectionHistory({
               关联事件：<strong>{eventInstanceId === "—" ? "未提供" : "已记录"}</strong>
             </span>
             <span className="correction-item__field">
-              操作员：<strong>{correction.actor_id}</strong>
+              操作员：<strong>{displayActor(correction.actor_id)}</strong>
             </span>
             <span className="correction-item__field">
               {new Date(correction.created_at).toLocaleString("zh-CN")}
@@ -597,31 +592,20 @@ function HandlingRecordForm({
         >
           新状态<span className="req">*</span>
         </label>
-        <input
+        <select
           id="handling-new-status"
-          type="text"
           className="action-form__input"
           value={newStatus}
           onChange={(e) => setNewStatus(e.target.value)}
-          maxLength={32}
-          placeholder="如 investigating"
           disabled={mutation.isPending}
-        />
-        <div className="action-form__suggestions" aria-hidden>
-          {STATUS_SUGGESTIONS.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              className="action-form__suggestion"
-              onClick={() => setNewStatus(s.value)}
-              disabled={mutation.isPending}
-            >
-              {s.label}
-            </button>
+        >
+          <option value="">请选择处理状态</option>
+          {STATUS_SUGGESTIONS.map((status) => (
+            <option key={status.value} value={status.value}>{status.label}</option>
           ))}
-        </div>
+        </select>
         <span className="action-form__hint">
-          字符串状态，可自由输入；上面只是建议选项。当前状态：
+          当前状态：
           <strong>{displayStatus(currentHandlingStatus)}</strong>
         </span>
       </div>
@@ -672,7 +656,7 @@ function HandlingRecordForm({
           className="action-form__label"
           htmlFor="handling-attachments"
         >
-          附件引用（可选，逗号分隔）
+          附件编号（可选，多个请用逗号分隔）
         </label>
         <input
           id="handling-attachments"
@@ -680,10 +664,9 @@ function HandlingRecordForm({
           className="action-form__input"
           value={attachments}
           onChange={(e) => setAttachments(e.target.value)}
-          placeholder="attachment-1, attachment-2"
+          placeholder="例如：附件1，附件2"
           disabled={mutation.isPending}
         />
-        <span className="action-form__hint">每个引用 ≤ 50 字符</span>
       </div>
       <div className="action-form__actions">
         <button
@@ -795,7 +778,7 @@ export function ClusterDetailPage(): JSX.Element {
     onSuccess: (data) => {
       const filename = data.filename || `cluster-${clusterId ?? "unknown"}.csv`;
       triggerBlobDownload(data.blob, filename);
-      pushToast(`CSV 已导出：${filename}`, "success");
+      pushToast("事件表格已导出", "success");
     },
     onError: (error: unknown) => {
       pushToast(`导出失败：${describeApiError(error)}`, "error");
@@ -943,7 +926,7 @@ export function ClusterDetailPage(): JSX.Element {
   }
 
   return (
-    <section ref={containerRef}>
+    <section ref={containerRef} className="cluster-detail-page">
       <div className="detail-header">
         <div className="detail-header__back">
           <button
@@ -960,24 +943,11 @@ export function ClusterDetailPage(): JSX.Element {
           <StatusBadge status={summary.status} variant="analysis" />
           <StatusBadge status={summary.handling_status} variant="handling" />
         </div>
-        <div className="detail-header__meta">
-          <span>
-            关联工单：<strong>{summary.work_order_count}</strong>
-          </span>
-          <span>
-            AI 事件：<strong>{summary.event_count}</strong>
-          </span>
-          <span>
-            置信度：
-            <strong>{formatConfidence(summary.confidence)}</strong>
-            <span className="text-muted" style={{ marginLeft: 6 }}>
-              （需结合下方判断依据，不单独作为结论）
-            </span>
-          </span>
+        <div className="detail-header__meta" aria-label="事件概况">
+          <span><small>关联工单</small><strong>{summary.work_order_count}</strong></span>
+          <span><small>研判事项</small><strong>{summary.event_count}</strong></span>
+          <span><small>研判可信度</small><strong>{formatConfidence(summary.confidence)}</strong></span>
         </div>
-      </div>
-
-      <div className="detail-section">
         <div className="action-toolbar">
           <button
             type="button"
@@ -985,17 +955,17 @@ export function ClusterDetailPage(): JSX.Element {
             onClick={() => exportCsvMutation.mutate()}
             disabled={exportCsvMutation.isPending}
           >
-            {exportCsvMutation.isPending ? "导出中…" : "导出事件 CSV"}
+            {exportCsvMutation.isPending ? "导出中…" : "导出事件表格"}
           </button>
           <span className="action-toolbar__hint">
-            导出当前多频事件的工单、智能研判结果、判断依据与处理记录。
+            包含关联工单、研判结果、判断依据和办理记录。
           </span>
         </div>
       </div>
 
-      <div className="detail-section">
+      <div className="detail-section detail-section--overview">
         <h2 className="detail-section__title">
-          事件概要与 AI 判断依据
+          事件概览
         </h2>
         <ClusterEvidenceSummary evidence={summary.evidence} />
       </div>
@@ -1004,11 +974,11 @@ export function ClusterDetailPage(): JSX.Element {
         <h2 className="detail-section__title">
           关联工单
           <span className="detail-section__count">
-            （{workOrders.length} 条工单 · {summary.event_count} 个 AI 事件）
+            （{workOrders.length} 条工单 · {summary.event_count} 项研判结果）
           </span>
         </h2>
         {workOrders.length === 0 ? (
-          <EmptyState title="暂无关联工单" description="该事件簇当前没有任何成员工单。" />
+          <EmptyState title="暂无关联工单" description="该多频事件当前没有关联工单。" />
         ) : (
           workOrders.map((workOrder) => (
             <WorkOrderCard
@@ -1028,14 +998,14 @@ export function ClusterDetailPage(): JSX.Element {
 
       <div className="detail-section">
         <h2 className="detail-section__title">
-          AI 判断依据
+          关联判断依据
           <span className="detail-section__count">
-            （{edges.length} 条匹配边）
+            （{edges.length} 条）
           </span>
         </h2>
         {edges.length === 0 ? (
           <EmptyState
-            title="暂无 AI 判断依据"
+            title="暂无关联判断依据"
             description="当前没有可展示的关联判断依据，可能是单工单事件或尚未完成比对。"
           />
         ) : (
@@ -1080,10 +1050,13 @@ export function ClusterDetailPage(): JSX.Element {
             （{handlingHistory.length} 条历史）
           </span>
         </h2>
-        <HandlingRecordForm
-          clusterId={clusterId}
-          currentHandlingStatus={summary.handling_status}
-        />
+        <details className="workflow-panel">
+          <summary>新增办理记录</summary>
+          <HandlingRecordForm
+            clusterId={clusterId}
+            currentHandlingStatus={summary.handling_status}
+          />
+        </details>
         <HandlingTimeline records={handlingHistory} />
       </div>
 
@@ -1094,11 +1067,8 @@ export function ClusterDetailPage(): JSX.Element {
             （{humanCorrections.length} 条历史）
           </span>
         </h2>
-        <p className="text-muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
-          在每个研判事件卡片下方点击“移出该多频事件”可提交移除纠错；
-          已被移除的事件可点击“恢复归属”提交确认纠错。
-          所有纠错需二次确认。后端可能因不满足多频条件而返回 404，
-          届时会自动提示并返回列表。
+        <p className="detail-section__help">
+          如发现事件归属不准确，可在对应研判结果中选择“调整事件归属”。所有调整都会保留操作记录。
         </p>
         <CorrectionHistory corrections={humanCorrections} />
       </div>

@@ -187,19 +187,12 @@ test("work_order_count and event_count are shown in distinct positions", async (
   renderPage(async () => jsonOk(detailPayload({ workOrderCount: 5, eventCount: 7 })));
 
   expect(await screen.findByText("同一地点商业噪声")).toBeInTheDocument();
-  // header meta 里："关联工单：5" 与 "AI 事件：7" 位于同一 meta 容器
-  // 数字在 <strong> 里，所以用 function matcher 拿到包含"关联工单"的 span
-  const meta = screen.getByText((content, element) => {
-    return (
-      element?.tagName === "SPAN" === true &&
-      content.startsWith("关联工单")
-    );
-  }).parentElement;
-  expect(meta).not.toBeNull();
-  expect(meta?.textContent).toContain("关联工单");
-  expect(meta?.textContent).toContain("5");
-  expect(meta?.textContent).toContain("AI 事件");
-  expect(meta?.textContent).toContain("7");
+  // 顶部概览里分别展示关联工单数和研判事项数
+  const meta = screen.getByLabelText("事件概况");
+  expect(meta.textContent).toContain("关联工单");
+  expect(meta.textContent).toContain("5");
+  expect(meta.textContent).toContain("研判事项");
+  expect(meta.textContent).toContain("7");
   // 关联工单 section title 含 work_orders.length（不是 work_order_count）
   // 这里 work_orders 数组长度 2，event_count 7
   // 用 getByRole 精确拿到 heading，避免误匹配 header meta
@@ -208,7 +201,7 @@ test("work_order_count and event_count are shown in distinct positions", async (
     name: /关联工单/,
   });
   expect(workOrdersSectionHeader.textContent).toContain("2 条工单");
-  expect(workOrdersSectionHeader.textContent).toContain("7 个 AI 事件");
+  expect(workOrdersSectionHeader.textContent).toContain("7 项研判结果");
 });
 
 test("handling record submission invalidates detail and refetches", async () => {
@@ -250,7 +243,8 @@ test("handling record submission invalidates detail and refetches", async () => 
   // 初始时间线为空，description "已派员核实" 不应出现
   expect(screen.queryByText("已派员核实")).not.toBeInTheDocument();
 
-  const statusInput = await screen.findByPlaceholderText("如 investigating");
+  fireEvent.click(screen.getByText("新增办理记录"));
+  const statusInput = await screen.findByLabelText(/新状态/);
   fireEvent.change(statusInput, { target: { value: "investigating" } });
   fireEvent.click(screen.getByText("提交处理记录"));
 
@@ -258,10 +252,10 @@ test("handling record submission invalidates detail and refetches", async () => 
   await waitFor(() => {
     expect(screen.getByText("已派员核实")).toBeInTheDocument();
   });
-  // 时间线里应出现 previous_status unhandled → new_status investigating
-  // unhandled 还会出现在建议按钮中，所以用 getAllByText 断言至少出现
-  expect(screen.getAllByText("unhandled").length).toBeGreaterThan(0);
-  expect(screen.getAllByText("investigating").length).toBeGreaterThan(0);
+  // 时间线只向业务人员展示中文状态，不暴露后端枚举值
+  expect(screen.getAllByText("未处理").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("处理中").length).toBeGreaterThan(0);
+  expect(screen.queryByText("investigating")).not.toBeInTheDocument();
 });
 
 test("remove_member triggers confirm dialog and calls addCorrection", async () => {
@@ -305,7 +299,7 @@ test("remove_member triggers confirm dialog and calls addCorrection", async () =
     expect(postedCorrectionBody).toEqual({
       correction_type: "remove_member",
       event_instance_id: expect.any(String),
-      actor_id: "demo-operator",
+      actor_id: "演示操作员",
     });
   });
   const body = postedCorrectionBody as { event_instance_id: string };
@@ -387,7 +381,7 @@ test("CSV export calls triggerBlobDownload with returned blob", async () => {
   });
 
   expect(await screen.findByText("同一地点商业噪声")).toBeInTheDocument();
-  fireEvent.click(screen.getByText("导出事件 CSV"));
+  fireEvent.click(screen.getByText("导出事件表格"));
 
   await waitFor(() => {
     expect(createdLinks.length).toBeGreaterThan(0);
@@ -430,9 +424,10 @@ test("existing handling history renders in timeline", async () => {
   expect(await screen.findByText("派员核实")).toBeInTheDocument();
   expect(screen.getByText("已现场处理")).toBeInTheDocument();
   expect(screen.getByText("att-1")).toBeInTheDocument();
-  // previous -> new
-  expect(screen.getAllByText("unhandled").length).toBeGreaterThan(0);
-  expect(screen.getAllByText("investigating").length).toBeGreaterThan(0);
+  // 状态流转只显示中文标签
+  expect(screen.getAllByText("未处理").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("处理中").length).toBeGreaterThan(0);
+  expect(screen.queryByText("unhandled")).not.toBeInTheDocument();
 });
 
 test("removed events render in a separate restore section", async () => {
@@ -548,7 +543,8 @@ test("restoring removed event sends explicit actor and reason", async () => {
   });
 
   expect(await screen.findByText("同一地点商业噪声")).toBeInTheDocument();
-  fireEvent.change(screen.getByPlaceholderText("demo-operator"), {
+  const restoreActorInputs = screen.getAllByPlaceholderText("请输入操作员编号");
+  fireEvent.change(restoreActorInputs[restoreActorInputs.length - 1], {
     target: { value: "reviewer-2" },
   });
   fireEvent.change(screen.getByPlaceholderText("例如：误判，恢复归属"), {
@@ -577,9 +573,24 @@ test("actor id is required for remove_member submission", async () => {
 
   expect(await screen.findByText("同一地点商业噪声")).toBeInTheDocument();
   // 清空第一个 actor input
-  const actorInputs = screen.getAllByPlaceholderText("操作员 ID");
+  const actorInputs = screen.getAllByPlaceholderText("请输入操作员编号");
   fireEvent.change(actorInputs[0], { target: { value: "" } });
   fireEvent.click(screen.getAllByText("移出该多频事件")[0]);
   // 由于按钮 disabled，click 不会触发 confirm
   expect(confirmSpy).not.toHaveBeenCalled();
+});
+
+test("technical evidence values are translated for business users", async () => {
+  stubMatchMedia();
+  const payload = detailPayload();
+  payload.summary.evidence = {
+    consistency: "complete_link_guard",
+    locations: ["顺德区陈村镇"],
+  };
+  renderPage(async () => jsonOk(payload));
+
+  expect(await screen.findByText("已通过关联完整性检查")).toBeInTheDocument();
+  expect(screen.getByText("顺德区陈村镇")).toBeInTheDocument();
+  expect(screen.queryByText("complete_link_guard")).not.toBeInTheDocument();
+  expect(screen.getByText("智能判断摘要")).toBeInTheDocument();
 });
