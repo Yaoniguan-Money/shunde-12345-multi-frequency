@@ -14,14 +14,15 @@ class _AnalysisFixture:
     def __init__(self, *, status: str = "completed", error: str | None = None) -> None:
         self.job_id = uuid4()
         self.batch_id = uuid4()
-        self.last_request: tuple[object, int, str] | None = None
+        self.last_request: tuple[object, str | None] | None = None
         self.view = AnalysisJobView(
             job_id=self.job_id,
             status=status,
             total_rows=128278,
-            selected_rows=3,
-            processed_rows=3,
-            event_count=4,
+            target_work_order_count=128278,
+            processed_work_order_count=3,
+            failed_work_order_count=0,
+            produced_event_instance_count=4,
             match_edge_count=2,
             cluster_count=1,
             started_at=datetime.now(UTC),
@@ -35,12 +36,14 @@ class _AnalysisFixture:
                 pipeline_version="understanding.v2",
                 provider="remote-openai-compatible",
             ),
-            selection_mode="recurrence_candidates",
             current_stage="completed" if status == "completed" else "matching",
+            selected_rows=128278,
+            processed_rows=3,
+            event_count=4,
         )
 
-    async def submit(self, batch_id, max_work_orders, selection_mode="sequential"):
-        self.last_request = (batch_id, max_work_orders, selection_mode)
+    async def submit(self, batch_id, provider_profile_id=None):
+        self.last_request = (batch_id, provider_profile_id)
         return self.view
 
     async def get(self, job_id):
@@ -48,7 +51,7 @@ class _AnalysisFixture:
 
 
 @pytest.mark.asyncio
-async def test_analysis_job_api_exposes_bounded_progress_and_trace() -> None:
+async def test_analysis_job_api_exposes_full_batch_progress_and_trace() -> None:
     fixture = _AnalysisFixture()
     app = create_app()
     app.dependency_overrides[get_analysis_job_service] = lambda: fixture
@@ -58,33 +61,42 @@ async def test_analysis_job_api_exposes_bounded_progress_and_trace() -> None:
             "/analysis-jobs",
             json={
                 "import_batch_id": str(fixture.batch_id),
-                "max_work_orders": 3,
-                "selection_mode": "recurrence_candidates",
             },
         )
         progress = await client.get(f"/analysis-jobs/{fixture.job_id}")
-        missing_limit = await client.post(
-            "/analysis-jobs", json={"import_batch_id": str(fixture.batch_id)}
-        )
-        too_large = await client.post(
+
+    assert created.status_code == 202
+    body = created.json()
+    assert body["status"] == "completed"
+    assert body["target_work_order_count"] == 128278
+    assert body["total_rows"] == 128278
+    assert body["produced_event_instance_count"] == 4
+    assert body["match_edge_count"] == 2
+    assert body["cluster_count"] == 1
+    assert body["current_stage"] == "completed"
+    assert body["trace"]["model_id"] == "qwen-plus"
+    # 请求体中不存在 max_work_orders 或 selection_mode
+    assert fixture.last_request == (fixture.batch_id, None)
+    assert progress.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_analysis_job_api_accepts_provider_profile_id() -> None:
+    fixture = _AnalysisFixture()
+    app = create_app()
+    app.dependency_overrides[get_analysis_job_service] = lambda: fixture
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
             "/analysis-jobs",
-            json={"import_batch_id": str(fixture.batch_id), "max_work_orders": 301},
+            json={
+                "import_batch_id": str(fixture.batch_id),
+                "provider_profile_id": "cloud-qwen",
+            },
         )
 
     assert created.status_code == 202
-    assert created.json()["status"] == "completed"
-    assert created.json()["selected_rows"] == 3
-    assert created.json()["total_rows"] == 128278
-    assert created.json()["selection_mode"] == "recurrence_candidates"
-    assert created.json()["event_count"] == 4
-    assert created.json()["match_edge_count"] == 2
-    assert created.json()["cluster_count"] == 1
-    assert created.json()["current_stage"] == "completed"
-    assert created.json()["trace"]["model_id"] == "qwen-plus"
-    assert progress.status_code == 200
-    assert fixture.last_request == (fixture.batch_id, 3, "recurrence_candidates")
-    assert missing_limit.status_code == 422
-    assert too_large.status_code == 422
+    assert fixture.last_request == (fixture.batch_id, "cloud-qwen")
 
 
 @pytest.mark.asyncio

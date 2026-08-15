@@ -120,18 +120,6 @@ function DashboardSignalPanel({ clusters }: { clusters: ClusterSummaryResponse[]
   );
 }
 
-function BackendOnlyNotice(): JSX.Element {
-  return (
-    <div className="evidence-box" style={{ marginBottom: 20 }}>
-      <span className="evidence-box__label">数据口径</span>
-      <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
-        首页只展示后端接口已返回并能可靠关联的数据。后端未提供的趋势、
-        高频等级、准确率或活动记录不再用模拟数字填充。
-      </p>
-    </div>
-  );
-}
-
 export function DashboardPage(): JSX.Element {
   const workOrdersQuery = useQuery({
     queryKey: ["dashboard", "work-orders"],
@@ -179,12 +167,7 @@ export function DashboardPage(): JSX.Element {
       <header className="detail-header" style={{ marginBottom: 20 }}>
         <p className="eyebrow">数据总览</p>
         <h1 className="detail-header__title">研判总览</h1>
-        <p className="text-muted" style={{ margin: "8px 0 0" }}>
-          只呈现当前 PostgreSQL 和后端目录 API 中存在的真实数据。
-        </p>
       </header>
-
-      <BackendOnlyNotice />
 
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         <StatCard
@@ -196,7 +179,7 @@ export function DashboardPage(): JSX.Element {
         <StatCard
           label="研判事项总数"
           value={eventsQuery.data?.total ?? null}
-          description="来自事件目录，仅展示真实数据"
+          description="AI研判关联事件数"
           loading={eventsQuery.isPending}
         />
         <StatCard
@@ -204,12 +187,6 @@ export function DashboardPage(): JSX.Element {
           value={clustersQuery.data?.total ?? null}
           description="后端 is_multi_frequency=true"
           loading={clustersQuery.isPending}
-        />
-        <StatCard
-          label="质量指标"
-          value="—"
-          description="暂无 Gold Set，不虚构准确率"
-          loading={false}
         />
       </div>
 
@@ -240,9 +217,8 @@ export function DashboardPage(): JSX.Element {
           高频判定说明
         </div>
         <p className="text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
-          高频仅展示后端合同结果：active cluster 在滚动三天日历窗口内至少有 3 条不同真实
-          WorkOrder 且日期可解析。前端不会自行按相似度或日期重算；没有后端高频字段的记录
-          不显示高频标签。
+          在滚动三天日历窗口内至少有 3 条不同真实工单；只展示后端已确认的跨不同工单多频事件，
+          高频等级需以后端字段为准。
         </p>
       </div>
     </section>

@@ -8,6 +8,27 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.app.infrastructure.db.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
+class AnalysisScope(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "analysis_scopes"
+    __table_args__ = (UniqueConstraint("analysis_job_id"),)
+
+    analysis_job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analysis_jobs.id", ondelete="CASCADE"), index=True
+    )
+    import_batch_id: Mapped[UUID] = mapped_column(
+        ForeignKey("import_batches.id", ondelete="CASCADE"), index=True
+    )
+    target_work_order_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    work_order_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    work_order_id_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    pipeline_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    taxonomy_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("taxonomy_versions.id", ondelete="SET NULL")
+    )
+    provider_profile_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    execution_policy_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+
+
 class AnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "analysis_jobs"
     __table_args__ = (UniqueConstraint("idempotency_key", "pipeline_version"),)

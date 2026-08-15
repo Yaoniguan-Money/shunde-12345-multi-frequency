@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -9,6 +9,7 @@ from backend.app.domain.analysis_jobs import (
     AnalysisBatchInfo,
     AnalysisJobState,
     AnalysisJobView,
+    FrozenScope,
     PersistedEvent,
     ResumableAnalysisJob,
     UnderstandingRecord,
@@ -20,6 +21,7 @@ from backend.app.domain.types import GazetteerSnapshot, VersionTrace
 from backend.app.infrastructure.db.models import (
     AnalysisJob,
     AnalysisRun,
+    AnalysisScope,
     CanonicalEntity,
     ComplaintSegment,
     EntityAliasRuntime,
@@ -107,21 +109,18 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
         provider: str,
         model_config_hash: str | None,
         total_rows: int,
-        selected_rows: int,
-        selection_mode: str,
+        target_work_order_count: int,
         batch_id: UUID,
-        max_work_orders: int,
     ) -> AnalysisJobState:
         metrics = {
             "total_rows": total_rows,
-            "selected_rows": selected_rows,
+            "target_work_order_count": target_work_order_count,
+            "selected_rows": target_work_order_count,  # 旧字段兼容
             "processed_rows": 0,
             "event_count": 0,
             "match_edge_count": 0,
             "cluster_count": 0,
-            "selection_mode": selection_mode,
             "import_batch_id": str(batch_id),
-            "max_work_orders": max_work_orders,
         }
         async with self._session_factory() as session:
             async with session.begin():
@@ -190,10 +189,9 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     run.metrics = {
                         **existing_metrics,
                         "total_rows": total_rows,
-                        "selected_rows": selected_rows,
-                        "selection_mode": selection_mode,
+                        "target_work_order_count": target_work_order_count,
+                        "selected_rows": target_work_order_count,
                         "import_batch_id": str(batch_id),
-                        "max_work_orders": max_work_orders,
                     }
                     run.completed_at = None
                 current_metrics = run.metrics or {}
@@ -222,16 +220,16 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     job_id=job.id,
                     status=job.status,
                     total_rows=0,
-                    selected_rows=0,
-                    processed_rows=0,
-                    event_count=0,
+                    target_work_order_count=0,
+                    processed_work_order_count=0,
+                    failed_work_order_count=0,
+                    produced_event_instance_count=0,
                     match_edge_count=0,
                     cluster_count=0,
                     started_at=None,
                     finished_at=None,
                     error=self._error_message(job.error_metadata),
                     trace=None,
-                    selection_mode="sequential",
                     current_stage=job.current_stage or "queued",
                 )
             metrics = run.metrics or {}
@@ -249,9 +247,16 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 job_id=job.id,
                 status=job.status,
                 total_rows=self._metric_int(metrics, "total_rows"),
-                selected_rows=self._metric_int(metrics, "selected_rows"),
-                processed_rows=self._metric_int(metrics, "processed_rows", "rows_processed"),
-                event_count=self._metric_int(metrics, "event_count", "events_extracted"),
+                target_work_order_count=self._metric_int(
+                    metrics, "target_work_order_count", "selected_rows"
+                ),
+                processed_work_order_count=self._metric_int(
+                    metrics, "processed_rows", "rows_processed"
+                ),
+                failed_work_order_count=self._metric_int(metrics, "failed_work_order_count"),
+                produced_event_instance_count=self._metric_int(
+                    metrics, "event_count", "events_extracted"
+                ),
                 match_edge_count=max(
                     self._metric_int(metrics, "match_edge_count"), persisted_edge_count or 0
                 ),
@@ -269,8 +274,10 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     pipeline_version=run.pipeline_version,
                     provider=run.provider,
                 ),
-                selection_mode=self._metric_str(metrics, "selection_mode", "sequential"),
                 current_stage=job.current_stage or "queued",
+                selected_rows=self._metric_int(metrics, "selected_rows"),
+                processed_rows=self._metric_int(metrics, "processed_rows", "rows_processed"),
+                event_count=self._metric_int(metrics, "event_count", "events_extracted"),
             )
 
     async def list_resumable_jobs(self) -> tuple[ResumableAnalysisJob, ...]:
@@ -296,21 +303,19 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     continue
                 metrics = run.metrics or {}
                 raw_batch_id = metrics.get("import_batch_id")
-                max_work_orders = metrics.get("max_work_orders")
-                selection_mode = metrics.get("selection_mode")
                 try:
                     batch_id = UUID(str(raw_batch_id))
                 except (TypeError, ValueError):
                     continue
-                if not isinstance(max_work_orders, int) or not isinstance(selection_mode, str):
-                    continue
+                target_count = metrics.get("target_work_order_count")
+                if not isinstance(target_count, int):
+                    target_count = metrics.get("selected_rows", 0)
                 resumable.append(
                     ResumableAnalysisJob(
                         job.id,
                         run.id,
                         batch_id,
-                        max_work_orders,
-                        selection_mode,
+                        target_count if isinstance(target_count, int) else 0,
                         job.idempotency_key,
                         self._checkpoint(job.checkpoint_cursor),
                         self._metric_int(metrics, "rows_processed", "processed_rows"),
@@ -363,31 +368,26 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 run.status = "queued"
                 run.metrics = {**(run.metrics or {}), "last_interruption": reason}
 
-    async def select_work_orders(
-        self, batch_id: UUID, limit: int, selection_mode: str
-    ) -> tuple[WorkOrderSource, ...]:
-        if selection_mode == "sequential":
-            return await self.load_work_orders(batch_id, 0, limit)
-        if selection_mode != "recurrence_candidates":
-            raise ValueError("selection_mode must be sequential or recurrence_candidates")
-        recurrence_condition = or_(
-            WorkOrder.raw_content.op("~")("曾反映|再次反映|多次反映|重复反映"),
-            WorkOrder.raw_content.op("~")("(工单号|诉求编号)"),
-        )
+    async def select_work_orders(self, batch_id: UUID) -> tuple[WorkOrderSource, ...]:
+        """WP2: 返回导入批次全部成功工单，不再按 limit/selection_mode 截断。"""
         async with self._session_factory() as session:
             rows = (
                 await session.scalars(
                     select(WorkOrder)
-                    .where(
-                        WorkOrder.import_batch_id == batch_id,
-                        recurrence_condition,
-                    )
+                    .where(WorkOrder.import_batch_id == batch_id)
                     .order_by(WorkOrder.source_row_number)
-                    .limit(limit)
                 )
             ).all()
             return tuple(
-                WorkOrderSource(row.id, row.source_row_number, row.raw_title, row.raw_content)
+                WorkOrderSource(
+                    row.id,
+                    row.source_row_number,
+                    row.raw_title,
+                    row.raw_content,
+                    reported_at=row.reported_at,
+                    external_work_order_number=row.external_work_order_number,
+                    source_tags=tuple(row.source_tags or []),
+                )
                 for row in rows
             )
 
@@ -503,7 +503,15 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 )
             ).all()
             return tuple(
-                WorkOrderSource(row.id, row.source_row_number, row.raw_title, row.raw_content)
+                WorkOrderSource(
+                    row.id,
+                    row.source_row_number,
+                    row.raw_title,
+                    row.raw_content,
+                    reported_at=row.reported_at,
+                    external_work_order_number=row.external_work_order_number,
+                    source_tags=tuple(row.source_tags or []),
+                )
                 for row in rows
             )
 
@@ -856,3 +864,82 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
             return None
         value = metadata.get("message")
         return value if isinstance(value, str) else None
+
+    async def freeze_scope(
+        self,
+        job_id: UUID,
+        batch_id: UUID,
+        work_order_ids: tuple[UUID, ...],
+        target_work_order_count: int,
+        pipeline_version: str,
+        taxonomy_version_id: UUID | None,
+        provider_profile_snapshot: dict[str, object] | None,
+        execution_policy_snapshot: dict[str, object] | None,
+    ) -> FrozenScope:
+        import hashlib
+
+        id_strs = sorted(str(wid) for wid in work_order_ids)
+        id_hash = hashlib.sha256("|".join(id_strs).encode()).hexdigest()
+        async with self._session_factory() as session:
+            async with session.begin():
+                scope = await session.scalar(
+                    select(AnalysisScope).where(AnalysisScope.analysis_job_id == job_id)
+                )
+                if scope is not None:
+                    return FrozenScope(
+                        scope_id=scope.id,
+                        job_id=job_id,
+                        batch_id=scope.import_batch_id,
+                        target_work_order_count=scope.target_work_order_count,
+                        work_order_ids=tuple(UUID(wid) for wid in scope.work_order_ids),
+                        work_order_id_hash=scope.work_order_id_hash,
+                        pipeline_version=scope.pipeline_version,
+                        taxonomy_version_id=scope.taxonomy_version_id,
+                        provider_profile_snapshot=scope.provider_profile_snapshot,
+                        execution_policy_snapshot=scope.execution_policy_snapshot,
+                    )
+                scope = AnalysisScope(
+                    analysis_job_id=job_id,
+                    import_batch_id=batch_id,
+                    target_work_order_count=target_work_order_count,
+                    work_order_ids=list(id_strs),
+                    work_order_id_hash=id_hash,
+                    pipeline_version=pipeline_version,
+                    taxonomy_version_id=taxonomy_version_id,
+                    provider_profile_snapshot=provider_profile_snapshot,
+                    execution_policy_snapshot=execution_policy_snapshot,
+                )
+                session.add(scope)
+                await session.flush()
+                return FrozenScope(
+                    scope_id=scope.id,
+                    job_id=job_id,
+                    batch_id=batch_id,
+                    target_work_order_count=target_work_order_count,
+                    work_order_ids=work_order_ids,
+                    work_order_id_hash=id_hash,
+                    pipeline_version=pipeline_version,
+                    taxonomy_version_id=taxonomy_version_id,
+                    provider_profile_snapshot=provider_profile_snapshot,
+                    execution_policy_snapshot=execution_policy_snapshot,
+                )
+
+    async def get_scope(self, job_id: UUID) -> FrozenScope | None:
+        async with self._session_factory() as session:
+            scope = await session.scalar(
+                select(AnalysisScope).where(AnalysisScope.analysis_job_id == job_id)
+            )
+            if scope is None:
+                return None
+            return FrozenScope(
+                scope_id=scope.id,
+                job_id=job_id,
+                batch_id=scope.import_batch_id,
+                target_work_order_count=scope.target_work_order_count,
+                work_order_ids=tuple(UUID(wid) for wid in scope.work_order_ids),
+                work_order_id_hash=scope.work_order_id_hash,
+                pipeline_version=scope.pipeline_version,
+                taxonomy_version_id=scope.taxonomy_version_id,
+                provider_profile_snapshot=scope.provider_profile_snapshot,
+                execution_policy_snapshot=scope.execution_policy_snapshot,
+            )

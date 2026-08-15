@@ -1,6 +1,16 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,6 +47,15 @@ class WorkOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     raw_fields: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     raw_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    reported_at_source: Mapped[str | None] = mapped_column(String(64))
+    reported_at_parser_version: Mapped[str | None] = mapped_column(String(64))
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    source_tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    raw_payload_hash: Mapped[str | None] = mapped_column(String(64), index=True)
 
 
 class ComplaintSegment(UUIDPrimaryKeyMixin, TimestampMixin, Base):

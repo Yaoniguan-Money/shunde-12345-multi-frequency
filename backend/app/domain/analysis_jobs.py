@@ -13,6 +13,9 @@ class WorkOrderSource:
     source_row_number: int
     raw_title: str | None
     raw_content: str
+    reported_at: datetime | None = None
+    external_work_order_number: str | None = None
+    source_tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,17 +50,21 @@ class AnalysisJobView:
     job_id: UUID
     status: str
     total_rows: int
-    selected_rows: int
-    processed_rows: int
-    event_count: int
+    target_work_order_count: int
+    processed_work_order_count: int
+    failed_work_order_count: int
+    produced_event_instance_count: int
     match_edge_count: int
     cluster_count: int
     started_at: datetime | None
     finished_at: datetime | None
     error: str | None
     trace: VersionTrace | None
-    selection_mode: str = "sequential"
     current_stage: str = "queued"
+    # 旧字段兼容（从 metrics 投影），新代码应使用上面的字段
+    selected_rows: int = 0
+    processed_rows: int = 0
+    event_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +72,7 @@ class ResumableAnalysisJob:
     job_id: UUID
     run_id: UUID
     batch_id: UUID
-    max_work_orders: int
-    selection_mode: str
+    target_work_order_count: int
     idempotency_key: str
     checkpoint_source_row: int
     rows_processed: int
@@ -79,6 +85,20 @@ class PersistedEvent:
     work_order_id: UUID
     event_id: UUID
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenScope:
+    scope_id: UUID
+    job_id: UUID
+    batch_id: UUID
+    target_work_order_count: int
+    work_order_ids: tuple[UUID, ...]
+    work_order_id_hash: str
+    pipeline_version: str
+    taxonomy_version_id: UUID | None
+    provider_profile_snapshot: dict[str, object] | None
+    execution_policy_snapshot: dict[str, object] | None
 
 
 class UnderstandingRepository(Protocol):
@@ -94,10 +114,8 @@ class UnderstandingRepository(Protocol):
         provider: str,
         model_config_hash: str | None,
         total_rows: int,
-        selected_rows: int,
-        selection_mode: str,
+        target_work_order_count: int,
         batch_id: UUID,
-        max_work_orders: int,
     ) -> AnalysisJobState: ...
 
     async def get_job_view(self, job_id: UUID) -> AnalysisJobView | None: ...
@@ -112,9 +130,7 @@ class UnderstandingRepository(Protocol):
 
     async def requeue_interrupted(self, job_id: UUID, run_id: UUID, reason: str) -> None: ...
 
-    async def select_work_orders(
-        self, batch_id: UUID, limit: int, selection_mode: str
-    ) -> tuple[WorkOrderSource, ...]: ...
+    async def select_work_orders(self, batch_id: UUID) -> tuple[WorkOrderSource, ...]: ...
 
     async def start_or_resume(
         self,
@@ -171,3 +187,17 @@ class UnderstandingRepository(Protocol):
     async def finish(self, job_id: UUID, run_id: UUID, metrics: dict[str, object]) -> None: ...
 
     async def fail(self, job_id: UUID, run_id: UUID, code: str, message: str) -> None: ...
+
+    async def freeze_scope(
+        self,
+        job_id: UUID,
+        batch_id: UUID,
+        work_order_ids: tuple[UUID, ...],
+        target_work_order_count: int,
+        pipeline_version: str,
+        taxonomy_version_id: UUID | None,
+        provider_profile_snapshot: dict[str, object] | None,
+        execution_policy_snapshot: dict[str, object] | None,
+    ) -> FrozenScope: ...
+
+    async def get_scope(self, job_id: UUID) -> FrozenScope | None: ...

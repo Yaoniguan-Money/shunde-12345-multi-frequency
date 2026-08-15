@@ -347,17 +347,11 @@ function StageImportProgress({
   result,
   elapsed,
   error,
-  maxWorkOrders,
-  onMaxWorkOrdersChange,
-  maxWorkOrdersError,
   onStartAnalysis,
 }: {
   result: ImportResponse | null;
   elapsed: number;
   error: string | null;
-  maxWorkOrders: number;
-  onMaxWorkOrdersChange: (value: number) => void;
-  maxWorkOrdersError: string | null;
   onStartAnalysis: () => void;
 }): JSX.Element {
   if (error) {
@@ -410,13 +404,8 @@ function StageImportProgress({
             <div className="import-done__stat-label">耗时</div>
           </div>
       </div>
-      <label style={{ display: "block", margin: "16px 0", maxWidth: 360 }}>
-        <span className="text-muted">本次智能研判工单上限（1–300）</span>
-        <input data-testid="max-work-orders" type="number" min={1} max={300} value={maxWorkOrders} onChange={(event) => onMaxWorkOrdersChange(Number(event.target.value))} style={{ display: "block", width: "100%", marginTop: 6 }} />
-      </label>
-      {maxWorkOrdersError ? <p className="text-danger">{maxWorkOrdersError}</p> : null}
-      <p className="text-muted">本次只研判 <strong>{maxWorkOrders}</strong> 条工单，不会自动处理全部数据。</p>
-        <button data-testid="create-job-btn" className="btn btn--primary btn--lg" disabled={Boolean(maxWorkOrdersError)} onClick={onStartAnalysis}>开始智能研判</button>
+      <p className="text-muted" style={{ margin: "16px 0" }}>成功导入 <strong>{result.successful_rows}</strong> 张工单，本次将研判全部 <strong>{result.successful_rows}</strong> 张。</p>
+        <button data-testid="create-job-btn" className="btn btn--primary btn--lg" onClick={onStartAnalysis}>开始智能研判</button>
       </div>
     </div>
   );
@@ -593,7 +582,6 @@ export function ImportsPage(): JSX.Element {
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importElapsed, setImportElapsed] = useState(0);
-  const [maxWorkOrders, setMaxWorkOrders] = useState(50);
 
   const [job, setJob] = useState<AnalysisJobResponse | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -697,7 +685,6 @@ export function ImportsPage(): JSX.Element {
 
   const handleStartAnalysis = useCallback(async () => {
     if (!importResult) return;
-    if (!Number.isInteger(maxWorkOrders) || maxWorkOrders < 1 || maxWorkOrders > 300) return;
     setStep(4);
     setJob(null);
     setJobId(null);
@@ -707,7 +694,6 @@ export function ImportsPage(): JSX.Element {
     try {
       const created = await createAnalysisJob({
         import_batch_id: importResult.batch_id,
-        max_work_orders: Math.min(maxWorkOrders, importResult.successful_rows),
       });
       setJobId(created.job_id);
       setJob(created);
@@ -745,11 +731,7 @@ export function ImportsPage(): JSX.Element {
       setJobError(describeApiError(e));
       pushToast(`创建研判失败：${describeApiError(e)}`, "error");
     }
-  }, [importResult, maxWorkOrders, pushToast, queryClient]);
-
-  const maxWorkOrdersError = !Number.isInteger(maxWorkOrders) || maxWorkOrders < 1 || maxWorkOrders > 300
-    ? "请输入 1 - 300 之间的整数"
-    : null;
+  }, [importResult, pushToast, queryClient]);
 
   const jobIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -832,9 +814,6 @@ export function ImportsPage(): JSX.Element {
           result={importResult}
           elapsed={importElapsed}
           error={importError}
-          maxWorkOrders={maxWorkOrders}
-          onMaxWorkOrdersChange={setMaxWorkOrders}
-          maxWorkOrdersError={maxWorkOrdersError}
           onStartAnalysis={handleStartAnalysis}
         />
       ) : null}

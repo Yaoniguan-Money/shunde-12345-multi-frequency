@@ -78,6 +78,11 @@ class SQLAlchemyImportRepository(ImportBatchRepository):
                                 raw_content=row.content,
                                 raw_fields=row.raw_fields,
                                 raw_sha256=row.raw_sha256,
+                                reported_at=row.reported_at,
+                                reported_at_source=row.reported_at_source,
+                                reported_at_parser_version=row.reported_at_parser_version,
+                                source_tags=list(row.source_tags),
+                                raw_payload_hash=row.raw_payload_hash,
                             )
                             .on_conflict_do_nothing(
                                 index_elements=[

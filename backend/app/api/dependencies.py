@@ -7,6 +7,7 @@ from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
+from backend.app.application.services.taxonomy import TaxonomyService
 from backend.app.domain.attachments import AttachmentStore
 from backend.app.domain.ports.export import Exporter
 from backend.app.infrastructure.health import DependencyHealthProbe
@@ -82,3 +83,10 @@ def get_attachment_store(request: Request) -> AttachmentStore:
 
 
 AttachmentStoreDependency = Annotated[AttachmentStore, Depends(get_attachment_store)]
+
+
+def get_taxonomy_service(request: Request) -> TaxonomyService:
+    return request.app.state.taxonomy_service
+
+
+TaxonomyServiceDependency = Annotated[TaxonomyService, Depends(get_taxonomy_service)]

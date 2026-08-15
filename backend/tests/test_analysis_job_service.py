@@ -28,27 +28,49 @@ from backend.app.infrastructure.db.models import AnalysisJob
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
 
 
+def _make_view(
+    job_id: object,
+    status: str,
+    *,
+    target: int = 3,
+    processed: int = 0,
+    events: int = 0,
+    edges: int = 0,
+    clusters: int = 0,
+    trace: VersionTrace | None = None,
+    error: str | None = None,
+    started_at: object = None,
+    finished_at: object = None,
+) -> AnalysisJobView:
+    return AnalysisJobView(
+        job_id=job_id,  # type: ignore[arg-type]
+        status=status,
+        total_rows=128278,
+        target_work_order_count=target,
+        processed_work_order_count=processed,
+        failed_work_order_count=0,
+        produced_event_instance_count=events,
+        match_edge_count=edges,
+        cluster_count=clusters,
+        started_at=started_at,  # type: ignore[arg-type]
+        finished_at=finished_at,  # type: ignore[arg-type]
+        error=error,
+        trace=trace,
+    )
+
+
 class _JobRepository:
     def __init__(self, batch_id):
         self.batch = AnalysisBatchInfo(batch_id, "completed", 128278, 128278)
         self.job_id = uuid4()
         self.run_id = uuid4()
-        self.view = AnalysisJobView(
+        self.view = _make_view(
             self.job_id,
             "queued",
-            128278,
-            0,
-            0,
-            0,
-            0,
-            0,
-            None,
-            None,
-            None,
-            VersionTrace("qwen-plus", "hash", "understanding.v2", None, "understanding.v2"),
+            trace=VersionTrace("qwen-plus", "hash", "understanding.v2", None, "understanding.v2"),
         )
         self.finished_metrics = None
-        self.resumable = ()
+        self.resumable: tuple = ()
         self.interrupted_reason = None
         self.running = asyncio.Event()
 
@@ -61,8 +83,8 @@ class _JobRepository:
             for row in range(1, min(limit, 3) + 1)
         )
 
-    async def select_work_orders(self, batch_id, limit, _selection_mode):
-        return await self.load_work_orders(batch_id, 0, limit)
+    async def select_work_orders(self, batch_id):
+        return await self.load_work_orders(batch_id, 0, 3)
 
     async def create_or_requeue(self, **_kwargs):
         return AnalysisJobState(self.job_id, self.run_id, 0, "queued")
@@ -71,19 +93,10 @@ class _JobRepository:
         return self.resumable
 
     async def mark_running(self, _job_id, _run_id, _stage):
-        self.view = AnalysisJobView(
+        self.view = _make_view(
             self.job_id,
             "running",
-            128278,
-            3,
-            self.view.processed_rows,
-            self.view.event_count,
-            self.view.match_edge_count,
-            self.view.cluster_count,
-            self.view.started_at,
-            None,
-            None,
-            self.view.trace,
+            trace=self.view.trace,
         )
         self.running.set()
 
@@ -98,35 +111,25 @@ class _JobRepository:
 
     async def finish(self, _job_id, _run_id, metrics):
         self.finished_metrics = metrics
-        self.view = AnalysisJobView(
+        self.view = _make_view(
             self.job_id,
             "completed",
-            128278,
-            3,
-            metrics["processed_rows"],
-            metrics["event_count"],
-            metrics["match_edge_count"],
-            metrics["cluster_count"],
-            self.view.started_at,
-            self.view.started_at,
-            None,
-            self.view.trace,
+            processed=metrics["processed_rows"],
+            events=metrics["event_count"],
+            edges=metrics["match_edge_count"],
+            clusters=metrics["cluster_count"],
+            trace=self.view.trace,
+            started_at=self.view.started_at,
+            finished_at=self.view.started_at,
         )
 
     async def fail(self, _job_id, _run_id, _code, message):
-        self.view = AnalysisJobView(
+        self.view = _make_view(
             self.job_id,
             "failed",
-            128278,
-            3,
-            0,
-            0,
-            0,
-            0,
-            self.view.started_at,
-            None,
-            message,
-            self.view.trace,
+            trace=self.view.trace,
+            error=message,
+            started_at=self.view.started_at,
         )
 
 
@@ -138,16 +141,13 @@ class _Orchestrator:
     async def run_import_batch(
         self,
         _batch_id,
-        _max_work_orders,
         *,
         idempotency_key,
         analysis_state,
-        selection_mode="sequential",
     ):
-        assert idempotency_key.startswith("demo-analysis:")
+        assert idempotency_key.startswith("analysis:")
         assert analysis_state.job_id == self._job_id
         assert analysis_state.run_id == self._run_id
-        assert selection_mode in {"sequential", "recurrence_candidates"}
         if self.fail:
             raise RuntimeError("remote provider unavailable")
         if self.gate is not None:
@@ -200,7 +200,7 @@ async def test_analysis_job_service_finishes_with_real_graph_counts() -> None:
         repository=repository,
         orchestrator_factory=factory,
     )
-    queued = await service.submit(batch_id, 3)
+    queued = await service.submit(batch_id)
     completed = await service.wait_for_completion(queued.job_id)
 
     assert completed is not None
@@ -231,7 +231,7 @@ async def test_analysis_job_service_records_failure_without_completed_status() -
         repository=repository,
         orchestrator_factory=factory,
     )
-    queued = await service.submit(batch_id, 3)
+    queued = await service.submit(batch_id)
     failed = await service.wait_for_completion(queued.job_id)
 
     assert failed is not None
@@ -257,7 +257,7 @@ async def test_analysis_job_stays_running_until_event_graph_returns() -> None:
         repository=repository,
         orchestrator_factory=factory,
     )
-    queued = await service.submit(batch_id, 3)
+    queued = await service.submit(batch_id)
     await repository.running.wait()
 
     in_progress = await service.get(queued.job_id)
@@ -282,8 +282,7 @@ async def test_analysis_job_service_requeues_interrupted_work_and_recovers_on_st
             repository.run_id,
             batch_id,
             3,
-            "sequential",
-            f"demo-analysis:{batch_id}:sequential:3:understanding.v2",
+            f"analysis:{batch_id}:understanding.v2",
             2,
             2,
             3,
@@ -330,10 +329,8 @@ async def test_failed_job_retry_preserves_checkpoint_and_cumulative_metrics() ->
                 provider="test-provider",
                 model_config_hash="test-hash",
                 total_rows=100,
-                selected_rows=5,
-                selection_mode="sequential",
+                target_work_order_count=5,
                 batch_id=batch_id,
-                max_work_orders=5,
             )
             job_id = state.job_id
             await repository.checkpoint(
@@ -355,10 +352,8 @@ async def test_failed_job_retry_preserves_checkpoint_and_cumulative_metrics() ->
                 provider="test-provider",
                 model_config_hash="test-hash",
                 total_rows=100,
-                selected_rows=5,
-                selection_mode="sequential",
+                target_work_order_count=5,
                 batch_id=batch_id,
-                max_work_orders=5,
             )
         except (OSError, SQLAlchemyError) as error:
             pytest.skip(f"PostgreSQL not available; retry persistence deferred: {error}")

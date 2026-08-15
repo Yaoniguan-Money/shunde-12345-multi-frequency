@@ -534,7 +534,6 @@ function HandlingRecordForm({
   const [actorId, setActorId] = useState(DEFAULT_ACTOR_ID);
   const [description, setDescription] = useState("");
   const [result, setResult] = useState("");
-  const [attachments, setAttachments] = useState("");
 
   const mutation = useMutation({
     mutationFn: (body: HandlingRecordCreate) =>
@@ -546,7 +545,6 @@ function HandlingRecordForm({
       setNewStatus("");
       setDescription("");
       setResult("");
-      setAttachments("");
     },
     onError: (error: unknown) => {
       pushToast(`提交失败：${describeApiError(error)}`, "error");
@@ -573,13 +571,6 @@ function HandlingRecordForm({
     if (trimmedDesc) body.description = trimmedDesc;
     const trimmedResult = result.trim();
     if (trimmedResult) body.result = trimmedResult;
-    const attachmentsList = attachments
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    if (attachmentsList.length > 0) {
-      body.attachment_references = attachmentsList;
-    }
     mutation.mutate(body);
   }
 
@@ -648,23 +639,6 @@ function HandlingRecordForm({
           value={result}
           onChange={(e) => setResult(e.target.value)}
           maxLength={10000}
-          disabled={mutation.isPending}
-        />
-      </div>
-      <div className="action-form__field">
-        <label
-          className="action-form__label"
-          htmlFor="handling-attachments"
-        >
-          附件编号（可选，多个请用逗号分隔）
-        </label>
-        <input
-          id="handling-attachments"
-          type="text"
-          className="action-form__input"
-          value={attachments}
-          onChange={(e) => setAttachments(e.target.value)}
-          placeholder="例如：附件1，附件2"
           disabled={mutation.isPending}
         />
       </div>

@@ -1,6 +1,7 @@
 from backend.app.infrastructure.db.models.analysis import (
     AnalysisJob,
     AnalysisRun,
+    AnalysisScope,
     WorkOrderAnalysisResult,
 )
 from backend.app.infrastructure.db.models.audit import (
@@ -23,6 +24,7 @@ from backend.app.infrastructure.db.models.events import (
     EventMatchEdge,
     WorkOrderEmbedding,
 )
+from backend.app.infrastructure.db.models.taxonomy import TaxonomyNode, TaxonomyVersion
 from backend.app.infrastructure.db.models.work_orders import (
     ComplaintSegment,
     ImportBatch,
@@ -33,6 +35,7 @@ from backend.app.infrastructure.db.models.work_orders import (
 __all__ = [
     "AnalysisJob",
     "AnalysisRun",
+    "AnalysisScope",
     "WorkOrderAnalysisResult",
     "AuditLog",
     "Base",
@@ -50,6 +53,8 @@ __all__ = [
     "ImportBatch",
     "ImportRowError",
     "KnowledgeSnapshot",
+    "TaxonomyNode",
+    "TaxonomyVersion",
     "WorkOrder",
     "WorkOrderEmbedding",
 ]

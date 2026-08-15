@@ -1,8 +1,108 @@
 # CURRENT_STATE.md
 
-更新日期：2026-08-15（Asia/Shanghai）
+更新日期：2026-08-16（Asia/Shanghai）
 
 状态只允许：`DONE / PARTIAL / BLOCKED / PLANNED`。本文件区分已经实测的 shipped state 与后续目标，不以骨架冒充业务功能。
+
+## 演讲稿对齐总升级计划（2026-08-16 启动）
+
+本轮按 `docs/presentation-alignment-plan/` 的 WP0 → WP8 顺序实施。本节跟踪每个 WP 的真实状态；只有测试和退出条件真实通过后才允许标 `DONE`，否则保持 `PLANNED / PARTIAL / BLOCKED`。
+
+| WP | 状态 | 真实进展 |
+|---|---|---|
+| WP0 冻结术语、ADR 和接口 | DONE | PRODUCT_SCOPE / ARCHITECTURE / DECISIONS / TRAE_HANDOFF 已对齐锁定决策；ADR-010/012/015/018 标记 superseded，新增 ADR-019 至 ADR-026；字段、枚举、时间、高频、Same Event 定义全部评审通过 |
+| WP1 附录 A 目录与迁移 | DONE | domain/taxonomy.py、ports/taxonomy.py、infrastructure/taxonomy/loader.py+resolver.py、infrastructure/db/taxonomy.py、db/models/taxonomy.py、schemas/taxonomy.py、api/taxonomy.py、application/services/taxonomy.py、scripts/seed_taxonomy.py、alembic b1c2d3e4f5a6 迁移；真实 DB 种子化成功：14/99/515/514/090499两条/13空/关键代码校验通过；16 个 taxonomy 测试 + 52 个既有测试全部通过（68 passed） |
+| WP2 领域数据、Reported At 与 AnalysisScope | PARTIAL | **已完成**：删除 `max_work_orders`/`selection_mode`（后端 API+service+repo+测试+前端 API+ImportsPage+Dashboard+ClusterDetail），全批次研判，新增 `target_work_order_count`/`processed_work_order_count`/`failed_work_order_count`/`produced_event_instance_count`/`completed_with_failures` 状态/`provider_profile_id`；删除 Dashboard 质量指标板块；删除 ClusterDetailPage 附件编号输入。**WP2 新增（本轮）**：WorkOrder 新增 `reported_at`/`reported_at_source`/`reported_at_parser_version`/`imported_at`/`source_tags`/`raw_payload_hash` 6字段+Alembic迁移(c2d3e4f5a6b7)；EventInstance V3 新增16个字段（classification_node_id/classification_source/classification_confidence/classification_ambiguity/current_problem/current_request/history_context/previous_work_order_references/focal_object_mentions/responsible_party_mentions/location_mentions/occurrence_interval_start/end/evidence_spans/unknown_fields）；AnalysisScope 模型+freeze_scope/get_scope 方法实现 scope 冻结逻辑；ReportedAtResolver 领域服务（三优先级解析：字段映射→工单号→unknown）+ShundeWroNumberDateParser（工单号前6位YYMMDD解析）；ImportRow 扩展 reported_at/source_tags/raw_payload_hash 字段；SQLAlchemyImportRepository 写入新字段；WorkOrderSource 携带 reported_at/source_tags；89 个后端测试全部通过（含14个 reported_at 新增测试）。**待实施**：WP3 understanding.v3 pipeline 接入 V3 字段、AnalysisScope 在 analysis pipeline 中实际调用冻结 |
+| WP3 理解、事项拆分与标准分类 | PLANNED | 待实施：v3 分段、EventFact[]、source code 确定性分类、taxonomy-constrained 分类 |
+| WP4 Reality Object、候选、Same Event 与高频 | PLANNED | 待实施：分型 resolver、混合有界候选、SameEventJudgeV2、移除 low_frequency（后端已确认无 low_frequency） |
+| WP5 Provider 按任务选择与性能 | PLANNED | 待实施：ProviderProfileRegistry、per-job snapshot、独立 Execution Policy |
+| WP6 API、统计和分类筛选 | PLANNED | 待实施：overview/facets、taxonomy tree、100/103 数字分离 |
+| WP7 前端对齐 | PARTIAL | **已完成**：删除研判数量输入（ImportsPage）、删除质量指标板块（DashboardPage）、删除附件编号输入（ClusterDetailPage）、更新 API 类型。**待实施**：Provider 卡、完整分类级联、高频状态无低频、详情证据 |
+| WP8 真实回放、评测与交付 | PLANNED | 待实施：100 条真实导入、本地 E2E、云端千问性能、Gold Set、Playwright |
+
+### WP0 已落地的口径冻结
+
+- 全批次研判：删除产品层 `max_work_orders` 与 `selection_mode`；导入 N 张就研判 N 张。
+- 任务前 Provider Profile 选择：任务创建时冻结快照，不再依赖 `SHUNDE_AI_PROVIDER_MODE` 全局变量。
+- 完整附录 A：14/99/515；`090499` 两条不同父路径保留；13 条空三级名称保真。
+- 高频规则：`reported_at` 三日窗口、不同 `work_order_id` 计数、`high_frequency / not_reached / insufficient_date_evidence` 三态、禁止 `low_frequency`。
+- SameEventJudgeV2：结构化输出、硬锚点门槛、`ambiguous` 不进正向边、Embedding 不直接建边。
+- 分析状态 / 标准分类 / 来源标记三态分离；`title_tags` 只能叫“来源标记”。
+- 前端删除项：研判数量输入、质量指标板块、附件编号输入、`low_frequency` 标签、未接真实接口的假入口。
+- 性能目标：云端 100 条预热后三次 P50 ≤ 5 分钟、单次 ≤ 7 分钟；local/cloud 独立 Execution Policy。
+
+### WP1 已落地的附录 A 目录
+
+真实 DB 验证（2026-08-16）：
+
+```text
+uv run alembic upgrade head                  PASS — ad1e2f3a4b5c -> b1c2d3e4f5a6
+uv run python scripts/seed_taxonomy.py       PASS — activated=true; 14/99/515/514/090499/13空
+uv run ruff check .                          PASS
+uv run ruff format --check .                 PASS
+uv run pyright backend                       PASS — 0 errors, 0 warnings
+uv run pytest -q                             PASS — 68 passed (16 taxonomy + 52 既有)
+```
+
+新增文件：
+- `backend/app/domain/taxonomy.py`：领域模型（TaxonomyVersion/Node/Stats/CodeResolution/ClassificationOutcome + 锁定常量）
+- `backend/app/domain/ports/taxonomy.py`：TaxonomyRepository / ClassificationValidator 端口
+- `backend/app/infrastructure/taxonomy/loader.py`：CSV 加载 + 完整性校验
+- `backend/app/infrastructure/taxonomy/resolver.py`：代码/路径解析器（090499 歧义 + 父代码消歧）
+- `backend/app/infrastructure/db/models/taxonomy.py`：ORM（TaxonomyVersion + TaxonomyNode）
+- `backend/app/infrastructure/db/taxonomy.py`：SQLAlchemyTaxonomyRepository
+- `backend/app/schemas/taxonomy.py`：Pydantic schemas
+- `backend/app/api/taxonomy.py`：API routes（/taxonomies/active、/tree、/stats、/resolve、/seed）
+- `backend/app/application/services/taxonomy.py`：TaxonomyService
+- `backend/alembic/versions/b1c2d3e4f5a6_add_taxonomy_tables.py`：迁移
+- `scripts/seed_taxonomy.py`：种子脚本
+- `backend/tests/test_taxonomy.py`：16 个测试
+
+修改文件：
+- `backend/app/infrastructure/db/models/__init__.py`：导出 TaxonomyVersion/Node
+- `backend/app/domain/ports/__init__.py`：导出 TaxonomyRepository/ClassificationValidator
+- `backend/app/api/dependencies.py`：添加 TaxonomyServiceDependency
+- `backend/app/main.py`：注册 taxonomy router 和 service
+
+API 端点：
+- `GET /taxonomies/active`：返回 active version
+- `GET /taxonomies`：列出所有 version
+- `GET /taxonomies/{version_id}/tree`：完整树
+- `GET /taxonomies/{version_id}/stats`：完整性统计
+- `GET /taxonomies/{version_id}/resolve?printed_code=...&parent_printed_code=...`：代码解析
+- `POST /taxonomies/seed`：从 CSV 创建并激活
+
+---
+
+### WP2 已落地的领域数据升级
+
+真实 DB 验证（2026-08-16）：
+
+```text
+uv run alembic upgrade head                  PASS — b1c2d3e4f5a6 -> c2d3e4f5a6b7
+uv run ruff check .                          PASS — All checks passed!
+uv run ruff format --check .                 PASS — 183 files already formatted
+uv run pyright backend                       PASS — 0 errors, 0 warnings, 0 informations
+uv run pytest -q                             PASS — 89 passed (14 reported_at + 75 既有)
+```
+
+新增文件：
+- `backend/app/domain/reported_at.py`：ReportedAtResolver 领域服务（三优先级解析）+ReportedAtResult/ReportedAtSource
+- `backend/app/domain/wro_number_parser.py`：ShundeWroNumberDateParser（工单号YYMMDD解析器）
+- `backend/alembic/versions/c2d3e4f5a6b7_add_wp2_domain_data_and_scope.py`：迁移
+- `backend/tests/test_reported_at.py`：14 个测试（字段映射优先/ISO日期/工单号回退/unknown/非法输入/跨年/空值）
+
+修改文件：
+- `backend/app/infrastructure/db/models/work_orders.py`：WorkOrder 新增 6 字段
+- `backend/app/infrastructure/db/models/events.py`：EventInstance 新增 16 个 V3 字段
+- `backend/app/infrastructure/db/models/analysis.py`：新增 AnalysisScope 模型
+- `backend/app/infrastructure/db/models/__init__.py`：导出 AnalysisScope
+- `backend/app/domain/analysis_jobs.py`：新增 FrozenScope dataclass + freeze_scope/get_scope Protocol 方法；WorkOrderSource 扩展 reported_at/external_work_order_number/source_tags
+- `backend/app/domain/imports.py`：ImportRow 扩展 reported_at/reported_at_source/reported_at_parser_version/source_tags/raw_payload_hash
+- `backend/app/infrastructure/db/imports.py`：SQLAlchemyImportRepository.persist_chunk 写入新字段
+- `backend/app/infrastructure/db/analysis.py`：SQLAlchemyUnderstandingRepository 实现 freeze_scope/get_scope；select_work_orders/load_work_orders 返回 reported_at/source_tags
+
+
 
 ## Git
 

@@ -16,9 +16,7 @@ type StatusFilter = "all" | "pending" | "confirmed" | "rejected";
 
 function getSummary(cluster: ClusterSummaryResponse): string {
   const summary = cluster.evidence?.summary;
-  return typeof summary === "string" && summary.trim()
-    ? summary
-    : "后端未提供事件摘要";
+  return typeof summary === "string" && summary.trim() ? summary : "";
 }
 
 function EventCard({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Element {
@@ -109,18 +107,7 @@ export function EventsPage(): JSX.Element {
       <div className="page-header__top">
         <div>
           <h1 className="page-header__title">多频事件</h1>
-          <p className="page-header__subtitle">
-            只展示后端已确认的跨不同工单多频事件；高频等级需以后端字段为准。
-          </p>
         </div>
-      </div>
-
-      <div className="evidence-box" style={{ marginBottom: 20 }}>
-        <span className="evidence-box__label">数据口径</span>
-        <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
-          高频由后端按滚动三天日历窗口判定：窗口内至少 3 条不同真实工单且工单有可解析日期。
-          未匹配到真实事件、缺少日期或不满足该规则的记录不会标记为高频；前端不自行计算。
-        </p>
       </div>
 
       <div className="filter-bar">

@@ -106,17 +106,7 @@ export function WorkOrdersPage(): JSX.Element {
       <header className="detail-header" style={{ marginBottom: 20 }}>
         <p className="eyebrow">工单数据</p>
         <h1 className="detail-header__title">工单中心</h1>
-        <p className="text-muted" style={{ margin: "8px 0 0" }}>
-          只展示后端返回的真实工单；未提供的字段不补造。
-        </p>
       </header>
-
-      <div className="evidence-box" style={{ marginBottom: 20 }}>
-        <span className="evidence-box__label">数据口径</span>
-        <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
-          当前列表没有后端导入历史、趋势或类型分布合同，因此页面不显示模拟导入、随机趋势或估算统计。
-        </p>
-      </div>
 
       <div className="work-order-signal-strip">
         <div className="work-order-signal-strip__title">
