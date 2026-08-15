@@ -370,6 +370,13 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 | 三天高频判定 | DONE | 后端对每个 active cluster 计算任意滚动 3 个日历日窗口内的不同真实工单数；达到 3 条且日期可解析才返回 `is_high_frequency=true`，并返回 `frequency_window_days=3`、`frequency_work_order_count`；前端只展示该结果 |
 | 全量前端门禁 | DONE | `pnpm lint`、`pnpm test --run`（32 passed）和 `pnpm build` 全通过；`scripts/check.ps1` 全通过 |
 
+## CI 依赖源兜底（2026-08-15）
+
+远程 `ci` 最近一次失败已定位为 GitHub runner 无法连接锁文件中的清华 PyPI 镜像，失败发生在
+`uv sync --locked` 下载 `iniconfig` / `watchfiles`，尚未进入 Ruff、Pyright 或 pytest。工作流现先
+执行 `uv lock --check`，再尝试正规镜像；镜像连接失败时以同一锁文件执行
+`uv sync --frozen --default-index https://pypi.org/simple`，只切换下载源，不改版本、不跳过校验。
+
 高频规则已形成可审计合同：`is_high_frequency`、`frequency_window_days` 和
 `frequency_work_order_count`。统计对象是 active cluster 中不同的真实 WorkOrder；同一工单拆出的
 多个 EventInstance 只计一条，`occurrence_date` 为空的事件不参与窗口判断。三天按包含首尾日期的
