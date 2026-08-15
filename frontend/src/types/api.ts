@@ -115,6 +115,10 @@ export interface ClusterSummaryResponse {
   trace: TraceResponse | null;
   review_status: ReviewStatus;
   is_multi_frequency: boolean;
+  /** Backend-calculated high-frequency projection; clients must not recompute it. */
+  is_high_frequency: boolean;
+  frequency_window_days: number;
+  frequency_work_order_count: number;
 }
 
 export interface ClusterDetailResponse {

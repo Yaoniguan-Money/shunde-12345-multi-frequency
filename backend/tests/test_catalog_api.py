@@ -191,8 +191,12 @@ async def test_catalog_api_exposes_trace_evidence_and_pagination() -> None:
     assert clusters.json()["items"][0]["member_count"] == 2
     assert clusters.json()["items"][0]["work_order_count"] == 2
     assert clusters.json()["items"][0]["event_count"] == 3
+    assert clusters.json()["items"][0]["is_high_frequency"] is False
+    assert clusters.json()["items"][0]["frequency_window_days"] == 3
+    assert clusters.json()["items"][0]["frequency_work_order_count"] == 0
     assert cluster.json()["summary"]["work_order_count"] == 2
     assert cluster.json()["summary"]["event_count"] == 3
+    assert cluster.json()["summary"]["is_high_frequency"] is False
     assert len(cluster.json()["work_orders"]) == 2
     assert sorted(len(item["events"]) for item in cluster.json()["work_orders"]) == [1, 2]
     assert cluster.json()["edges"][0]["evidence"]["same_issue"] is True

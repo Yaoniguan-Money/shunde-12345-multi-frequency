@@ -231,6 +231,9 @@ def _cluster_summary(summary: ClusterSummary) -> ClusterSummaryResponse:
         trace=_trace(summary.trace) if summary.trace else None,
         review_status=cast(ReviewStatus, summary.review_status),
         is_multi_frequency=summary.is_multi_frequency,
+        is_high_frequency=summary.is_high_frequency,
+        frequency_window_days=summary.frequency_window_days,
+        frequency_work_order_count=summary.frequency_work_order_count,
     )
 
 

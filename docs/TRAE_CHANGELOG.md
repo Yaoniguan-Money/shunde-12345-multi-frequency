@@ -2,15 +2,25 @@
 
 TRAE appends entries; do not rewrite history.
 
+## 2026-08-15 — Backend high-frequency window contract
+
+- 改动目标：落实“ 三天内三条及以上 ”的高频口径，避免前端用模糊相似度或本地日期推断。
+- API 变更：`ClusterSummaryResponse` / `ClusterDetailResponse.summary` 新增 `is_high_frequency`、
+  `frequency_window_days`、`frequency_work_order_count`。
+- 判定：active cluster 任意滚动 3 个日历日窗口内至少 3 条不同真实 WorkOrder；同工单多个
+  EventInstance 只计一条，缺少 `occurrence_date` 的记录不计入。没有满足条件时返回 false，不制造高频标签。
+- 前端：多频事件卡片仅在 `is_high_frequency=true` 时展示“高频 · 3天内N条工单”；不重新计算。
+- 验证：新增 rolling-window domain tests 和 EventsPage contract test；无数据库迁移。
+
 ## 2026-08-15 — Frontend backend-only rendering
 
 - 改动目标：修复前端展示与后端记录无法匹配的问题；没有后端字段的内容不再显示。
 - 修改文件：`frontend/src/App.tsx`、`frontend/src/pages/DashboardPage.tsx`、`frontend/src/pages/EventsPage.tsx`、`frontend/src/pages/WorkOrdersPage.tsx`、`frontend/src/pages/ImportsPage.tsx`、`frontend/src/styles.css`、`frontend/src/pages/DashboardPage.test.tsx`。
 - API 变更：无。页面只消费既有目录、导入预览、导入、分析任务和复核合同。
 - 行为：移除静态雷达/活动/趋势/随机数/固定兜底统计、模拟工单、模拟导入历史、假预览行和模拟匹配边；空数组显示空状态，接口失败显示错误和重试；多频/工单/批次/任务必须带真实后端 ID。
-- 高频边界：当前后端没有三天窗口、增长信号或 `frequency_level`，前端不自行设置模糊相似度阈值。后端合同明确后再接入。
+- 高频边界（历史）：当时后端没有三天窗口；后续已接入顶部条目定义的后端合同。
 - 本地验证：`pnpm test --run`（6 files、31 passed）、`pnpm lint`（passed）、`pnpm build`（passed）。
-- 已知边界：当前后端仍没有三天窗口、增长信号或 `frequency_level`，前端不自行设置模糊相似度阈值判定高频。
+- 历史边界：该时点后端尚未提供三天窗口；已由本文件顶部的“Backend high-frequency window contract”条目 supersede。
 
 ## 2026-08-15 — Removed member restore contract
 

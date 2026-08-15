@@ -182,9 +182,9 @@ export function DashboardPage(): JSX.Element {
           高频判定说明
         </div>
         <p className="text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
-          当前后端合同只提供“跨不同 WorkOrder 的多频 cluster”判定，尚未提供“三天内上涨”的
-          高频等级字段。因此前端不会自行按相似度或日期创造高频结论；待后端提供明确的窗口、
-          事件计数和相似度证据后，再按同一合同展示。
+          高频仅展示后端合同结果：active cluster 在滚动三天日历窗口内至少有 3 条不同真实
+          WorkOrder 且日期可解析。前端不会自行按相似度或日期重算；没有后端高频字段的记录
+          不显示高频标签。
         </p>
       </div>
     </section>

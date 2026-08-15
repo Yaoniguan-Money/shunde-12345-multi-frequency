@@ -282,5 +282,7 @@ Dashboard、多频事件、工单中心和导入/研判页都适用此规则；�
 列表接口返回空数组时显示空状态；接口失败时显示失败和重试入口，不保留旧的模拟卡片。
 
 当前 `/multi-frequency-events` 的“多频”含义是后端已确认的跨不同 WorkOrder cluster，
-不是“高频”标签。三天内出现/增长的高频策略尚未进入后端领域合同；禁止在 React 中自行按
-相似度或日期做模糊判定。后端明确提供窗口、事件计数、增长信号和证据后，前端才按这些字段展示。
+“高频”是其独立的后端投影：任意滚动 3 个日历日窗口内至少 3 条不同真实 WorkOrder，且每条
+工单对应的 EventInstance 有可解析 `occurrence_date`。同一工单的多个 EventInstance 只计一条，
+缺日期记录不参与判定。响应提供 `is_high_frequency`、`frequency_window_days`（固定为 3）和
+`frequency_work_order_count`；React 只能展示这些字段，禁止自行按相似度、事件条数或日期重新计算。

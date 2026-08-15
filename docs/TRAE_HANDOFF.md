@@ -162,7 +162,9 @@ POST /multi-frequency-events/{cluster_id}/corrections
 - 不得删除人工纠错与审计信息。
 - 不得隐藏失败/未知状态以制造“全部成功”的观感。
 - 首页和看板不得添加静态示例、随机数、固定比例或样本外兜底数字；没有后端字段就不展示该指标，接口空结果必须显示空状态。
-- 不得把“多频 cluster”改名或推断成“高频”；当前后端尚未提供三天窗口/增长信号/`frequency_level`，禁止前端自行设置相似度阈值判定高频。
+- 不得把“多频 cluster”直接改名或自行推断成“高频”。后端已提供 `is_high_frequency`、
+  `frequency_window_days`、`frequency_work_order_count`：含义是 active cluster 任意滚动三天日历窗口内
+  至少三条不同真实 WorkOrder，缺少 `occurrence_date` 的记录不计入；前端只展示字段，不自行设置相似度阈值或重算。
 - 不得擅自改变 Provider routing；不得写死商业模型厂商；不得绕过 backend 直接调用模型；不得修改 API key / secret 管理方式。当前 Demo 路径继续使用 `qwen-plus`、`qwen3.7-text-embedding` 和 remote OpenAI-compatible provider。
 - `partial`、`failed`、`ambiguous`、`unresolved` 必须原样呈现，不能视觉上抹平。
 

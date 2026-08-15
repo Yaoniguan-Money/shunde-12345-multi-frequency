@@ -354,7 +354,7 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 | restart/resume | DONE | metrics 保存 batch/limit/selection 和累计进度；启动恢复 queued/running，正常停机重新排队；已持久化 SameEvent pair 不重复调用云端 |
 | 增量持久化 | DONE | SameEvent decision 完成一条即写一条；API 从同一 run 实时统计 edge/cluster，不再等全批结束后一次落库 |
 | HTTP/UI contract | DONE | `GET /analysis-jobs/{id}` 增加 `current_stage`；前端 matching/clustering 期间继续轮询，完整 completed 后失效 cluster 列表缓存 |
-| 回归门禁 | DONE | 原数据库复现为 `RED: outer completed while graph is running and cluster_count=0`；修复后 backend 48 tests、frontend 28 tests、Ruff/format/Pyright/lint/build 和 `scripts/check.ps1` 全通过 |
+| 回归门禁 | DONE | 原数据库复现为 `RED: outer completed while graph is running and cluster_count=0`；当前 backend 52 tests、frontend 32 tests、Ruff/format/Pyright/lint/build 和 `scripts/check.ps1` 全通过 |
 | 验收数据清理 | DONE | 精确删除 batch `42b89baa-fa13-4f60-b526-ab3fc17dd1f5`、2 个错误生命周期 job 及全部派生记录；最终 import/work order/event/embedding/edge/cluster/job/run/handling/correction/audit 均为 0 |
 
 本轮没有重新发送 100 条政务工单到云端。数据库清理不可从数据库恢复，但桌面原始
@@ -366,11 +366,16 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 |---|---|---|
 | 前端未匹配数据裁剪 | DONE | Dashboard、多频事件、工单中心、导入/研判页均只渲染后端返回且可关联的真实记录；移除静态雷达、活动、趋势、随机数、模拟工单、模拟预览和样本外兜底数字 |
 | 空数据/接口失败表现 | DONE | 后端无数据时显示明确空状态；接口失败显示错误状态和重试，不再显示“模拟数据”或固定统计 |
-| 前端回归与构建 | DONE | 新增 Dashboard 空响应/真实 cluster 回归；前端 6 files、31 tests passed；ESLint passed；`pnpm build` passed |
-| 三天高频判定 | PARTIAL | 当前后端只有跨不同 WorkOrder 的 `is_multi_frequency` cluster，没有三天窗口、增长信号或 `frequency_level` 字段；前端不自行按相似度/日期制造“高频”结论 |
-| 全量前端门禁 | BLOCKED | 当前 main 已存在与本次 Dashboard 无关的 lint/test 基线错误（EventsPage/ImportsPage/router 未使用变量、App/Imports/WorkOrders 既有测试失败）；本次没有修改这些无关文件 |
+| 前端回归与构建 | DONE | 新增 Dashboard 与高频字段回归；前端 7 files、32 tests passed；ESLint passed；`pnpm build` passed |
+| 三天高频判定 | DONE | 后端对每个 active cluster 计算任意滚动 3 个日历日窗口内的不同真实工单数；达到 3 条且日期可解析才返回 `is_high_frequency=true`，并返回 `frequency_window_days=3`、`frequency_work_order_count`；前端只展示该结果 |
+| 全量前端门禁 | DONE | `pnpm lint`、`pnpm test --run`（32 passed）和 `pnpm build` 全通过；`scripts/check.ps1` 全通过 |
 
-高频规则必须先由后端形成可审计合同，再由前端展示。建议合同至少提供
-`frequency_level`、`frequency_window_days`、`occurrence_count`、
-`distinct_work_order_count`、`growth_signal` 和 `similarity_evidence`；在规则明确前，
-不能用一个前端相似度阈值替代后端判定。
+高频规则已形成可审计合同：`is_high_frequency`、`frequency_window_days` 和
+`frequency_work_order_count`。统计对象是 active cluster 中不同的真实 WorkOrder；同一工单拆出的
+多个 EventInstance 只计一条，`occurrence_date` 为空的事件不参与窗口判断。三天按包含首尾日期的
+日历窗口计算（例如 1 月 1 日至 1 月 3 日算三天），不使用前端相似度阈值替代后端判定。
+
+重启 backend 后真实 smoke：`GET /health/ready` 返回 `ready`；
+`GET /multi-frequency-events?limit=20` 返回 4 个真实 cluster，均带新字段且当前数据均为
+`is_high_frequency=false`（已有 cluster 的可解析 occurrence_date 不足三条，或其余事件日期为空）。
+这不是失败或伪造 0，而是按缺日期不计入的规则得出的真实结果。

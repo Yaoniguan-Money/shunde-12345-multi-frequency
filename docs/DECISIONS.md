@@ -149,3 +149,14 @@ same run. Request bounds and cumulative progress live in the existing run JSONB
 metrics so queued/running work can be reconstructed after process restart
 without a schema migration. Only the outer application service writes completed
 or failed, preventing the UI from observing completed before graph persistence.
+
+# ADR-018: High frequency is a backend rolling-calendar projection
+Status: accepted
+
+High frequency is not inferred by the client from similarity, total members or
+displayed event cards. For each active cluster, the catalog calculates the
+maximum number of distinct WorkOrders whose parsed `occurrence_date` falls in
+any inclusive three-calendar-day window. A count of at least three returns
+`is_high_frequency=true`; an EventInstance without a parsed date is excluded,
+and multiple events from one WorkOrder count once. The API also returns the
+window size and observed count for auditability. No schema migration is needed.

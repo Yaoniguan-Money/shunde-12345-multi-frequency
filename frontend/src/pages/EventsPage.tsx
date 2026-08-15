@@ -30,6 +30,12 @@ function EventCard({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Elemen
               {cluster.name}
             </Link>
             <span className="tag tag--info">多频</span>
+            {cluster.is_high_frequency === true ? (
+              <span className="tag tag--danger">
+                高频 · {cluster.frequency_window_days ?? 3}天内
+                {cluster.frequency_work_order_count ?? 0}条工单
+              </span>
+            ) : null}
           </div>
           <div className="event-card__badges">
             <StatusBadge status={cluster.review_status} variant="neutral" />
@@ -104,8 +110,8 @@ export function EventsPage(): JSX.Element {
       <div className="evidence-box" style={{ marginBottom: 20 }}>
         <span className="evidence-box__label">数据口径</span>
         <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
-          当前接口没有三天窗口、增长信号或 frequency_level，因此页面不按相似度或工单数量自行推断“高频”。
-          未匹配到真实 cluster 的数据不会展示。
+          高频由后端按滚动三天日历窗口判定：窗口内至少 3 条不同真实工单且工单有可解析日期。
+          未匹配到真实 cluster、缺少日期或不满足该规则的记录不会标记为高频；前端不自行计算。
         </p>
       </div>
 
