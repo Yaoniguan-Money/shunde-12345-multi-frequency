@@ -13,7 +13,7 @@
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
 - 本轮 cloud-first Demo Core commit：`8e9e5fc`；文档 checkpoint：`79f48b7`，均已推送 `origin/main`。
-- Final Codex hard-install closure commit：本轮 bounded analysis job HTTP contract，提交后推送 `origin/main`。
+- Final Codex hard-install closure commit：`7595dd2`（bounded analysis job HTTP contract），已推送 `origin/main`。
 
 ## Environment
 
