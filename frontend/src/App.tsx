@@ -14,8 +14,8 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/events", label: "多频事件", end: false },
-  { to: "/work-orders", label: "工单中心", tag: "即将上线" },
-  { to: "/imports", label: "数据导入与AI研判", tag: "即将上线" },
+  { to: "/work-orders", label: "工单中心" },
+  { to: "/imports", label: "数据导入与AI研判" },
 ];
 
 function HealthIndicator(): JSX.Element {
