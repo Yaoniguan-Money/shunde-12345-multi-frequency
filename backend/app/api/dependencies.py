@@ -5,6 +5,8 @@ from fastapi import Depends, Request
 from backend.app.application.handlers.health import HealthCheckHandler
 from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.catalog import CatalogService
+from backend.app.application.services.review import EventReviewService
+from backend.app.domain.ports.export import Exporter
 from backend.app.infrastructure.health import DependencyHealthProbe
 from backend.app.infrastructure.imports import SourceStager
 from backend.app.infrastructure.knowledge.resolver import RuntimeEntityResolver
@@ -50,3 +52,17 @@ def get_catalog_service(request: Request) -> CatalogService:
 
 
 CatalogServiceDependency = Annotated[CatalogService, Depends(get_catalog_service)]
+
+
+def get_review_service(request: Request) -> EventReviewService:
+    return request.app.state.review_service
+
+
+ReviewServiceDependency = Annotated[EventReviewService, Depends(get_review_service)]
+
+
+def get_exporter(request: Request) -> Exporter:
+    return request.app.state.exporter
+
+
+ExporterDependency = Annotated[Exporter, Depends(get_exporter)]

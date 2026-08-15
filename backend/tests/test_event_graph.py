@@ -171,3 +171,34 @@ def test_cluster_builder_rejects_contradictory_transitive_merge() -> None:
     assert len(proposals) == 1
     assert set(proposals[0].members) == {a.event_id, b.event_id}
     assert (b.event_id, c.event_id) in proposals[0].rejected_edges
+
+
+def test_cluster_builder_keeps_semantic_event_type_synonyms_together() -> None:
+    entity = EntityId(uuid4())
+    left = _event(
+        event_id=EventInstanceId(uuid4()),
+        entity=entity,
+        location="新桂北路29号116号铺",
+        summary="恒艺工作室商业噪音",
+        event_type="commercial_noise",
+    )
+    right = _event(
+        event_id=EventInstanceId(uuid4()),
+        entity=entity,
+        location="新桂北路29号116号铺",
+        summary="恒艺工作室噪声扰民",
+        event_type="noise_disturbance",
+    )
+    edge = EventMatchEdgeRecord(
+        left.event_id,
+        right.event_id,
+        True,
+        0.95,
+        SameEventEvidence(True, True, True, True),
+        _remote_trace(),
+    )
+
+    proposals = EventClusterBuilder().build((left, right), (edge,))
+
+    assert len(proposals) == 1
+    assert set(proposals[0].members) == {left.event_id, right.event_id}

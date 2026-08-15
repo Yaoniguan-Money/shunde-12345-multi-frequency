@@ -10,6 +10,8 @@ from backend.app.domain.catalog import (
     ClusterDetail,
     ClusterSummary,
     EventDetail,
+    HandlingRecordView,
+    HumanCorrectionView,
     WorkOrderDetail,
     WorkOrderSummary,
 )
@@ -22,6 +24,8 @@ from backend.app.schemas.catalog import (
     EventDetailResponse,
     EventListResponse,
     EventResponse,
+    HandlingRecordResponse,
+    HumanCorrectionResponse,
     MatchEdgeResponse,
     TraceResponse,
     WorkOrderDetailResponse,
@@ -206,4 +210,34 @@ def _cluster_detail(detail: ClusterDetail) -> ClusterDetailResponse:
             )
             for edge in detail.edges
         ],
+        handling_history=[_handling_record(item) for item in detail.handling_history],
+        human_corrections=[_correction(item) for item in detail.human_corrections],
+    )
+
+
+def _handling_record(record: HandlingRecordView) -> HandlingRecordResponse:
+    return HandlingRecordResponse(
+        record_id=record.record_id,
+        cluster_id=record.cluster_id,
+        previous_status=record.previous_status,
+        new_status=record.new_status,
+        actor_id=record.actor_id,
+        description=record.description,
+        result=record.result,
+        attachment_references=list(record.attachment_references),
+        created_at=record.created_at,
+    )
+
+
+def _correction(correction: HumanCorrectionView) -> HumanCorrectionResponse:
+    return HumanCorrectionResponse(
+        correction_id=correction.correction_id,
+        cluster_id=correction.cluster_id,
+        work_order_id=correction.work_order_id,
+        correction_type=correction.correction_type,
+        actor_id=correction.actor_id,
+        reason=correction.reason,
+        payload=correction.payload,
+        supersedes_correction_id=correction.supersedes_correction_id,
+        created_at=correction.created_at,
     )

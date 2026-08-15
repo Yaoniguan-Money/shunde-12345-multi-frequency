@@ -81,7 +81,7 @@
 | 4 AI understanding/indexing | PARTIAL | v1 本地 smoke 11 条仍保留；Demo Core 以 `understanding.v2` 真实处理选中工单，当前库有 16 个 v2 event、remote Qwen 1024 维 embedding；128,278 条全量尚未运行 |
 | 5 retrieval/rerank | DONE（Demo Core 范围） | PostgreSQL/pgvector candidate retrieval 已接入 remote embedding；`qwen3.7-text-embedding` 真实返回 1024 维并有专用 HNSW partial index；embedding 仍只是 recall evidence，reranker 接口未实现 |
 | 6 event matching/clustering | DONE（Demo Core 范围） | Remote `SameEventMatcher` 已真实调用 qwen-plus；Demo 产出 6 positive / 5 hard-negative edges、1 个一致性 cluster；不是 128,278 条全量聚类，也没有 cosine threshold 判定 |
-| 7 product loop | PARTIAL | 只读 Demo API 已提供；前端仍为工程/health 骨架，不是四页业务产品 |
+| 7 product loop | DONE（backend contract） | 集群一致性回归已修复；处理状态/历史、人工 remove/confirm 纠错、AuditLog、详情聚合和 CSV 导出均已真实可调用；前端仍为工程/health 骨架，不是四页业务产品 |
 | 8 benchmark/handoff | PARTIAL | Demo review artifact 已生成且保留 raw→v2 event→entity→embedding→candidate→SameEvent trace；没有 Gold Set，不报告 Recall/Precision/F1；500–1000 条人工 benchmark 仍是后续工作 |
 
 ## 本轮 Provider / Quality Validation 状态
@@ -192,6 +192,31 @@ remote_embedding_smoke.py                    PASS — qwen3.7-text-embedding / 1
 demo_core.py --anchor-limit 4 --candidate-limit 4 PASS — 6 positive / 5 negative / 1 cluster
 uvicorn + catalog endpoint smoke             PASS — six list/detail endpoints HTTP 200
 ```
+
+## Final Codex hard-install closure (2026-08-15)
+
+| 项目 | 状态 | 实际结果 |
+|---|---|---|
+| Cluster consistency | DONE | `EventClusterBuilder` 不再把不完全相同的 `event_type` 当硬冲突；实体/地点明确冲突和 SameEvent `false`/contradiction 仍拒绝合并；回归测试覆盖 `commercial_noise` vs `noise_disturbance` 同事件 |
+| Handling API | DONE | `POST/GET /multi-frequency-events/{id}/handling-records` 更新当前 `handling_status` 并追加说明/结果/附件引用与历史；真实 smoke 写入 1 条记录 |
+| Human correction API | DONE | `POST/GET /multi-frequency-events/{id}/corrections` 支持 `remove_member` / `confirm_member`；复用 HumanCorrection + AuditLog，raw work order 不变；真实 smoke 产生 2 条纠错、3 条审计，成员移除后确认恢复为 2 |
+| Cluster detail | DONE | `GET /multi-frequency-events/{id}` 已包含 handling history、human corrections、成员工单、SameEvent evidence 和 AI trace |
+| CSV export | DONE | `GET /multi-frequency-events/export.csv?cluster_id=...` 返回 UTF-8 BOM CSV；真实 HTTP 200，Content-Disposition 正确，字段包含 cluster/工单/标题/摘要/主体/地点/AI依据/handling status/result |
+| TRAE handoff | DONE | 已移除过期“不得把本地模型改成云 API”规则，改为禁止擅改 Provider routing、写死厂商、绕过 backend、修改 secret 管理；同步更新 PRODUCT_SCOPE/DEVELOPMENT/CHANGELOG/ADR |
+
+### Final closure validation
+
+```text
+uv run ruff check backend                  PASS
+uv run ruff format --check backend         PASS
+uv run pyright backend                     PASS — 0 errors, 0 warnings
+uv run pytest -q                           PASS — 24 passed（含 review API 合同与 event_type 回归）
+uv run alembic upgrade head                PASS — 9c0d1e2f3a4b（本轮不新增表）
+real uvicorn review smoke                  PASS — handling=1, corrections=2, audits=3, members restored=2
+real CSV export smoke                      PASS — HTTP 200 / text/csv / required header
+```
+
+本轮明确没有运行 128,278 条全量 AI、Gold Set/benchmark 或前端页面。当前仍有 `PARTIAL/BLOCKED` 的全量理解、正式质量验收和领域时间边界事项，不能在 TRAE 页面中显示为已完成。远程 API key 曾在聊天中暴露，交接前应在 DashScope 控制台撤销并重新生成；仓库、日志和数据库 trace 不保存 key。
 
 ### 当前阻塞与手工动作
 

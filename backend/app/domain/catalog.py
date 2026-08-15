@@ -77,6 +77,32 @@ class MatchEdgeView:
 
 
 @dataclass(frozen=True, slots=True)
+class HandlingRecordView:
+    record_id: UUID
+    cluster_id: UUID
+    previous_status: str | None
+    new_status: str
+    actor_id: str
+    description: str | None
+    result: str | None
+    attachment_references: tuple[str, ...]
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class HumanCorrectionView:
+    correction_id: UUID
+    cluster_id: UUID | None
+    work_order_id: UUID | None
+    correction_type: str
+    actor_id: str
+    reason: str | None
+    payload: dict[str, object]
+    supersedes_correction_id: UUID | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterSummary:
     cluster_id: UUID
     name: str
@@ -93,3 +119,5 @@ class ClusterDetail:
     summary: ClusterSummary
     members: tuple[EventDetail, ...]
     edges: tuple[MatchEdgeView, ...]
+    handling_history: tuple[HandlingRecordView, ...] = ()
+    human_corrections: tuple[HumanCorrectionView, ...] = ()

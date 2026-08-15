@@ -8,12 +8,16 @@ from backend.app.api.catalog import router as catalog_router
 from backend.app.api.entities import router as entities_router
 from backend.app.api.health import router as health_router
 from backend.app.api.imports import router as imports_router
+from backend.app.api.review import router as review_router
 from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.catalog import CatalogService
+from backend.app.application.services.review import EventReviewService
 from backend.app.config import get_settings
 from backend.app.infrastructure.db.catalog import SQLAlchemyCatalogRepository
 from backend.app.infrastructure.db.imports import SQLAlchemyImportRepository
+from backend.app.infrastructure.db.review import SQLAlchemyEventReviewRepository
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
+from backend.app.infrastructure.export import SQLAlchemyCSVExporter
 from backend.app.infrastructure.health import DependencyHealthProbe
 from backend.app.infrastructure.imports import PolarsTabularReader, SourceStager
 from backend.app.infrastructure.knowledge.gazetteer import GazetteerHttpAdapter
@@ -29,7 +33,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
-    app.state.catalog_service = CatalogService(SQLAlchemyCatalogRepository(session_factory))
+    catalog_repository = SQLAlchemyCatalogRepository(session_factory)
+    app.state.catalog_service = CatalogService(catalog_repository)
+    app.state.review_service = EventReviewService(SQLAlchemyEventReviewRepository(session_factory))
+    app.state.exporter = SQLAlchemyCSVExporter(session_factory)
     app.state.health_probe = DependencyHealthProbe(engine, settings)
     app.state.import_handler = ImportHandler(
         PolarsTabularReader(), SQLAlchemyImportRepository(session_factory)
@@ -67,6 +74,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(imports_router)
     application.include_router(entities_router)
+    application.include_router(review_router)
     application.include_router(catalog_router)
     return application
 

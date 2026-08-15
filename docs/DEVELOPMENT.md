@@ -142,6 +142,34 @@ GET /multi-frequency-events/{cluster_id}
 
 列表响应包含 `items/offset/limit/total`；详情分别包含 immutable raw work-order、v2 event（`event_type/behavior/normalized_summary/location_signals/time_signals/evidence`）、canonical entity references、SameEvent edges、cluster handling status 与 provider/model/config/schema/pipeline trace。Embedding 分数不能直接当 `same_event`。
 
+## Demo product loop API
+
+TRAE 仍只访问 backend，不直接访问 PostgreSQL 或模型。使用当前详情中的 `cluster_id` 和成员 `event_instance_id`：
+
+```powershell
+$base = 'http://127.0.0.1:8080'
+$body = @{
+  new_status = 'investigating'
+  actor_id = 'operator-id'
+  description = '已转属地核查'
+  result = '待回访'
+  attachment_references = @()
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "$base/multi-frequency-events/$clusterId/handling-records" `
+  -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$base/multi-frequency-events/$clusterId/handling-records"
+```
+
+人工纠错请求体为 `correction_type=remove_member|confirm_member`、`event_instance_id`、`actor_id` 和可选 `reason`：
+
+```text
+POST /multi-frequency-events/{cluster_id}/corrections
+GET  /multi-frequency-events/{cluster_id}/corrections
+GET  /multi-frequency-events/export.csv?cluster_id={cluster_id}
+```
+
+写 API 使用既有 `EventHandlingRecord`、`HumanCorrection`、`AuditLog`，不修改 `work_orders.raw_*`。处理记录是追加历史并同步当前 `handling_status`；纠错改变的是派生 cluster membership，事实与审计记录不会被下一次 AI run 删除。当前只开放安全的成员移除/确认，不假装提供 merge/split。CSV 为 UTF-8 BOM，便于 Excel 直接打开；未解析主体/地点保持为空或明确未知，不得补造。
+
 ## AI quality review artifact
 
 先用真实导入批次做确定性弱标签分层抽样，不把模型输出当 Gold Label：

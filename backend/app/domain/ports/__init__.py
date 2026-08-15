@@ -16,12 +16,14 @@ from backend.app.domain.ports.repositories import (
     JobRepository,
     WorkOrderRepository,
 )
+from backend.app.domain.ports.review import EventReviewRepository
 
 __all__ = [
     "CandidateRetriever",
     "ClusterConsistencyChecker",
     "EmbeddingProvider",
     "EventRepository",
+    "EventReviewRepository",
     "EventGraphRepository",
     "Exporter",
     "GazetteerProvider",

@@ -1,6 +1,7 @@
 """Stable read contracts for the demo catalog endpoints."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -105,3 +106,55 @@ class ClusterDetailResponse(BaseModel):
     summary: ClusterSummaryResponse
     members: list[EventDetailResponse]
     edges: list[MatchEdgeResponse]
+    handling_history: list["HandlingRecordResponse"]
+    human_corrections: list["HumanCorrectionResponse"]
+
+
+class HandlingRecordCreate(BaseModel):
+    new_status: str = Field(min_length=1, max_length=32)
+    actor_id: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=10000)
+    result: str | None = Field(default=None, max_length=10000)
+    attachment_references: list[str] = Field(default_factory=list, max_length=50)
+
+
+class HandlingRecordResponse(BaseModel):
+    record_id: UUID
+    cluster_id: UUID
+    previous_status: str | None
+    new_status: str
+    actor_id: str
+    description: str | None
+    result: str | None
+    attachment_references: list[str]
+    created_at: datetime
+
+
+class HumanCorrectionCreate(BaseModel):
+    correction_type: Literal["remove_member", "confirm_member"]
+    event_instance_id: UUID
+    actor_id: str = Field(min_length=1, max_length=255)
+    reason: str | None = Field(default=None, max_length=10000)
+
+
+class HumanCorrectionResponse(BaseModel):
+    correction_id: UUID
+    cluster_id: UUID | None
+    work_order_id: UUID | None
+    correction_type: str
+    actor_id: str
+    reason: str | None
+    payload: dict[str, object]
+    supersedes_correction_id: UUID | None
+    created_at: datetime
+
+
+class HandlingHistoryResponse(BaseModel):
+    items: list[HandlingRecordResponse]
+
+
+class HumanCorrectionHistoryResponse(BaseModel):
+    items: list[HumanCorrectionResponse]
+
+
+ClusterDetailResponse.model_rebuild()

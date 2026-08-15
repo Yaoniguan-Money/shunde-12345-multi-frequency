@@ -10,13 +10,15 @@
 
 ### 最新决策
 - AI 直接输出多频事件结果，不设置强制人工复核队列。
-- 保留人工纠错、拆分、合并和操作留痕。
+- 保留人工纠错和操作留痕；当前 Demo 已提供 `remove_member` / `confirm_member`，merge/split 仍需单独的领域规则与验收后再做。
 - 原始工单永远与 AI 派生理解分离。
 - 同主体不同事件不能合并。
 - 当前比赛/Demo 路径显式采用 cloud-first：理解、embedding、SameEventMatcher 均可走已配置的 remote OpenAI-compatible provider；未显式设置 remote 时，代码安全默认仍是 local，绝不自动云回退。
 - Demo Core 只处理从真实 PostgreSQL 动态选择的小样本，不把 128,278 条全量 LLM 分析伪装成完成；每条远程结果必须保留 provider、model、config hash、pipeline/schema trace。
 - 支持 Excel/CSV。
 - 支持事件业务处理状态/过程/结果。
+- 多频事件详情必须可核查成员工单、SameEvent evidence、AI trace、处理历史和人工纠错；处理记录与纠错通过 backend API 写入既有表并留下审计。
+- 支持多频事件 CSV 导出，导出只读派生投影，不改写原始工单。
 - 支持删除单条/批量/整个导入批次，并明确级联与审计。
 - 人文关怀不做心理诊断；个人 Care Signal 只有存在合规、稳定诉求人标识时才可实现。
 

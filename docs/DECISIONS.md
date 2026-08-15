@@ -61,3 +61,16 @@ Local remains the safe code default when remote is absent; there is no automatic
 fallback, no vendor-specific handler code, and no API key in source/logs/database
 正文. The proven embedding model/dimension receives its own pgvector HNSW partial
 index so dimensions cannot be mixed accidentally.
+
+# ADR-011: Human review is an audited overlay on derived clusters
+Status: accepted
+
+Handling changes append an `EventHandlingRecord` and update only the derived
+`EventCluster.handling_status`; human membership decisions append a
+`HumanCorrection`, update only `EventClusterMember`, and append an `AuditLog`.
+Raw work-order columns are never written by these commands. The event-graph
+writer creates a new cluster projection for each analysis run instead of
+updating or deleting a corrected cluster, so the correction fact and its old
+projection survive reruns rather than being silently overwritten. Current
+product scope intentionally exposes only `remove_member` and `confirm_member`;
+merge/split requires a separate domain decision and reconciliation contract.

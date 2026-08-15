@@ -33,7 +33,9 @@ class EventClusterBuilder:
                 continue
             left_events = [by_id[event_id] for event_id in members[left_root]]
             right_events = [by_id[event_id] for event_id in members[right_root]]
-            if any(_conflicts(left, right) for left in left_events for right in right_events):
+            if _edge_conflicts(edge) or any(
+                _conflicts(left, right) for left in left_events for right in right_events
+            ):
                 rejected.append((edge.left_event_id, edge.right_event_id))
                 continue
             if len(members[left_root]) < len(members[right_root]):
@@ -91,7 +93,21 @@ def _conflicts(left: EventForMatching, right: EventForMatching) -> bool:
         and _normalize(left.location_signals).isdisjoint(_normalize(right.location_signals))
     ):
         return True
-    return bool(left.event_type and right.event_type and left.event_type != right.event_type)
+    # Event type is an LLM label, not a canonical ontology.  SameEventMatcher
+    # explicitly permits semantic synonyms (for example noise_disturbance and
+    # commercial_noise); only the structured edge evidence can make issue conflict
+    # a hard rejection.
+    return False
+
+
+def _edge_conflicts(edge: EventMatchEdgeRecord) -> bool:
+    evidence = edge.evidence
+    return (
+        evidence.same_entity is False
+        or evidence.same_location is False
+        or evidence.same_issue is False
+        or bool(evidence.contradictions)
+    )
 
 
 def _normalize(values: tuple[str, ...]) -> set[str]:

@@ -13,6 +13,8 @@ from backend.app.domain.catalog import (
     ClusterSummary,
     EntityReference,
     EventDetail,
+    HandlingRecordView,
+    HumanCorrectionView,
     MatchEdgeView,
     WorkOrderDetail,
     WorkOrderSummary,
@@ -23,8 +25,10 @@ from backend.app.infrastructure.db.models import (
     CanonicalEntity,
     EventCluster,
     EventClusterMember,
+    EventHandlingRecord,
     EventInstance,
     EventMatchEdge,
+    HumanCorrection,
     WorkOrder,
 )
 
@@ -183,11 +187,69 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             member_ids = tuple(event.id for event in events)
             run_ids = tuple(row[0].analysis_run_id for row in member_rows)
             edges = await self._cluster_edges(session, member_ids, run_ids)
+            handling_history = await self._handling_history(session, cluster.id)
+            human_corrections = await self._human_corrections(session, cluster.id)
             return ClusterDetail(
                 summary=self._cluster_summary(cluster, len(members)),
                 members=members,
                 edges=edges,
+                handling_history=handling_history,
+                human_corrections=human_corrections,
             )
+
+    @staticmethod
+    async def _handling_history(
+        session: AsyncSession, cluster_id: UUID
+    ) -> tuple[HandlingRecordView, ...]:
+        rows = (
+            await session.scalars(
+                select(EventHandlingRecord)
+                .where(EventHandlingRecord.event_cluster_id == cluster_id)
+                .order_by(EventHandlingRecord.created_at)
+            )
+        ).all()
+        return tuple(
+            HandlingRecordView(
+                record_id=row.id,
+                cluster_id=row.event_cluster_id,
+                previous_status=row.previous_status,
+                new_status=row.new_status,
+                actor_id=row.actor_id,
+                description=row.description,
+                result=row.result,
+                attachment_references=tuple(
+                    str(item) for item in (row.attachment_references or [])
+                ),
+                created_at=row.created_at,
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    async def _human_corrections(
+        session: AsyncSession, cluster_id: UUID
+    ) -> tuple[HumanCorrectionView, ...]:
+        rows = (
+            await session.scalars(
+                select(HumanCorrection)
+                .where(HumanCorrection.event_cluster_id == cluster_id)
+                .order_by(HumanCorrection.created_at)
+            )
+        ).all()
+        return tuple(
+            HumanCorrectionView(
+                correction_id=row.id,
+                cluster_id=row.event_cluster_id,
+                work_order_id=row.work_order_id,
+                correction_type=row.correction_type,
+                actor_id=row.actor_id,
+                reason=row.reason,
+                payload=row.payload,
+                supersedes_correction_id=row.supersedes_correction_id,
+                created_at=row.created_at,
+            )
+            for row in rows
+        )
 
     async def _summaries(
         self, session: AsyncSession, work_orders: tuple[WorkOrder, ...]
