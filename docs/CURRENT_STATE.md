@@ -302,6 +302,18 @@ scripts/check.ps1                            PASS — backend 36 tests; frontend
 
 本轮没有运行 100 条云端 AI；只运行了 100 条确定性候选选择 smoke。没有 Dashboard UI、全量推理、Gold Set、模型比较或新基础设施。
 
+## Demo 研判吞吐修复（2026-08-15）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| Understanding 并发 | DONE | pipeline chunk 不再固定为 4，按 `SHUNDE_MODEL_CONCURRENCY` 执行；当前安全默认 8 |
+| Retrieval embedding | DONE | pgvector 查询优先复用事件已持久化的同模型向量，缺失时才调用远程 embedding，避免每个事件重复上云 |
+| Candidate / SameEvent | DONE | `EventGraphService` 对候选检索和 SameEvent 使用有界并发；候选上限、去重、hard contradiction 和模型判断语义均未改变 |
+| 回归门禁 | DONE | 并发测试先复现串行失败后通过；pgvector contract 确认已存向量时远程 embedding 调用数为 0；Ruff/format/Pyright/Pytest 通过（42 tests） |
+| 验收库 | DONE | 操作者要求重跑后已清空当前 100 条批次及其 job/event/embedding/cluster；数据库结构、地名快照和原始 Excel 保留 |
+
+本次修复不声称固定倍数：实际吞吐仍受 Qwen API 延迟和限流影响；遇到 429 时通过 `SHUNDE_MODEL_CONCURRENCY=4` 降低并发，不得静默回退本地或改用 mock。
+
 安全派生数据 repair 已为存量 event 回填可审计 outcome：`understanding.v1` 11 work orders/11 events，`understanding.v2` 25 work orders/32 events。无 event 的历史工单无法从 event 反推，仍保持 `unprocessed`，不伪造 `analyzed_no_event`。
 
 ### 本轮门禁

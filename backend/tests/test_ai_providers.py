@@ -134,6 +134,7 @@ def test_remote_configuration_requires_explicit_key() -> None:
         ai_remote_base_url="https://remote.example.test",
         ai_remote_llm_model_id="llm",
         ai_remote_embedding_model_id="embedding",
+        ai_remote_api_key=None,
     )
     with pytest.raises(ProviderConfigurationError, match="API key"):
         build_provider_plan(settings)

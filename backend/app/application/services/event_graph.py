@@ -1,5 +1,6 @@
 """Candidate retrieval, remote SameEvent decisions and consistent clusters."""
 
+import asyncio
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -32,13 +33,17 @@ class EventGraphService:
         *,
         pipeline_version: str = "demo-event-graph.v1",
         schema_version: str = "same-event.v1",
+        concurrency: int = 4,
     ) -> None:
+        if concurrency < 1:
+            raise ValueError("concurrency must be positive")
         self._events = events
         self._graph = graph
         self._retriever = retriever
         self._matcher = matcher
         self._pipeline_version = pipeline_version
         self._schema_version = schema_version
+        self._concurrency = concurrency
 
     async def run(
         self,
@@ -51,8 +56,11 @@ class EventGraphService:
         if candidate_limit < 1:
             raise ValueError("candidate_limit must be positive")
         loaded_events: list[EventForMatching] = []
-        for event_id in event_ids:
-            event = await self._events.get_for_matching(event_id)
+        for event_id, event in zip(
+            event_ids,
+            await asyncio.gather(*(self._events.get_for_matching(value) for value in event_ids)),
+            strict=True,
+        ):
             if event is None:
                 raise LookupError(f"event not found: {event_id}")
             loaded_events.append(event)
@@ -65,18 +73,25 @@ class EventGraphService:
         )
         decisions: list[EventMatchEdgeRecord] = []
         seen_pairs: set[tuple[EventInstanceId, EventInstanceId]] = set()
-        for event in events:
-            candidates = await self._retriever.retrieve(
-                RetrievalQuery(
-                    event_id=event.event_id,
-                    work_order_id=event.work_order_id,
-                    entity_ids=event.entity_ids,
-                    location_signals=event.location_signals,
-                    event_type=event.event_type,
-                    text=event.normalized_summary,
-                    limit=candidate_limit,
+        retrieval_semaphore = asyncio.Semaphore(self._concurrency)
+
+        async def retrieve(event: EventForMatching):
+            async with retrieval_semaphore:
+                return await self._retriever.retrieve(
+                    RetrievalQuery(
+                        event_id=event.event_id,
+                        work_order_id=event.work_order_id,
+                        entity_ids=event.entity_ids,
+                        location_signals=event.location_signals,
+                        event_type=event.event_type,
+                        text=event.normalized_summary,
+                        limit=candidate_limit,
+                    )
                 )
-            )
+
+        candidate_sets = await asyncio.gather(*(retrieve(event) for event in events))
+        pairs: list[tuple[EventInstanceId, EventInstanceId]] = []
+        for event, candidates in zip(events, candidate_sets, strict=True):
             for candidate in candidates:
                 if candidate.event_id not in selected_ids:
                     continue
@@ -93,15 +108,25 @@ class EventGraphService:
                 if pair in seen_pairs:
                     continue
                 seen_pairs.add(pair)
+                pairs.append(pair)
+
+        match_semaphore = asyncio.Semaphore(self._concurrency)
+
+        async def match(
+            pair: tuple[EventInstanceId, EventInstanceId],
+        ) -> EventMatchEdgeRecord:
+            async with match_semaphore:
                 decision = await self._matcher.match(pair[0], pair[1])
-                edge = _edge(pair[0], pair[1], decision)
-                await self._graph.save_match_edge(
-                    run_id,
-                    edge,
-                    pipeline_version=self._pipeline_version,
-                    schema_version=self._schema_version,
-                )
-                decisions.append(edge)
+                return _edge(pair[0], pair[1], decision)
+
+        decisions.extend(await asyncio.gather(*(match(pair) for pair in pairs)))
+        for edge in decisions:
+            await self._graph.save_match_edge(
+                run_id,
+                edge,
+                pipeline_version=self._pipeline_version,
+                schema_version=self._schema_version,
+            )
         positive = tuple(edge for edge in decisions if edge.same_event)
         proposals = EventClusterBuilder().build(events, positive)
         cluster_ids: list[UUID] = []

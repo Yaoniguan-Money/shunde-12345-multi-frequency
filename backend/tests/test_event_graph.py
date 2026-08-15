@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -15,6 +16,7 @@ from backend.app.domain.types import (
     EventMatchEdgeRecord,
     LLMResult,
     ProviderRoute,
+    SameEventDecision,
     SameEventEvidence,
     VersionTrace,
     WorkOrderId,
@@ -159,6 +161,80 @@ async def test_event_graph_never_matches_events_from_the_same_work_order() -> No
 
     assert result.decisions == ()
     assert result.cluster_ids == ()
+
+
+@pytest.mark.asyncio
+async def test_event_graph_uses_bounded_concurrency_for_remote_work() -> None:
+    entity = EntityId(uuid4())
+    events = tuple(
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            entity=entity,
+            location="同一地点",
+            summary=f"噪声投诉-{index}",
+        )
+        for index in range(4)
+    )
+    by_id = {event.event_id: event for event in events}
+
+    class Events:
+        async def get_for_matching(self, event_id):
+            return by_id[event_id]
+
+    class Retriever:
+        def __init__(self) -> None:
+            self.active = 0
+            self.max_active = 0
+
+        async def retrieve(self, query):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            await asyncio.sleep(0.02)
+            self.active -= 1
+            index = next(i for i, event in enumerate(events) if event.event_id == query.event_id)
+            return (EventCandidate(events[(index + 1) % len(events)].event_id, 0.99),)
+
+    class Matcher:
+        def __init__(self) -> None:
+            self.active = 0
+            self.max_active = 0
+
+        async def match(self, _left_event_id, _right_event_id):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            await asyncio.sleep(0.02)
+            self.active -= 1
+            return SameEventDecision(
+                False,
+                0.9,
+                SameEventEvidence(True, True, False, True),
+                _remote_trace(),
+            )
+
+    class Graph:
+        async def start_run(self, **_kwargs):
+            return uuid4(), uuid4()
+
+        async def save_match_edge(self, *_args, **_kwargs):
+            return None
+
+        async def save_cluster(self, *_args, **_kwargs):
+            raise AssertionError("negative decisions must not create a cluster")
+
+        async def finish_run(self, _run_id, _metrics):
+            return None
+
+    retriever = Retriever()
+    matcher = Matcher()
+    result = await EventGraphService(Events(), Graph(), retriever, matcher, concurrency=4).run(
+        tuple(event.event_id for event in events)
+    )
+
+    assert len(result.decisions) == 4
+    assert retriever.max_active > 1
+    assert matcher.max_active > 1
+    assert retriever.max_active <= 4
+    assert matcher.max_active <= 4
 
 
 @pytest.mark.asyncio

@@ -23,9 +23,13 @@ from backend.app.infrastructure.db.session import create_engine, create_session_
 
 
 class QueryEmbeddingProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def embed_batch(
         self, requests: tuple[EmbeddingRequest, ...]
     ) -> tuple[EmbeddingResult, ...]:
+        self.calls += 1
         return tuple(
             EmbeddingResult(request.item_id, (1.0, 0.0, 0.0), "test-embedding")
             for request in requests
@@ -124,8 +128,9 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
         except (OSError, SQLAlchemyError) as error:
             pytest.skip(f"PostgreSQL not available; pgvector contract deferred: {error}")
 
+        embedding_provider = QueryEmbeddingProvider()
         retriever = PostgresCandidateRetriever(
-            session_factory, QueryEmbeddingProvider(), model_id="test-embedding"
+            session_factory, embedding_provider, model_id="test-embedding"
         )
         candidates = await retriever.retrieve(
             RetrievalQuery(
@@ -144,6 +149,7 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
         assert all(candidate.event_id != EventInstanceId(event_ids[0]) for candidate in candidates)
         assert all(candidate.event_id != EventInstanceId(event_ids[1]) for candidate in candidates)
         assert candidates[0].score > candidates[-1].score
+        assert embedding_provider.calls == 0
     finally:
         try:
             async with session_factory() as session:

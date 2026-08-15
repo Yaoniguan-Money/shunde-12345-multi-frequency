@@ -269,7 +269,7 @@ class DemoAnalysisOrchestrator:
             embedding_model_id=remote_embedding.model_id,
             provider=remote_llm.provider,
             model_config_hash=remote_llm.config_hash(),
-            chunk_size=4,
+            chunk_size=self._settings.model_concurrency,
         )
 
     async def _run_graph(
@@ -297,6 +297,7 @@ class DemoAnalysisOrchestrator:
                 model_id=remote_embedding.model_id,
             ),
             matcher,
+            concurrency=self._settings.model_concurrency,
         )
         return await graph.run(event_ids, candidate_limit=candidate_limit)
 

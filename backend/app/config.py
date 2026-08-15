@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     ai_remote_api_key: SecretStr | None = None
     ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0
-    model_concurrency: int = 1
+    # 默认 8 并发：qwen-plus/dashscope 支持并发调用，单次 LLM 推断 30-60 秒，
+    # 串行（concurrency=1）会导致 100 张工单研判 50-100 分钟。8 并发理论 8 倍提速，
+    # 不改 schema/pipeline/prompt，正确性不变。若触发 429 限流可回调到 4。
+    model_concurrency: int = 8
     analysis_pipeline_version: str = "understanding.v2"
     analysis_schema_version: str = "understanding.v2"
     dependency_timeout_seconds: float = 2.0

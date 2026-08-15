@@ -30,7 +30,7 @@ class PolarsTabularReader:
                     engine="calamine",
                     raise_if_empty=False,
                 )
-                frame = next(iter(workbook.values())) if isinstance(workbook, dict) else workbook
+                frame = next(iter(workbook.values()))
         elif suffix == ".csv":
             frame = self._read_csv(path)
         else:

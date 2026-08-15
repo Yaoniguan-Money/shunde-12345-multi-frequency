@@ -39,7 +39,10 @@ class EventEvidenceItem(BaseModel):
     """A verbatim quote that can be checked against one segmented raw source."""
 
     segment_ordinal: int = Field(ge=0)
-    quote: str = Field(min_length=1, max_length=240)
+    # quote 上限放宽到 1000：qwen-plus 实际返回的市民原话引用常超 240 字，
+    # 240 限制导致整张工单的 Pydantic 校验失败、研判 job 卡在 processed=0。
+    # 1000 既能容纳真实投诉原话，又防止 LLM 返回整段无关文本。
+    quote: str = Field(min_length=1, max_length=1000)
 
 
 class ExtractedEvent(BaseModel):

@@ -94,7 +94,10 @@ SHUNDE_AI_REMOTE_LLM_MODEL_ID
 SHUNDE_AI_REMOTE_EMBEDDING_MODEL_ID
 SHUNDE_AI_REMOTE_API_KEY
 SHUNDE_AI_HYBRID_POLICY=explicit-route-local-default
+SHUNDE_MODEL_CONCURRENCY=8
 ```
+
+Demo 默认使用 8 路有界并发。该值同时控制 understanding chunk、pgvector 候选检索和 SameEvent 远程判断；若供应商返回 429，可显式降为 4。检索会优先复用数据库中同 event/model 的已存 embedding，只有缺失时才重新请求远程 embedding。
 
 Remote API key 只能作为进程环境变量读取，不写入 `.env`、Git、日志或数据库正文。当前选择 Qwen 做远端 smoke 时，官方 OpenAI-compatible 示例为：
 

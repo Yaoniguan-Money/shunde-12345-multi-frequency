@@ -28,12 +28,14 @@ class PostgresCandidateRetriever(CandidateRetriever):
     async def retrieve(self, query: RetrievalQuery) -> tuple[EventCandidate, ...]:
         if not query.text.strip() or query.limit < 1:
             return ()
-        embedded = await self._embedding_provider.embed_batch(
-            (EmbeddingRequest(str(query.event_id), query.text),)
-        )
-        if len(embedded) != 1:
-            raise RuntimeError("embedding provider returned an unexpected result count")
-        vector = list(embedded[0].vector)
+        vector = await self._stored_vector(query.event_id)
+        if vector is None:
+            embedded = await self._embedding_provider.embed_batch(
+                (EmbeddingRequest(str(query.event_id), query.text),)
+            )
+            if len(embedded) != 1:
+                raise RuntimeError("embedding provider returned an unexpected result count")
+            vector = list(embedded[0].vector)
         distance = WorkOrderEmbedding.embedding.cosine_distance(vector).label("distance")
         statement = (
             select(EventInstance.id, distance)
@@ -60,3 +62,17 @@ class PostgresCandidateRetriever(CandidateRetriever):
             )
             for event_id, raw_distance in rows
         )
+
+    async def _stored_vector(self, event_id: EventInstanceId) -> list[float] | None:
+        statement = (
+            select(WorkOrderEmbedding.embedding)
+            .where(
+                WorkOrderEmbedding.event_instance_id == event_id,
+                WorkOrderEmbedding.model_id == self._model_id,
+            )
+            .order_by(WorkOrderEmbedding.created_at.desc())
+            .limit(1)
+        )
+        async with self._session_factory() as session:
+            vector = (await session.execute(statement)).scalar_one_or_none()
+        return list(vector) if vector is not None else None
