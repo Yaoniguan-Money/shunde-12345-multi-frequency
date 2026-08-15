@@ -16,12 +16,8 @@ from sqlalchemy import select
 from backend.app.application.services.indexing import UnderstandingAndIndexingPipeline
 from backend.app.application.services.understanding import WorkOrderUnderstandingService
 from backend.app.config import get_settings
-from backend.app.domain.ports.analysis import EmbeddingProvider
 from backend.app.domain.services.segmentation import RuleBasedWorkOrderSegmenter
-from backend.app.infrastructure.ai.local import (
-    OllamaEmbeddingProvider,
-    OpenAICompatibleLLMProvider,
-)
+from backend.app.infrastructure.ai.factory import build_provider_bundle
 from backend.app.infrastructure.db.analysis import SQLAlchemyUnderstandingRepository
 from backend.app.infrastructure.db.models import ImportBatch
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
@@ -61,26 +57,23 @@ async def _latest_batch(session_factory, batch_id: UUID | None) -> ImportBatch:
 
 async def main() -> None:
     args = _args()
-    if not args.llm_model or not args.embedding_model:
-        raise RuntimeError(
-            "set SHUNDE_LLM_MODEL_ID and SHUNDE_EMBEDDING_MODEL_ID, or pass both CLI options"
-        )
     settings = get_settings()
-    llm_base = str(settings.model_api_base_url or "http://127.0.0.1:11434")
-    embedding_base = str(settings.embedding_api_base_url or llm_base)
-    llm = OpenAICompatibleLLMProvider(
-        llm_base,
-        args.llm_model,
-        timeout_seconds=settings.model_timeout_seconds,
-        concurrency=settings.model_concurrency,
+    providers = build_provider_bundle(
+        settings,
+        llm_model_override=args.llm_model,
+        embedding_model_override=args.embedding_model,
     )
-    embeddings: EmbeddingProvider = OllamaEmbeddingProvider(
-        embedding_base,
-        args.embedding_model,
-        timeout_seconds=settings.model_timeout_seconds,
+    await providers.health()
+    active_llm = (
+        providers.plan.remote_llm if providers.mode.value == "remote" else providers.plan.local_llm
     )
-    await llm.health()
-    await embeddings.health()
+    active_embedding = (
+        providers.plan.remote_embedding
+        if providers.mode.value == "remote"
+        else providers.plan.local_embedding
+    )
+    if active_llm is None or active_embedding is None:
+        raise RuntimeError("active provider plan is missing model endpoints")
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
     try:
@@ -107,7 +100,7 @@ async def main() -> None:
             )
         understanding = WorkOrderUnderstandingService(
             RuleBasedWorkOrderSegmenter(),
-            llm,
+            providers.llm,
             gazetteer=gazetteer,
             pipeline_version=settings.analysis_pipeline_version,
             schema_version=settings.analysis_schema_version,
@@ -116,11 +109,12 @@ async def main() -> None:
         pipeline = UnderstandingAndIndexingPipeline(
             repository,
             understanding,
-            embeddings,
+            providers.embeddings,
             pipeline_version=settings.analysis_pipeline_version,
             schema_version=settings.analysis_schema_version,
-            model_id=args.llm_model,
-            embedding_model_id=args.embedding_model,
+            model_id=active_llm.model_id,
+            embedding_model_id=active_embedding.model_id,
+            provider=providers.mode.value,
             chunk_size=args.chunk_size,
         )
         summary = await pipeline.run(

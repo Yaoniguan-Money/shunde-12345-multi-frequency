@@ -86,12 +86,14 @@ class WorkOrderUnderstandingService:
                     schema_version=trace.schema_version,
                     knowledge_snapshot_id=self._knowledge_snapshot_id,
                     pipeline_version=trace.pipeline_version,
+                    provider=trace.provider,
                 )
             understanding = WorkOrderUnderstanding.model_validate(llm_result.structured_output)
             if understanding.trace is None:
                 understanding = understanding.model_copy(
                     update={
                         "trace": UnderstandingTrace(
+                            provider=trace.provider,
                             model_id=trace.model_id,
                             model_config_hash=trace.model_config_hash,
                             schema_version=trace.schema_version,
@@ -206,6 +208,7 @@ class WorkOrderUnderstandingService:
         return (
             f"{title_line}请从以下已分段工单中抽取当前投诉、历史背景、部门回复、当前诉求、"
             f"地点/机构 mention 和一个或多个独立事件。mention 的 offset 相对于对应原文段落"
-            f"不可臆造；"
+            f"不可臆造；每个文本字段只写简洁摘要（建议不超过120个汉字），部门回复只保留"
+            f"处理结论，不要复制整段回复；每个事件摘要不超过100个汉字。"
             f"无法确认时使用 unresolved。\n{segment_lines}"
         )

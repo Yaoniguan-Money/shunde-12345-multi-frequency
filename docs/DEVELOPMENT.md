@@ -77,3 +77,48 @@ uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model no
 没有业务确认的 Gold Set 时只报告硬件、吞吐、P50/P95 与候选数，不报告 Recall/Precision；Gold Set JSON 必须显式传入 `--gold-set`。
 
 本轮真实运行记录（2026-08-15）：WSL2 Ubuntu 使用 Ollama `0.32.13`，通过官方 Ollama registry 拉取 `qwen2.5:3b` 与 `nomic-embed-text:latest`；GPU 为 RTX 3080 Laptop 16 GiB。实际 smoke 处理 11/128,278 条，写入 11 个事件与 11 个 768 维向量。没有配置可信模型镜像时不擅自替换模型来源；后续下载仍遵循“正规镜像优先、官方源可回退、记录版本/校验、缓存不入 Git”的规则。
+
+## Local / remote / hybrid Provider
+
+默认 `SHUNDE_AI_PROVIDER_MODE=local`。显式配置项见 `.env.example`：
+
+```text
+SHUNDE_AI_PROVIDER_MODE=local|remote|hybrid
+SHUNDE_AI_LOCAL_LLM_BASE_URL
+SHUNDE_AI_LOCAL_LLM_MODEL_ID
+SHUNDE_AI_LOCAL_EMBEDDING_BASE_URL
+SHUNDE_AI_LOCAL_EMBEDDING_MODEL_ID
+SHUNDE_AI_LOCAL_EMBEDDING_PROTOCOL=ollama|openai
+SHUNDE_AI_REMOTE_BASE_URL
+SHUNDE_AI_REMOTE_LLM_MODEL_ID
+SHUNDE_AI_REMOTE_EMBEDDING_MODEL_ID
+SHUNDE_AI_REMOTE_API_KEY
+SHUNDE_AI_HYBRID_POLICY=explicit-route-local-default
+```
+
+Remote API key 只能作为进程环境变量读取，不写入 `.env`、Git、日志或数据库正文。当前选择 Qwen 做远端 smoke 时，官方 OpenAI-compatible 示例为：
+
+```powershell
+$env:SHUNDE_AI_PROVIDER_MODE = 'remote'
+$env:SHUNDE_AI_REMOTE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+$env:SHUNDE_AI_REMOTE_LLM_MODEL_ID = 'qwen-plus'
+$env:SHUNDE_AI_REMOTE_API_KEY = Read-Host 'DASHSCOPE API key'
+uv run python scripts/remote_provider_smoke.py
+```
+
+该 smoke 只发送合成 JSON 提示词，不发送真实工单。代码也支持其他 OpenAI-compatible 服务；本阶段没有把任何商业厂商写进业务 handler。没有 API key 时必须记录 `BLOCKED`，不能用 mock 输出冒充成功。
+
+## AI quality review artifact
+
+先用真实导入批次做确定性弱标签分层抽样，不把模型输出当 Gold Label：
+
+```powershell
+$env:SHUNDE_AI_PROVIDER_MODE = 'local'
+$env:SHUNDE_MODEL_API_BASE_URL = 'http://127.0.0.1:11434'
+$env:SHUNDE_LLM_MODEL_ID = 'qwen2.5:3b'
+$env:SHUNDE_EMBEDDING_MODEL_ID = 'nomic-embed-text'
+$env:SHUNDE_GAZETTEER_HOME = 'C:\Users\Lenovo\Desktop\顺德地名库交接包'
+uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candidate-limit 5
+```
+
+artifact 与 summary 写入 `data/runtime/quality/`（已 gitignore），包括原始工单、分段、结构化事件、地名解析、embedding、pgvector 候选和完整 trace；`gold_set`、precision、recall、F1 保持 `null`。原计划 500–1000 条，本轮因本地推理耗时按操作者指示停止在 300 条；summary 必须标明实际成功/失败数。事件 schema 当前只够候选检索，不足以可靠判定 `same_event`，应先人工 Gold Set 与 schema v2 评审。

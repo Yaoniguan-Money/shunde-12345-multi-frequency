@@ -17,6 +17,18 @@ class ResolutionState(StrEnum):
     UNRESOLVED = "unresolved"
 
 
+class ProviderMode(StrEnum):
+    LOCAL = "local"
+    REMOTE = "remote"
+    HYBRID = "hybrid"
+
+
+class ProviderRoute(StrEnum):
+    AUTO = "auto"
+    LOCAL = "local"
+    REMOTE = "remote"
+
+
 @dataclass(frozen=True, slots=True)
 class VersionTrace:
     model_id: str | None
@@ -24,6 +36,7 @@ class VersionTrace:
     schema_version: str
     knowledge_snapshot_id: UUID | None
     pipeline_version: str
+    provider: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +107,7 @@ class LLMRequest:
     output_schema: dict[str, object]
     schema_version: str = "understanding.v1"
     pipeline_version: str = "understanding.v1"
+    route: ProviderRoute = ProviderRoute.AUTO
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +121,9 @@ class LLMResult:
 class EmbeddingRequest:
     item_id: str
     text: str
+    schema_version: str = "understanding.v1"
+    pipeline_version: str = "understanding.v1"
+    route: ProviderRoute = ProviderRoute.AUTO
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +131,7 @@ class EmbeddingResult:
     item_id: str
     vector: tuple[float, ...]
     model_id: str
+    trace: VersionTrace | None = None
 
 
 @dataclass(frozen=True, slots=True)

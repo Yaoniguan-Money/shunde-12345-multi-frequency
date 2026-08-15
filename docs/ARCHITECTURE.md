@@ -43,6 +43,24 @@ Raw Work Order
 
 Application handlers depend on ports; infrastructure implements adapters.
 
+### AI provider routing seam
+
+`LLMProvider`, `EmbeddingProvider` and `RerankerProvider` are the stable application
+boundary. `infrastructure/ai/factory.py` composes local and generic remote
+OpenAI-compatible adapters without exposing vendor names to handlers:
+
+```text
+AI_PROVIDER_MODE=local (default)  -> local adapter only
+AI_PROVIDER_MODE=remote           -> remote adapter only (explicit API key)
+AI_PROVIDER_MODE=hybrid           -> AUTO/LOCAL local; explicit REMOTE remote
+```
+
+There is no failure-triggered cloud fallback and no confidence threshold in the
+hybrid policy. Every model result carries provider/model/config/schema/pipeline
+trace; API keys never enter traces, logs or database正文. Local public URLs remain
+rejected. The remote base URL is configured explicitly (for example, Qwen
+DashScope's OpenAI-compatible `/compatible-mode/v1` endpoint).
+
 ## Port allocation
 
 - Gazetteer local service: `127.0.0.1:8000` (existing)

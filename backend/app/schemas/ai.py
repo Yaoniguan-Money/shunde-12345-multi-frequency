@@ -39,6 +39,7 @@ class ExtractedEvent(BaseModel):
 
 
 class UnderstandingTrace(BaseModel):
+    provider: str | None = None
     model_id: str | None = None
     model_config_hash: str | None = None
     schema_version: str = "understanding.v1"

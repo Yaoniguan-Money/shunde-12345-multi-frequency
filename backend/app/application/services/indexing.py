@@ -38,6 +38,7 @@ class UnderstandingAndIndexingPipeline:
         schema_version: str,
         model_id: str,
         embedding_model_id: str,
+        provider: str = "unknown",
         chunk_size: int = 16,
     ) -> None:
         if chunk_size < 1:
@@ -49,6 +50,7 @@ class UnderstandingAndIndexingPipeline:
         self._schema_version = schema_version
         self._model_id = model_id
         self._embedding_model_id = embedding_model_id
+        self._provider = provider
         self._chunk_size = chunk_size
 
     async def run(
@@ -60,6 +62,7 @@ class UnderstandingAndIndexingPipeline:
             pipeline_version=self._pipeline_version,
             schema_version=self._schema_version,
             model_id=self._model_id,
+            provider=self._provider,
             total_rows=total_rows,
         )
         if state.status == "completed":
@@ -103,7 +106,13 @@ class UnderstandingAndIndexingPipeline:
                     state.run_id, records, self._pipeline_version, self._schema_version
                 )
                 embedding_requests = tuple(
-                    EmbeddingRequest(str(event.event_id), event.text) for event in persisted_events
+                    EmbeddingRequest(
+                        str(event.event_id),
+                        event.text,
+                        schema_version=self._schema_version,
+                        pipeline_version=self._pipeline_version,
+                    )
+                    for event in persisted_events
                 )
                 embedding_results = await self._embeddings.embed_batch(embedding_requests)
                 embedding_rows = tuple(
@@ -113,6 +122,7 @@ class UnderstandingAndIndexingPipeline:
                         hashlib.sha256(event.text.encode("utf-8")).hexdigest(),
                         embedding.vector,
                         embedding.model_id,
+                        embedding.trace,
                     )
                     for event, embedding in zip(persisted_events, embedding_results, strict=True)
                 )

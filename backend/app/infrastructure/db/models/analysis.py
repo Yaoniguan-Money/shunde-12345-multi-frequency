@@ -34,6 +34,7 @@ class AnalysisRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     run_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64))
     model_id: Mapped[str | None] = mapped_column(String(255))
     model_config_hash: Mapped[str | None] = mapped_column(String(64))
     schema_version: Mapped[str] = mapped_column(String(64), nullable=False)

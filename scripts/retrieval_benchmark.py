@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from backend.app.config import get_settings
 from backend.app.domain.types import RetrievalQuery
-from backend.app.infrastructure.ai.local import OllamaEmbeddingProvider
+from backend.app.infrastructure.ai.factory import build_provider_bundle
 from backend.app.infrastructure.db.models import EventInstance, WorkOrderEmbedding
 from backend.app.infrastructure.db.retrieval import PostgresCandidateRetriever
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
@@ -86,16 +86,20 @@ def _quality(
 
 async def main() -> None:
     args = _args()
-    if not args.embedding_model:
-        raise RuntimeError("set SHUNDE_EMBEDDING_MODEL_ID or pass --embedding-model")
     settings = get_settings()
-    base_url = str(
-        settings.embedding_api_base_url or settings.model_api_base_url or "http://127.0.0.1:11434"
+    providers = build_provider_bundle(
+        settings,
+        embedding_model_override=args.embedding_model,
     )
-    provider = OllamaEmbeddingProvider(
-        base_url, args.embedding_model, timeout_seconds=settings.model_timeout_seconds
+    await providers.embeddings.health()
+    active_embedding = (
+        providers.plan.remote_embedding
+        if providers.mode.value == "remote"
+        else providers.plan.local_embedding
     )
-    await provider.health()
+    if active_embedding is None:
+        raise RuntimeError("active embedding provider is not configured")
+    provider = providers.embeddings
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
     try:
@@ -106,14 +110,14 @@ async def main() -> None:
                     WorkOrderEmbedding,
                     WorkOrderEmbedding.event_instance_id == EventInstance.id,
                 )
-                .where(WorkOrderEmbedding.model_id == args.embedding_model)
+                .where(WorkOrderEmbedding.model_id == active_embedding.model_id)
                 .order_by(EventInstance.created_at, EventInstance.id)
             )
             if args.profile != "full":
                 statement = statement.limit(int(args.profile))
             rows = (await session.execute(statement)).all()
         retriever = PostgresCandidateRetriever(
-            session_factory, provider, model_id=args.embedding_model
+            session_factory, provider, model_id=active_embedding.model_id
         )
         latencies: list[float] = []
         retrieval_results: dict[str, tuple[UUID, ...]] = {}
@@ -131,7 +135,7 @@ async def main() -> None:
             "profile": args.profile,
             "rows": len(rows),
             "k": args.k,
-            "embedding_model": args.embedding_model,
+            "embedding_model": active_embedding.model_id,
             "hardware": _hardware(),
             "throughput_queries_per_second": len(rows) / elapsed if elapsed else 0.0,
             "latency_ms": {

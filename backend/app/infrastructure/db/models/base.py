@@ -31,6 +31,7 @@ class TimestampMixin:
 
 
 class AITraceMixin:
+    provider: Mapped[str | None] = mapped_column(String(64))
     model_id: Mapped[str | None] = mapped_column(String(255))
     model_config_hash: Mapped[str | None] = mapped_column(String(64))
     schema_version: Mapped[str] = mapped_column(String(64), nullable=False)

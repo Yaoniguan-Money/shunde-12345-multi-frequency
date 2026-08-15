@@ -9,7 +9,7 @@
 - Branch：`main`
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
 - Hard-install checkpoint：`75ea7e7`（Phase 0–3 已推送）
-- 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本文件记录该提交的实测证据，不把未完成的全量分析标成 DONE。
+- 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 变更尚未提交时，本文件只记录已实测事实，不把未完成的全量分析标成 DONE。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
 
@@ -64,7 +64,7 @@
 - PostgreSQL：`17.8`
 - pgvector extension：`0.8.1`
 - Port：`127.0.0.1:5432`
-- Alembic revision：`7a8b9c0d1e2f (head)`；新增 AI 处理幂等约束与 768 维 cosine HNSW partial index；此前 revision 已包含可恢复导入字段、失败行表与 raw immutability trigger
+- Alembic revision：`8b9c0d1e2f3a (head)`；新增 AI trace 的 nullable `provider` 字段；此前 revision 已包含 AI 处理幂等约束、768 维 cosine HNSW partial index、可恢复导入字段、失败行表与 raw immutability trigger
 - 表：18 张要求的业务骨架表 + `import_row_errors` + `alembic_version`，共 20 张 public tables。
 - 已在空开发库实测 `alembic downgrade base` → `alembic upgrade head` 成功。
 - Docker Hub 曾出现 TLS handshake timeout；随后通过 DaoCloud 的 Docker Hub 镜像代理拉取同名 tag，digest 为 `sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21`。
@@ -77,11 +77,22 @@
 | 1 repo hardening | DONE | Git checkpoint、uv/pnpm lock、FastAPI、React 19 + Vite 8、PostgreSQL + pgvector、Alembic、CI、health、typed ports、18 表骨架 |
 | 2 import | DONE | 真实 Excel 已导入 PostgreSQL：batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb`，128,278/128,278 成功，0 失败，checkpoint 128,278；第二次真实运行返回 `idempotent=true`，数据库仍 128,278 行 |
 | 3 gazetteer | DONE | 已从真实 SQLite 构建 229 实体运行时快照，真实 `/openapi.json` 发现 `/batch` 并实测凤城/人民医院/未知地点；`/entities/resolve` 已接入，未知明确 unresolved |
-| 4 AI understanding/indexing | PARTIAL | 已接入本地 Ollama 结构化抽取、规则分段、批量地名解析、版本 trace、可恢复 checkpoint 与持久化；真实导入批次已处理 11/128,278 条（11 events、11 embeddings），全量尚未运行 |
+| 4 AI understanding/indexing | PARTIAL | 已接入 local Ollama、provider trace、规则分段、批量地名解析、可恢复 checkpoint 与持久化；真实导入批次当前已处理 11/128,278 条（11 events、11 embeddings），全量尚未运行 |
 | 5 retrieval/rerank | PARTIAL | pgvector cosine candidate retriever、HNSW 索引和 benchmark 已实装；11 条真实事件的 1000-profile smoke 已完成，另有 PostgreSQL hard-negative/self-exclusion contract test；reranker 仍为接口 |
 | 6 event matching/clustering | PLANNED | 只有 interface/schema skeleton，无生产 matcher |
 | 7 product loop | PLANNED | 前端仅工程/health 骨架，不是四页业务产品 |
-| 8 benchmark/handoff | PARTIAL | 已记录 1000-profile smoke（当前库实际 11 条），无业务 Gold Set 所以 quality 保持 `null`；1k/10k/full 数据规模 benchmark 待全量索引后运行 |
+| 8 benchmark/handoff | PARTIAL | provider contract tests 已通过；quality review 已有真实分层抽样与 JSONL 生成流程，但本轮按操作者指示停止本地 300 条运行，尚无完整 300/500 条人工审核 artifact；无业务 Gold Set 所以 quality 保持 `null` |
+
+## 本轮 Provider / Quality Validation 状态
+
+| 项目 | 状态 | 实测事实与影响 |
+|---|---|---|
+| Local provider | DONE | `OpenAICompatibleLLMProvider` 保留公网 URL 拒绝；Ollama `qwen2.5:3b` 实测返回结构化 JSON；`nomic-embed-text` native `/api/embed` 保持可用；local 调用失败不会云回退 |
+| Remote provider architecture | DONE | 通用 OpenAI-compatible LLM/embedding adapters、`AI_PROVIDER_MODE=local|remote|hybrid`、显式 route policy、API key `SecretStr`、provider trace 与 migration `8b9c0d1e2f3a` 已落地；4 个 contract/routing tests 通过 |
+| Remote real integration | BLOCKED | 当前进程没有 Qwen/DeepSeek API key；已选择 Qwen 官方 OpenAI-compatible 示例（`qwen-plus`），需操作者在本机环境设置 `SHUNDE_AI_REMOTE_API_KEY` 后运行 `scripts/remote_provider_smoke.py`。不能把 MockTransport contract test 当云端成功 |
+| Quality sample selector | DONE | 从真实 batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb` 确定性抽样逻辑已实测 500 条，6 个 strata（recurrence/multi-event/mixed history-reply/alias/identifier/general）分布可审计 |
+| Quality review execution | PARTIAL | `scripts/quality_review.py` 可输出 raw→segmentation→events→entity resolution→embedding→pgvector candidates→trace；本轮本地 300 条运行因耗时按操作者指示停止，保留的旧 partial artifact 含模型截断错误，不能当质量结论；已修复通用 JSON wrapper 解包、简洁摘要提示和输出上限，需重新运行才生成有效 artifact |
+| Event Schema for SameEventMatcher | PARTIAL / NOT READY | 当前字段足够做候选检索（summary/location/mention links），但缺少稳定时间区间、主体/问题 facet、事件级证据 span 与冲突字段；本轮不擅自改核心 schema，先做 Gold Set 与 schema v2 评审，再实现 matcher |
 
 ## Shipped Phase 1 interfaces
 
@@ -129,6 +140,20 @@ PostgreSQL AI count check                 PASS — complaint_segments=24；event
 uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text --k 5
                                           PASS — 实际 rows=11；throughput 3.52 q/s；P50 272.01 ms；P95 353.07 ms；quality=null（无 Gold Set）
 benchmark artifact                         PASS — `data/runtime/benchmarks/retrieval-smoke-20260815-final.json`（runtime ignored，不入 Git）
+
+本轮追加实测（2026-08-15）：
+
+```text
+uv run alembic upgrade head                  PASS — 7a8b9c0d1e2f -> 8b9c0d1e2f3a
+uv run pytest -q                             PASS — 16 passed
+uv run ruff check backend/app scripts/...    PASS
+uv run ruff format --check ...               PASS
+uv run pyright backend                       PASS — 0 errors
+provider contract/routing tests              PASS — 4 passed；公网 local URL 被拒绝；remote key 不进 trace
+Ollama qwen2.5:3b structured smoke           PASS — RTX 3080 Laptop 16 GiB，真实 JSON 返回
+quality sample selector (500)                PASS — 6 strata，500 个真实 work_order_id
+quality review run                           PARTIAL — 按操作者指示停止本地 300 条运行；未把 partial artifact 当质量指标
+remote_provider_smoke.py                     BLOCKED — 未配置显式 Qwen/DeepSeek API key，未向公网发送工单
 ```
 
 ## Known blockers / decisions needed later

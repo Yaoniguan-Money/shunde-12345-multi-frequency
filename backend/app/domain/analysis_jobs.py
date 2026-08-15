@@ -45,6 +45,7 @@ class UnderstandingRepository(Protocol):
         pipeline_version: str,
         schema_version: str,
         model_id: str,
+        provider: str,
         total_rows: int,
     ) -> AnalysisJobState: ...
 
@@ -63,7 +64,9 @@ class UnderstandingRepository(Protocol):
     async def persist_embeddings(
         self,
         run_id: UUID,
-        embeddings: tuple[tuple[UUID, UUID | None, str, tuple[float, ...], str], ...],
+        embeddings: tuple[
+            tuple[UUID, UUID | None, str, tuple[float, ...], str, VersionTrace | None], ...
+        ],
         pipeline_version: str,
         schema_version: str,
     ) -> None: ...

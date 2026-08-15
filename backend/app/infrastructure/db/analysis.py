@@ -12,7 +12,7 @@ from backend.app.domain.analysis_jobs import (
     UnderstandingRepository,
     WorkOrderSource,
 )
-from backend.app.domain.types import GazetteerSnapshot
+from backend.app.domain.types import GazetteerSnapshot, VersionTrace
 from backend.app.infrastructure.db.models import (
     AnalysisJob,
     AnalysisRun,
@@ -84,6 +84,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
         pipeline_version: str,
         schema_version: str,
         model_id: str,
+        provider: str,
         total_rows: int,
     ) -> AnalysisJobState:
         async with self._session_factory() as session:
@@ -111,6 +112,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         analysis_job_id=job.id,
                         run_number=1,
                         status="running",
+                        provider=provider,
                         model_id=model_id,
                         schema_version=schema_version,
                         pipeline_version=pipeline_version,
@@ -129,6 +131,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         analysis_job_id=job.id,
                         run_number=1,
                         status="running",
+                        provider=provider,
                         model_id=model_id,
                         schema_version=schema_version,
                         pipeline_version=pipeline_version,
@@ -233,6 +236,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                                 "analysis_run_id": str(run_id),
                             },
                             "model_id": trace.model_id,
+                            "provider": trace.provider,
                             "model_config_hash": trace.model_config_hash,
                             "schema_version": schema_version,
                             "knowledge_snapshot_id": trace.knowledge_snapshot_id,
@@ -289,6 +293,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                                     else None,
                                 },
                                 model_id=trace.model_id,
+                                provider=trace.provider,
                                 model_config_hash=trace.model_config_hash,
                                 schema_version=schema_version,
                                 knowledge_snapshot_id=trace.knowledge_snapshot_id,
@@ -313,7 +318,9 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
     async def persist_embeddings(
         self,
         run_id: UUID,
-        embeddings: tuple[tuple[UUID, UUID | None, str, tuple[float, ...], str], ...],
+        embeddings: tuple[
+            tuple[UUID, UUID | None, str, tuple[float, ...], str, VersionTrace | None], ...
+        ],
         pipeline_version: str,
         schema_version: str,
     ) -> None:
@@ -322,7 +329,14 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 run = await session.get(AnalysisRun, run_id)
                 if run is None:
                     raise LookupError(f"analysis run not found: {run_id}")
-                for work_order_id, event_id, content_hash, vector, model_id in embeddings:
+                for (
+                    work_order_id,
+                    event_id,
+                    content_hash,
+                    vector,
+                    model_id,
+                    embedding_trace,
+                ) in embeddings:
                     await session.execute(
                         pg_insert(WorkOrderEmbedding)
                         .values(
@@ -332,9 +346,14 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                             dimensions=len(vector),
                             embedding=list(vector),
                             model_id=model_id,
-                            model_config_hash=None,
+                            provider=(embedding_trace.provider if embedding_trace else None),
+                            model_config_hash=(
+                                embedding_trace.model_config_hash if embedding_trace else None
+                            ),
                             schema_version=schema_version,
-                            knowledge_snapshot_id=None,
+                            knowledge_snapshot_id=(
+                                embedding_trace.knowledge_snapshot_id if embedding_trace else None
+                            ),
                             pipeline_version=pipeline_version,
                         )
                         .on_conflict_do_nothing(

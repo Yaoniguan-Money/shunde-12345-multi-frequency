@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import AnyHttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.app.domain.types import ProviderMode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -20,6 +22,17 @@ class Settings(BaseSettings):
     llm_model_id: str | None = None
     embedding_api_base_url: AnyHttpUrl | None = None
     embedding_model_id: str | None = None
+    ai_provider_mode: ProviderMode = ProviderMode.LOCAL
+    ai_local_llm_base_url: AnyHttpUrl | None = None
+    ai_local_llm_model_id: str | None = None
+    ai_local_embedding_base_url: AnyHttpUrl | None = None
+    ai_local_embedding_model_id: str | None = None
+    ai_local_embedding_protocol: str = "ollama"
+    ai_remote_base_url: AnyHttpUrl | None = None
+    ai_remote_llm_model_id: str | None = None
+    ai_remote_embedding_model_id: str | None = None
+    ai_remote_api_key: SecretStr | None = None
+    ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0
     model_concurrency: int = 1
     analysis_pipeline_version: str = "understanding.v1"
