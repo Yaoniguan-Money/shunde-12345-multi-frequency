@@ -4,11 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.api.catalog import router as catalog_router
 from backend.app.api.entities import router as entities_router
 from backend.app.api.health import router as health_router
 from backend.app.api.imports import router as imports_router
 from backend.app.application.handlers.imports import ImportHandler
+from backend.app.application.services.catalog import CatalogService
 from backend.app.config import get_settings
+from backend.app.infrastructure.db.catalog import SQLAlchemyCatalogRepository
 from backend.app.infrastructure.db.imports import SQLAlchemyImportRepository
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
 from backend.app.infrastructure.health import DependencyHealthProbe
@@ -26,6 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
+    app.state.catalog_service = CatalogService(SQLAlchemyCatalogRepository(session_factory))
     app.state.health_probe = DependencyHealthProbe(engine, settings)
     app.state.import_handler = ImportHandler(
         PolarsTabularReader(), SQLAlchemyImportRepository(session_factory)
@@ -63,6 +67,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(imports_router)
     application.include_router(entities_router)
+    application.include_router(catalog_router)
     return application
 
 

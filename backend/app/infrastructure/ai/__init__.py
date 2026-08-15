@@ -21,6 +21,7 @@ from backend.app.infrastructure.ai.remote import (
     RemoteOpenAICompatibleEmbeddingProvider,
     RemoteOpenAICompatibleLLMProvider,
 )
+from backend.app.infrastructure.ai.same_event import RemoteSameEventMatcher
 
 __all__ = [
     "AIProviderBundle",
@@ -34,6 +35,7 @@ __all__ = [
     "ProviderRoutingError",
     "RemoteOpenAICompatibleEmbeddingProvider",
     "RemoteOpenAICompatibleLLMProvider",
+    "RemoteSameEventMatcher",
     "build_provider_bundle",
     "build_provider_plan",
 ]

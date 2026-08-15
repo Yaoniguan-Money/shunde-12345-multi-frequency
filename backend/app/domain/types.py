@@ -11,6 +11,10 @@ EventClusterId = NewType("EventClusterId", UUID)
 JobId = NewType("JobId", UUID)
 
 
+def _empty_object_dict() -> dict[str, object]:
+    return {}
+
+
 class ResolutionState(StrEnum):
     RESOLVED = "resolved"
     AMBIGUOUS = "ambiguous"
@@ -55,6 +59,21 @@ class EventInstanceRecord:
     ordinal: int
     event_type: str | None
     normalized_summary: str
+
+
+@dataclass(frozen=True, slots=True)
+class EventForMatching:
+    event_id: EventInstanceId
+    work_order_id: WorkOrderId
+    event_type: str | None
+    behavior: str | None
+    normalized_summary: str
+    entity_ids: tuple[EntityId, ...]
+    location_signals: tuple[str, ...]
+    time_signals: tuple[str, ...]
+    evidence: tuple[dict[str, object], ...]
+    raw_title: str | None
+    raw_content: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,9 +194,27 @@ class SameEventDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class EventMatchEdgeRecord:
+    left_event_id: EventInstanceId
+    right_event_id: EventInstanceId
+    same_event: bool
+    confidence: float
+    evidence: SameEventEvidence
+    trace: VersionTrace
+
+
+@dataclass(frozen=True, slots=True)
+class EventClusterMemberRecord:
+    event_instance_id: EventInstanceId
+    membership_confidence: float
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterProposal:
     members: tuple[EventInstanceId, ...]
     rejected_edges: tuple[tuple[EventInstanceId, EventInstanceId], ...] = ()
+    confidence: float = 0.0
+    evidence: dict[str, object] = field(default_factory=_empty_object_dict)
 
 
 def _empty_filters() -> dict[str, str]:

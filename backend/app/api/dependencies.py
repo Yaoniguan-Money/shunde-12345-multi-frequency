@@ -4,6 +4,7 @@ from fastapi import Depends, Request
 
 from backend.app.application.handlers.health import HealthCheckHandler
 from backend.app.application.handlers.imports import ImportHandler
+from backend.app.application.services.catalog import CatalogService
 from backend.app.infrastructure.health import DependencyHealthProbe
 from backend.app.infrastructure.imports import SourceStager
 from backend.app.infrastructure.knowledge.resolver import RuntimeEntityResolver
@@ -42,3 +43,10 @@ def get_entity_resolver(request: Request) -> RuntimeEntityResolver | None:
 
 
 ResolverDependency = Annotated[RuntimeEntityResolver | None, Depends(get_entity_resolver)]
+
+
+def get_catalog_service(request: Request) -> CatalogService:
+    return request.app.state.catalog_service
+
+
+CatalogServiceDependency = Annotated[CatalogService, Depends(get_catalog_service)]

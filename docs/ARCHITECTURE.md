@@ -61,6 +61,57 @@ trace; API keys never enter traces, logs or database正文. Local public URLs re
 rejected. The remote base URL is configured explicitly (for example, Qwen
 DashScope's OpenAI-compatible `/compatible-mode/v1` endpoint).
 
+### Cloud-first Demo Core path
+
+The competition/demo runtime deliberately selects `AI_PROVIDER_MODE=remote` in
+its process environment. The current proven path is:
+
+```text
+real PostgreSQL sample
+  -> understanding.v2 (qwen-plus, structured JSON)
+  -> runtime gazetteer batch resolve
+  -> qwen3.7-text-embedding (1024 dimensions)
+  -> pgvector candidate recall (model/dimension partial HNSW index)
+  -> Remote SameEventMatcher (qwen-plus, explicit REMOTE route)
+  -> EventMatchEdge trace
+  -> complete-link / contradiction-guarded EventCluster
+  -> read-only catalog API
+```
+
+This is a bounded Demo Core, not a full-corpus claim. The remote provider receives
+only explicitly selected demo rows; a local failure never triggers a cloud retry,
+and no endpoint or vendor is referenced from an application handler.
+
+### Understanding v2 event contract
+
+An event stores `event_type`, event-specific `behavior`,
+`normalized_summary`, `location_signals`, `time_signals`, `mention_indexes` and
+raw evidence items. Each evidence item carries a segment ordinal/type, quote and
+offsets. The understanding service accepts a model quote only when it is an exact
+contiguous substring of the corresponding segmented raw text; fabricated quotes
+are discarded before persistence. SameEventMatcher consumes these structured
+fields plus canonical entity IDs and never treats an embedding score as a final
+decision.
+
+### Same-event and cluster contract
+
+`RemoteSameEventMatcher` returns `same_event`, confidence and explicit evidence
+(`same_entity`, `same_location`, `same_issue`, `time_compatible`,
+`contradictions`) with a full provider/model/config/schema/pipeline trace. The
+matcher is instructed that recurring unresolved complaints at the same place can
+be one underlying issue even when dates differ, while same subject does not erase
+different issue/behavior evidence. `EventClusterBuilder` uses positive edges but
+rejects a merge that would create disjoint canonical entities, disjoint locations,
+or incompatible event types; this prevents an A~B/B~C transitive contradiction.
+
+### Read API boundary
+
+The backend exposes typed, read-only projections at `/work-orders`, `/events` and
+`/multi-frequency-events` (list/detail). Raw work-order text remains immutable and
+is returned only by explicit detail endpoints. Derived event evidence, normalized
+entities, match edges, handling status and AI trace stay separate so a frontend
+cannot mistake a similarity score for a business decision.
+
 ## Port allocation
 
 - Gazetteer local service: `127.0.0.1:8000` (existing)

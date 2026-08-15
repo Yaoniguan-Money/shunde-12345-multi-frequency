@@ -42,14 +42,38 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 
 ## AI understanding / retrieval（当前为可运行的后端合同）
 
-- 默认模型运行时：Ollama `http://127.0.0.1:11434`；结构化抽取使用 `qwen2.5:3b`，向量使用 `nomic-embed-text`（768 维）。生产 local adapter 拒绝云端 URL，不做隐式云回退。
+- 未配置环境时默认模型运行时仍是 Ollama `http://127.0.0.1:11434`；结构化抽取使用 `qwen2.5:3b`，向量使用 `nomic-embed-text`（768 维）。比赛 Demo 显式设置 `SHUNDE_AI_PROVIDER_MODE=remote` 后使用 Qwen `qwen-plus` + `qwen3.7-text-embedding`（1024 维）。生产 local adapter 拒绝云端 URL，不做隐式云回退。
 - Provider 模式由 `SHUNDE_AI_PROVIDER_MODE=local|remote|hybrid` 显式选择，默认 `local`。remote 使用通用 OpenAI-compatible adapter，API key 只来自环境变量；hybrid 的 `AUTO`/`LOCAL` 走本地，只有显式 `REMOTE` route 才走远端。AI trace 包含 `provider / model_id / model_config_hash / schema_version / pipeline_version`。
 - 远端验证命令：`uv run python scripts/remote_provider_smoke.py`。该命令只发送合成 JSON，不发送政府工单；未配置 key 时状态为 `BLOCKED`。2026-08-15 已用 Qwen `qwen-plus` 实际通过 health 与结构化 JSON，provider trace 为 `remote-openai-compatible`。
 - `uv run python scripts/run_understanding.py --limit N --chunk-size K`：从真实导入批次 checkpoint 继续执行“规则分段 → 批量结构化抽取 → 批量地名解析 → event/mention/segment 持久化 → embedding 写入”。省略 `--limit` 才会继续到全量，当前只实测了前 11 条，不要在演示环境无意触发全量。
 - `uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text`：运行 pgvector candidate retrieval 性能测试；没有业务 Gold Set 时 `quality` 必须保持 `null`。
 - 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id` 等 trace 字段。
-- 当前阶段尚未提供事件聚类、同事件判定或业务详情 API；TRAE 不应为这些目标态能力制作静态“已完成”页面。未知/未解析状态必须原样显示。
-- 质量 review：`uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candidate-limit 5`。输出在 `data/runtime/quality/`，逐条展示原始工单→分段→事件→实体解析→embedding/pgvector 候选→版本 trace；弱标签只是待人工确认候选，不能显示为 Gold Label。事件 schema 当前足够做候选检索，但不足以可靠判定 `same_event`。
+- Demo Core 已提供真实事件聚类、同事件判定和只读详情 API；TRAE 不应为不存在的全量能力制作静态“已完成”页面。当前 Demo 只覆盖真实数据库动态抽出的少量工单，列表必须显示分页总数和当前状态，未知/未解析状态必须原样显示。
+- 质量 review：`uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candidate-limit 5`。输出在 `data/runtime/quality/`，逐条展示原始工单→分段→v2 事件→实体解析→embedding/pgvector 候选→SameEvent evidence→版本 trace；弱标签只是待人工确认候选，不能显示为 Gold Label，也不能显示 Recall/Precision/F1。
+
+## Demo Core 云端路径与 API
+
+当前可演示的真实链路是：
+
+```text
+真实工单小样本 → understanding.v2 → remote embedding 1024d
+→ pgvector candidates → remote SameEventMatcher → 一致性 cluster → API
+```
+
+演示前运行 `docs/DEVELOPMENT.md` 中的环境加载和 `scripts/demo_core.py` 命令。脚本会生成 `data/runtime/demo/demo-core-*.json`（runtime ignored），artifact 不复制正文；正文和完整证据由 API 详情按 ID 读取。
+
+TRAE 只调用以下 HTTP contract，不直接访问数据库或模型：
+
+```text
+GET /work-orders?offset=0&limit=20&query=
+GET /work-orders/{work_order_id}
+GET /events?offset=0&limit=20&pipeline_version=understanding.v2&work_order_id=
+GET /events/{event_id}
+GET /multi-frequency-events?offset=0&limit=20
+GET /multi-frequency-events/{cluster_id}
+```
+
+事件详情字段：`event_type`、`behavior`、`normalized_summary`、`entities`（canonical ID/name/type）、`location_signals`、`time_signals`、`evidence`（原文 quote/offset/segment）、`trace`。多频详情还包含成员工单、`same_event` edge、`same_entity/same_location/same_issue/time_compatible/contradictions`、cluster `handling_status` 和 trace。不要把 `confidence` 或 embedding 分数单独渲染成事实结论。
 
 # TRAE 可以改
 

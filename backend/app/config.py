@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0
     model_concurrency: int = 1
-    analysis_pipeline_version: str = "understanding.v1"
-    analysis_schema_version: str = "understanding.v1"
+    analysis_pipeline_version: str = "understanding.v2"
+    analysis_schema_version: str = "understanding.v2"
     dependency_timeout_seconds: float = 2.0
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
     runtime_dir: Path = Path("./data/runtime")

@@ -1,7 +1,9 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 from backend.app.domain.analysis import (
+    EventEvidence,
     ExtractedEvent,
     ExtractedMention,
     StructuredUnderstanding,
@@ -11,6 +13,7 @@ from backend.app.domain.ports.analysis import LLMProvider, WorkOrderSegmenter
 from backend.app.domain.ports.gazetteer import MentionResolver
 from backend.app.domain.types import LLMRequest, VersionTrace
 from backend.app.schemas.ai import (
+    EventEvidenceItem,
     UnderstandingTrace,
     WorkOrderUnderstanding,
 )
@@ -33,8 +36,8 @@ class WorkOrderUnderstandingService:
         llm_provider: LLMProvider,
         *,
         gazetteer: MentionResolver | None = None,
-        pipeline_version: str = "understanding.v1",
-        schema_version: str = "understanding.v1",
+        pipeline_version: str = "understanding.v2",
+        schema_version: str = "understanding.v2",
         knowledge_snapshot_id: UUID | None = None,
     ) -> None:
         self._segmenter = segmenter
@@ -161,14 +164,18 @@ class WorkOrderUnderstandingService:
             UnderstandingResult(
                 items[index][0],
                 segmented[index][2],
-                self._to_domain(understandings[index]),
+                self._to_domain(understandings[index], segmented[index][2]),
                 traces[index],
             )
             for index in range(len(items))
         )
 
     @staticmethod
-    def _to_domain(understanding: WorkOrderUnderstanding) -> StructuredUnderstanding:
+    def _to_domain(
+        understanding: WorkOrderUnderstanding,
+        segments: tuple[TextSegment, ...],
+    ) -> StructuredUnderstanding:
+        segments_by_ordinal = {segment.ordinal: segment for segment in segments}
         return StructuredUnderstanding(
             current_complaint=understanding.current_complaint,
             historical_context=understanding.historical_context,
@@ -190,13 +197,51 @@ class WorkOrderUnderstandingService:
             events=tuple(
                 ExtractedEvent(
                     event_type=event.event_type,
+                    behavior=event.behavior,
                     normalized_summary=event.normalized_summary,
                     location_signals=tuple(event.location_signals),
+                    time_signals=tuple(
+                        signal.strip()
+                        for signal in event.time_signals
+                        if signal.strip()
+                        and any(signal.strip() in segment.text for segment in segments)
+                    ),
                     mention_indexes=tuple(event.mention_indexes),
+                    evidence=WorkOrderUnderstandingService._validated_event_evidence(
+                        event.evidence, segments_by_ordinal
+                    ),
                 )
                 for event in understanding.events
             ),
         )
+
+    @staticmethod
+    def _validated_event_evidence(
+        evidence: Sequence[EventEvidenceItem], segments_by_ordinal: dict[int, TextSegment]
+    ) -> tuple[EventEvidence, ...]:
+        validated: list[EventEvidence] = []
+        for item in evidence:
+            segment_ordinal = getattr(item, "segment_ordinal", None)
+            quote = getattr(item, "quote", None)
+            if not isinstance(segment_ordinal, int) or not isinstance(quote, str):
+                continue
+            segment = segments_by_ordinal.get(segment_ordinal)
+            normalized_quote = quote.strip()
+            if segment is None or not normalized_quote:
+                continue
+            relative_start = segment.text.find(normalized_quote)
+            if relative_start < 0:
+                continue
+            validated.append(
+                EventEvidence(
+                    segment_ordinal=segment.ordinal,
+                    segment_type=segment.segment_type.value,
+                    quote=normalized_quote,
+                    start_offset=segment.start_offset + relative_start,
+                    end_offset=segment.start_offset + relative_start + len(normalized_quote),
+                )
+            )
+        return tuple(validated)
 
     @staticmethod
     def _prompt(title: str | None, segments: tuple[TextSegment, ...]) -> str:
@@ -207,7 +252,10 @@ class WorkOrderUnderstandingService:
         )
         return (
             f"{title_line}请从以下已分段工单中抽取当前投诉、历史背景、部门回复、当前诉求、"
-            f"地点/机构 mention 和一个或多个独立事件。mention 的 offset 相对于对应原文段落"
+            f"地点/机构 mention 和一个或多个独立事件。每个事件必须单独填写 behavior（该事件的"
+            f"处理/诉求动作，不要把整张工单 current_request 原样复制）、time_signals（原文中出现的"
+            f"时间词或时间表达）和 evidence。evidence 只能引用下面输入中连续出现的原文，填写准确的"
+            f"segment_ordinal 与 quote；不能改写或编造证据。mention 的 offset 相对于对应原文段落"
             f"不可臆造；每个文本字段只写简洁摘要（建议不超过120个汉字），部门回复只保留"
             f"处理结论，不要复制整段回复；每个事件摘要不超过100个汉字。"
             f"无法确认时使用 unresolved。\n{segment_lines}"

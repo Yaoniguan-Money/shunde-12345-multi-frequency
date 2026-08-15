@@ -220,7 +220,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                             "work_order_id": record.work_order_id,
                             "ordinal": ordinal,
                             "event_type": event.event_type,
-                            "behavior": record.understanding.current_request,
+                            "behavior": event.behavior,
                             "normalized_summary": event.normalized_summary,
                             "entity_ids": [
                                 str(record.understanding.mentions[index].canonical_entity_id)
@@ -229,9 +229,20 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                                 and record.understanding.mentions[index].canonical_entity_id
                             ],
                             "location_signals": event.location_signals,
-                            "time_signals": [],
+                            "time_signals": list(event.time_signals),
                             "evidence": {
-                                "source": "local_llm",
+                                "source": "raw_segment_quote",
+                                "items": [
+                                    {
+                                        "segment_ordinal": item.segment_ordinal,
+                                        "segment_type": item.segment_type,
+                                        "quote": item.quote,
+                                        "start_offset": item.start_offset,
+                                        "end_offset": item.end_offset,
+                                        "validation": "exact_quote",
+                                    }
+                                    for item in event.evidence
+                                ],
                                 "mention_indexes": event.mention_indexes,
                                 "analysis_run_id": str(run_id),
                             },

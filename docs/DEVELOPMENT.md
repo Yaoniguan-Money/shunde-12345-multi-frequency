@@ -108,6 +108,40 @@ uv run python scripts/remote_provider_smoke.py
 
 该 smoke 只发送合成 JSON 提示词，不发送真实工单。2026-08-15 已用 Qwen `qwen-plus` 真实通过 health 与结构化 JSON；代码也支持其他 OpenAI-compatible 服务，本阶段没有把任何商业厂商写进业务 handler。没有 API key 时必须记录 `BLOCKED`，不能用 mock 输出冒充成功。
 
+## Demo Core：cloud-first 小样本路径
+
+比赛演示路径可以显式使用 remote provider；这不改变代码在未配置环境时的 local 安全默认，也不允许 local 失败后自动上云。Windows 新 PowerShell 进程可从用户环境加载配置（不要把 key 写入项目文件）：
+
+```powershell
+$names = 'SHUNDE_AI_PROVIDER_MODE','SHUNDE_AI_REMOTE_BASE_URL','SHUNDE_AI_REMOTE_LLM_MODEL_ID','SHUNDE_AI_REMOTE_EMBEDDING_MODEL_ID','SHUNDE_AI_REMOTE_API_KEY','SHUNDE_GAZETTEER_HOME'
+foreach ($name in $names) {
+  $value = [Environment]::GetEnvironmentVariable($name, 'User')
+  if ($null -ne $value) { Set-Item -Path ("Env:" + $name) -Value $value }
+}
+uv run python scripts/remote_provider_smoke.py
+uv run python scripts/remote_embedding_smoke.py
+uv run python scripts/demo_core.py --anchor-limit 4 --candidate-limit 4
+```
+
+`demo_core.py` 从真实 PostgreSQL 按文本条件动态选择工单，执行 `understanding.v2 → batch entity resolve → remote embedding → pgvector candidates → remote SameEventMatcher → consistency-guarded cluster`。默认样本包含“新桂北路29号116号铺 / 恒艺工作室 / 恒艺音乐”锚点、跨地点噪音 hard negative 与不同问题候选；脚本不嵌入 UUID，不复制正文到 artifact，也不会处理全量 128,278 条。
+
+远程 demo 的实测模型是 `qwen-plus`（结构化理解/SameEvent）和 `qwen3.7-text-embedding`（1024 维）。若供应商余额、权限或接口失败，命令必须失败并保留 `BLOCKED` 事实，不得回退本地或 fake success。
+
+## Demo read API
+
+启动 backend 后，TRAE 只通过 HTTP 读取真实数据：
+
+```text
+GET /work-orders?offset=0&limit=20&query=
+GET /work-orders/{work_order_id}
+GET /events?offset=0&limit=20&pipeline_version=understanding.v2&work_order_id=
+GET /events/{event_id}
+GET /multi-frequency-events?offset=0&limit=20
+GET /multi-frequency-events/{cluster_id}
+```
+
+列表响应包含 `items/offset/limit/total`；详情分别包含 immutable raw work-order、v2 event（`event_type/behavior/normalized_summary/location_signals/time_signals/evidence`）、canonical entity references、SameEvent edges、cluster handling status 与 provider/model/config/schema/pipeline trace。Embedding 分数不能直接当 `same_event`。
+
 ## AI quality review artifact
 
 先用真实导入批次做确定性弱标签分层抽样，不把模型输出当 Gold Label：
@@ -121,4 +155,4 @@ $env:SHUNDE_GAZETTEER_HOME = 'C:\Users\Lenovo\Desktop\顺德地名库交接包'
 uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candidate-limit 5
 ```
 
-artifact 与 summary 写入 `data/runtime/quality/`（已 gitignore），包括原始工单、分段、结构化事件、地名解析、embedding、pgvector 候选和完整 trace；`gold_set`、precision、recall、F1 保持 `null`。原计划 500–1000 条，本轮因本地推理耗时按操作者指示停止在 300 条；summary 必须标明实际成功/失败数。事件 schema 当前只够候选检索，不足以可靠判定 `same_event`，应先人工 Gold Set 与 schema v2 评审。
+artifact 与 summary 写入 `data/runtime/quality/`（已 gitignore），包括原始工单、分段、结构化事件、地名解析、embedding、pgvector 候选和完整 trace；`gold_set`、precision、recall、F1 保持 `null`。原计划 500–1000 条，本轮因本地推理耗时按操作者指示停止在 300 条；summary 必须标明实际成功/失败数。正式质量验收仍需人工 Gold Set；Demo Core 的 SameEvent 结果是可审核候选，不是 Gold Label。

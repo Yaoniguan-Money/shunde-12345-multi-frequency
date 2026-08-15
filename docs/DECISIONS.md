@@ -39,3 +39,25 @@ The default model mode remains local Ollama/local OpenAI-compatible. The current
 Status: accepted
 
 All model calls remain behind `LLMProvider`, `EmbeddingProvider` and `RerankerProvider`. `AI_PROVIDER_MODE` is explicitly `local` (default), `remote` or `hybrid`; remote adapters are generic OpenAI-compatible adapters and receive API keys only from `SecretStr` environment configuration. Hybrid routing has an explicit route seam: `AUTO`/`LOCAL` stays local and `REMOTE` is allowed only when the mode enables it. A failed local call never triggers an implicit remote retry. Provider, model ID, configuration hash, schema version, pipeline version and knowledge snapshot are persisted as trace fields. This phase does not invent a confidence threshold.
+
+# ADR-009: Understanding v2 keeps auditable event evidence
+Status: accepted
+
+SameEventMatcher cannot audit a thin summary alone. The event projection therefore
+keeps event-specific `behavior` and `time_signals`, mention indexes, and evidence
+items tied to a segment ordinal/type with offsets. A model-proposed quote is
+persisted only when it is an exact contiguous substring of that segmented raw
+text; invalid quotes are discarded. Existing event columns already provide the
+storage boundary, so this change required a pipeline/schema version bump rather
+than a destructive domain rewrite.
+
+# ADR-010: Cloud-first is an explicit Demo Core mode
+Status: accepted
+
+The competition demo uses remote Qwen understanding, embedding and SameEvent
+matching because the operator explicitly configured `SHUNDE_AI_PROVIDER_MODE=remote`.
+This is a bounded sample path over real PostgreSQL rows, not a full-corpus claim.
+Local remains the safe code default when remote is absent; there is no automatic
+fallback, no vendor-specific handler code, and no API key in source/logs/database
+正文. The proven embedding model/dimension receives its own pgvector HNSW partial
+index so dimensions cannot be mixed accidentally.

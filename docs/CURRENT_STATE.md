@@ -64,7 +64,7 @@
 - PostgreSQL：`17.8`
 - pgvector extension：`0.8.1`
 - Port：`127.0.0.1:5432`
-- Alembic revision：`8b9c0d1e2f3a (head)`；新增 AI trace 的 nullable `provider` 字段；此前 revision 已包含 AI 处理幂等约束、768 维 cosine HNSW partial index、可恢复导入字段、失败行表与 raw immutability trigger
+- Alembic revision：`9c0d1e2f3a4b (head)`；新增 Qwen `qwen3.7-text-embedding` 1024 维 cosine HNSW partial index（只匹配该 model_id/dimensions）；此前 revision 已包含 AI trace 的 nullable `provider` 字段、AI 处理幂等约束、768 维 cosine HNSW partial index、可恢复导入字段、失败行表与 raw immutability trigger
 - 表：18 张要求的业务骨架表 + `import_row_errors` + `alembic_version`，共 20 张 public tables。
 - 已在空开发库实测 `alembic downgrade base` → `alembic upgrade head` 成功。
 - Docker Hub 曾出现 TLS handshake timeout；随后通过 DaoCloud 的 Docker Hub 镜像代理拉取同名 tag，digest 为 `sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21`。
@@ -77,22 +77,22 @@
 | 1 repo hardening | DONE | Git checkpoint、uv/pnpm lock、FastAPI、React 19 + Vite 8、PostgreSQL + pgvector、Alembic、CI、health、typed ports、18 表骨架 |
 | 2 import | DONE | 真实 Excel 已导入 PostgreSQL：batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb`，128,278/128,278 成功，0 失败，checkpoint 128,278；第二次真实运行返回 `idempotent=true`，数据库仍 128,278 行 |
 | 3 gazetteer | DONE | 已从真实 SQLite 构建 229 实体运行时快照，真实 `/openapi.json` 发现 `/batch` 并实测凤城/人民医院/未知地点；`/entities/resolve` 已接入，未知明确 unresolved |
-| 4 AI understanding/indexing | PARTIAL | 已接入 local Ollama、provider trace、规则分段、批量地名解析、可恢复 checkpoint 与持久化；真实导入批次当前已处理 11/128,278 条（11 events、11 embeddings），全量尚未运行 |
-| 5 retrieval/rerank | PARTIAL | pgvector cosine candidate retriever、HNSW 索引和 benchmark 已实装；11 条真实事件的 1000-profile smoke 已完成，另有 PostgreSQL hard-negative/self-exclusion contract test；reranker 仍为接口 |
-| 6 event matching/clustering | PLANNED | 只有 interface/schema skeleton，无生产 matcher |
-| 7 product loop | PLANNED | 前端仅工程/health 骨架，不是四页业务产品 |
-| 8 benchmark/handoff | PARTIAL | provider contract tests 已通过；quality review 已有真实分层抽样与 JSONL 生成流程，但本轮按操作者指示停止本地 300 条运行，尚无完整 300/500 条人工审核 artifact；无业务 Gold Set 所以 quality 保持 `null` |
+| 4 AI understanding/indexing | PARTIAL | v1 本地 smoke 11 条仍保留；Demo Core 以 `understanding.v2` 真实处理选中工单，当前库有 16 个 v2 event、remote Qwen 1024 维 embedding；128,278 条全量尚未运行 |
+| 5 retrieval/rerank | DONE（Demo Core 范围） | PostgreSQL/pgvector candidate retrieval 已接入 remote embedding；`qwen3.7-text-embedding` 真实返回 1024 维并有专用 HNSW partial index；embedding 仍只是 recall evidence，reranker 接口未实现 |
+| 6 event matching/clustering | DONE（Demo Core 范围） | Remote `SameEventMatcher` 已真实调用 qwen-plus；Demo 产出 6 positive / 5 hard-negative edges、1 个一致性 cluster；不是 128,278 条全量聚类，也没有 cosine threshold 判定 |
+| 7 product loop | PARTIAL | 只读 Demo API 已提供；前端仍为工程/health 骨架，不是四页业务产品 |
+| 8 benchmark/handoff | PARTIAL | Demo review artifact 已生成且保留 raw→v2 event→entity→embedding→candidate→SameEvent trace；没有 Gold Set，不报告 Recall/Precision/F1；500–1000 条人工 benchmark 仍是后续工作 |
 
 ## 本轮 Provider / Quality Validation 状态
 
 | 项目 | 状态 | 实测事实与影响 |
 |---|---|---|
 | Local provider | DONE | `OpenAICompatibleLLMProvider` 保留公网 URL 拒绝；Ollama `qwen2.5:3b` 实测返回结构化 JSON；`nomic-embed-text` native `/api/embed` 保持可用；local 调用失败不会云回退 |
-| Remote provider architecture | DONE | 通用 OpenAI-compatible LLM/embedding adapters、`AI_PROVIDER_MODE=local|remote|hybrid`、显式 route policy、API key `SecretStr`、provider trace 与 migration `8b9c0d1e2f3a` 已落地；6 个 contract/routing tests 通过 |
+| Remote provider architecture | DONE | 通用 OpenAI-compatible LLM/embedding adapters、`AI_PROVIDER_MODE=local|remote|hybrid`、显式 route policy、API key `SecretStr`、provider trace 与 migration `9c0d1e2f3a4b` 已落地；contract/routing tests 通过 |
 | Remote real integration | DONE | 2026-08-15 09:51（Asia/Shanghai）显式配置 Qwen DashScope 后，`scripts/remote_provider_smoke.py` 真实通过：health=`qwen-plus`、structured_keys=`["ok"]`、provider=`remote-openai-compatible`；只发送合成 JSON，不发送政府工单，API key 未写入日志/仓库 |
 | Quality sample selector | DONE | 从真实 batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb` 确定性抽样逻辑已实测 500 条，6 个 strata（recurrence/multi-event/mixed history-reply/alias/identifier/general）分布可审计 |
 | Quality review execution | PARTIAL | `scripts/quality_review.py` 可输出 raw→segmentation→events→entity resolution→embedding→pgvector candidates→trace；本轮本地 300 条运行因耗时按操作者指示停止，保留的旧 partial artifact 含模型截断错误，不能当质量结论；已修复通用 JSON wrapper 解包、简洁摘要提示和输出上限，需重新运行才生成有效 artifact |
-| Event Schema for SameEventMatcher | PARTIAL / NOT READY | 当前字段足够做候选检索（summary/location/mention links），但缺少稳定时间区间、主体/问题 facet、事件级证据 span 与冲突字段；本轮不擅自改核心 schema，先做 Gold Set 与 schema v2 评审，再实现 matcher |
+| Event Schema for SameEventMatcher | DONE（Demo Core）/ PARTIAL（正式验收） | `understanding.v2` 已补齐 `event_type`、event-specific `behavior`、`time_signals`、`mention_indexes`、经过原文精确校验的 evidence quote；SameEvent 输入包含 canonical entity/location/issue/behavior/time/evidence。正式 Gold Set、时间区间与业务边界仍需人工确认 |
 
 ## Shipped Phase 1 interfaces
 
@@ -114,13 +114,13 @@ uv sync --locked                         PASS
 uv run ruff check .                      PASS — All checks passed
 uv run ruff format --check .             PASS — repository formatted
 uv run pyright backend                   PASS — 0 errors, 0 warnings
-uv run pytest -q                         PASS — 12 passed（含 raw immutability、understanding batch、pgvector hard-negative contract）
+uv run pytest -q                         PASS — 12 passed（早期 Phase checkpoint；最新门禁见本文件下方）
 pnpm install --frozen-lockfile           PASS
 pnpm lint                                PASS
 pnpm test --run                          PASS — 1 test file / 1 test passed
 pnpm build                               PASS — Vite 8.2.1, 64 modules transformed
 docker compose config --quiet            PASS
-uv run alembic upgrade head              PASS — 7a8b9c0d1e2f
+uv run alembic upgrade head              PASS — 7a8b9c0d1e2f（早期 Phase checkpoint）
 GET /health/live                         PASS — alive
 GET /health/ready                        PASS — PostgreSQL up
 GET /health/dependencies                 PASS — DB/gazetteer up; model not_configured
@@ -144,8 +144,8 @@ benchmark artifact                         PASS — `data/runtime/benchmarks/ret
 本轮追加实测（2026-08-15）：
 
 ```text
-uv run alembic upgrade head                  PASS — 7a8b9c0d1e2f -> 8b9c0d1e2f3a
-uv run pytest -q                             PASS — 18 passed
+uv run alembic upgrade head                  PASS — 7a8b9c0d1e2f -> 8b9c0d1e2f3a（早期 provider checkpoint）
+uv run pytest -q                             PASS — 18 passed（早期 provider checkpoint）
 uv run ruff check backend/app scripts/...    PASS
 uv run ruff format --check ...               PASS
 uv run pyright backend                       PASS — 0 errors
@@ -164,3 +164,36 @@ remote_provider_smoke.py                     PASS — Qwen `qwen-plus` health �
 - `BLOCKED`（domain decision）：同一持续事件与复发事件的时间边界未确认。
 - `BLOCKED`（delete behavior）：软删除、硬删除或 audit tombstone 规则未由业务方确认。
 - `BLOCKED`（Care Signal）：是否存在稳定匿名诉求人 ID 未确认；不得实现个人级 Care Signal。
+
+## 本轮 Demo Core（2026-08-15）
+
+| 项目 | 状态 | 实际结果 |
+|---|---|---|
+| Understanding v2 | DONE（小样本） | 新增 event-specific `behavior`、`time_signals` 与 verbatim evidence；无效模型 quote 会被丢弃，数据库只保存能在分段原文中精确找到的 quote |
+| Remote chat contract | DONE | `uv run python scripts/remote_provider_smoke.py` → health `qwen-plus`、provider `remote-openai-compatible`、结构化 JSON PASS；API key 未进入输出 |
+| Remote embedding contract | DONE | `uv run python scripts/remote_embedding_smoke.py` → `qwen3.7-text-embedding`、真实返回 `1024` dimensions、专用 HNSW partial index PASS |
+| Demo selector | DONE | 从真实数据库动态选取 source rows `9/43/3451/4781/11862/14715`；没有硬编码 UUID，包含恒艺锚点、跨地点噪音、同主体/不同问题候选 |
+| SameEventMatcher | DONE（Demo Core） | `qwen-plus` remote 判断；显式 remote route；实体/地点/问题/行为/时间/evidence 输入；不以 cosine threshold 下结论 |
+| Event graph / cluster | DONE（Demo Core） | 实际 artifact `data/runtime/demo/demo-core-20260815T023809Z.json`：6 positive edges、5 hard negatives、1 cluster；cluster builder 拒绝矛盾的传递合并 |
+| Read API | DONE | 真实 uvicorn smoke：`GET /work-orders` total `128278`、`GET /events` total `16`、`GET /multi-frequency-events` total `1`；三个列表及三个详情均 HTTP 200，详情含 raw、evidence、trace、edge |
+| Full-corpus AI | PARTIAL | 128,278 条原始工单仍未全量发送给 LLM；当前 v2 event 16 条，旧 v1 smoke event 11 条，不能据此宣称全量完成 |
+
+### 本轮实际门禁
+
+```text
+uv run alembic upgrade head                  PASS — 9c0d1e2f3a4b
+uv run ruff check .                          PASS
+uv run ruff format --check .                 PASS
+uv run pyright backend                       PASS — 0 errors, 0 warnings
+uv run pytest -q                             PASS — 21 passed
+remote_provider_smoke.py                     PASS — qwen-plus / structured JSON
+remote_embedding_smoke.py                    PASS — qwen3.7-text-embedding / 1024 dims
+demo_core.py --anchor-limit 4 --candidate-limit 4 PASS — 6 positive / 5 negative / 1 cluster
+uvicorn + catalog endpoint smoke             PASS — six list/detail endpoints HTTP 200
+```
+
+### 当前阻塞与手工动作
+
+- `BLOCKED（正式质量验收）`：没有业务确认 Gold Set；Demo edge 仅是可人工审核候选，不得转写成 Recall/Precision/F1。
+- `PARTIAL（全量理解/embedding）`：全量远程推理尚未执行；除非另行批准成本、吞吐和隐私边界，不运行全量。
+- 远程调用必须保持显式 `SHUNDE_AI_PROVIDER_MODE=remote` 与环境变量 API key。API key 曾在聊天中暴露，使用者应在 DashScope 控制台撤销并重新生成；仓库、日志、数据库 trace 均不保存 key。

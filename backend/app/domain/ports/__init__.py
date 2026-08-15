@@ -11,6 +11,7 @@ from backend.app.domain.ports.export import Exporter
 from backend.app.domain.ports.gazetteer import GazetteerProvider, MentionResolver
 from backend.app.domain.ports.imports import ImportBatchRepository, TabularReader
 from backend.app.domain.ports.repositories import (
+    EventGraphRepository,
     EventRepository,
     JobRepository,
     WorkOrderRepository,
@@ -21,6 +22,7 @@ __all__ = [
     "ClusterConsistencyChecker",
     "EmbeddingProvider",
     "EventRepository",
+    "EventGraphRepository",
     "Exporter",
     "GazetteerProvider",
     "MentionResolver",

@@ -32,11 +32,23 @@ class ExtractedMention:
 
 
 @dataclass(frozen=True, slots=True)
+class EventEvidence:
+    segment_ordinal: int
+    segment_type: str
+    quote: str
+    start_offset: int
+    end_offset: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractedEvent:
     event_type: str | None
+    behavior: str | None
     normalized_summary: str
     location_signals: tuple[str, ...]
+    time_signals: tuple[str, ...]
     mention_indexes: tuple[int, ...]
+    evidence: tuple[EventEvidence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

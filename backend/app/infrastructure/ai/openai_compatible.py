@@ -160,6 +160,11 @@ class OpenAICompatibleChatAdapter:
             choice_data = _object(first_choice, "chat choice")
             message_data = _object(choice_data.get("message"), "chat message")
             structured = _parse_json_content(message_data.get("content"), request.output_schema)
+        except httpx.HTTPStatusError as error:
+            detail = _response_error_detail(error.response)
+            raise OpenAICompatibleUnavailable(
+                f"structured inference failed for {request.request_id}: {detail}"
+            ) from error
         except (httpx.HTTPError, ValueError, TypeError) as error:
             raise OpenAICompatibleUnavailable(
                 f"structured inference failed for {request.request_id}"
@@ -287,6 +292,9 @@ class OpenAICompatibleEmbeddingAdapter:
                 )
                 for index, request in enumerate(requests)
             )
+        except httpx.HTTPStatusError as error:
+            detail = _response_error_detail(error.response)
+            raise OpenAICompatibleUnavailable(f"embedding generation failed: {detail}") from error
         except (httpx.HTTPError, ValueError, TypeError) as error:
             raise OpenAICompatibleUnavailable("embedding generation failed") from error
 
@@ -295,6 +303,28 @@ def _object(value: object, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise OpenAICompatibleUnavailable(f"{label} is malformed")
     return cast(dict[str, Any], value)
+
+
+def _response_error_detail(response: httpx.Response) -> str:
+    """Expose provider error metadata without ever including request headers or secrets."""
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return f"HTTP {response.status_code}"
+    if isinstance(payload, dict):
+        payload_dict = cast(dict[str, Any], payload)
+        error_value = payload_dict.get("error")
+        error = cast(dict[str, Any], error_value) if isinstance(error_value, dict) else None
+        if isinstance(error, dict):
+            code = error.get("code")
+            message = error.get("message")
+            if code or message:
+                return (
+                    f"HTTP {response.status_code} {code or 'provider_error'}: "
+                    f"{message or 'unknown'}"
+                )
+    return f"HTTP {response.status_code} provider_error"
 
 
 def _model_ids(payload: dict[str, Any]) -> set[str]:
