@@ -377,6 +377,16 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 执行 `uv lock --check`，再尝试正规镜像；镜像连接失败时以同一锁文件执行
 `uv sync --frozen --default-index https://pypi.org/simple`，只切换下载源，不改版本、不跳过校验。
 
+## 前端状态灯视觉升级（2026-08-15）
+
+| 项目 | 状态 | 真实口径 |
+|---|---|---|
+| 系统状态灯 | DONE | 侧栏显示后端 live、数据库和真实 Gazetteer dependency 状态；颜色仅由健康接口返回决定 |
+| 多频事件状态灯 | DONE | cluster 卡片按真实 `handling_status` / `is_high_frequency` 显示红、黄、绿信号；不创建高频或处理状态 |
+| 工单状态灯 | DONE | 工单表格和当前页汇总按真实 `analysis_state` 显示；统计明确限定当前页 |
+| AI 研判阶段灯 | DONE | 导入/研判页按真实 `AnalysisJob.status/current_stage` 显示任务阶段；失败、排队和完成保持原始语义 |
+| 前端验收门禁 | DONE | `pnpm lint`、`pnpm test --run`（32 passed）、`pnpm build` 全通过；修复多频详情链接窄宽导致的竖排显示 |
+
 高频规则已形成可审计合同：`is_high_frequency`、`frequency_window_days` 和
 `frequency_work_order_count`。统计对象是 active cluster 中不同的真实 WorkOrder；同一工单拆出的
 多个 EventInstance 只计一条，`occurrence_date` 为空的事件不参与窗口判断。三天按包含首尾日期的

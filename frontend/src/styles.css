@@ -3314,3 +3314,292 @@ input, select, textarea { font-family: inherit; }
   font-size: 16px;
   margin: 0 2px;
 }
+
+/* ===========================================================
+   真实状态灯视觉层 — 不生成数据，只强化后端已有状态
+   =========================================================== */
+
+.signal-light {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.signal-light__bulb,
+.traffic-light {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 50%;
+  background: var(--color-text-faint);
+  box-shadow: 0 0 0 4px rgba(180, 189, 208, 0.14);
+}
+
+.signal-light__copy {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.signal-light__label,
+.signal-light__detail {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.signal-light__value {
+  color: var(--color-text-primary);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.signal-light__detail {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.signal-light--compact .signal-light__value {
+  font-size: 16px;
+}
+
+.signal-light--red .signal-light__bulb,
+.traffic-light--red,
+.event-card--red { --signal-color: var(--color-danger); }
+
+.signal-light--amber .signal-light__bulb,
+.traffic-light--amber,
+.event-card--amber { --signal-color: var(--color-warning); }
+
+.signal-light--green .signal-light__bulb,
+.traffic-light--green,
+.event-card--green { --signal-color: var(--color-success); }
+
+.signal-light--blue .signal-light__bulb,
+.traffic-light--blue { --signal-color: var(--color-primary); }
+
+.signal-light--muted .signal-light__bulb,
+.traffic-light--muted { --signal-color: var(--color-text-faint); }
+
+.signal-light__bulb,
+.traffic-light {
+  background: var(--signal-color, var(--color-text-faint));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--signal-color, var(--color-text-faint)) 14%, transparent);
+}
+
+.dashboard-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.7fr);
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+
+.dashboard-signal-panel {
+  min-height: 100%;
+  padding: 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.dashboard-signal-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.dashboard-signal-panel__title {
+  margin-top: 4px;
+  color: var(--color-text-primary);
+  font-size: 18px;
+  letter-spacing: -0.3px;
+}
+
+.dashboard-signal-panel__scope,
+.dashboard-signal-panel__note {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.dashboard-signal-panel__stack {
+  display: grid;
+  gap: 14px;
+  padding: 18px 0 14px;
+}
+
+.dashboard-signal-panel__note {
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.dashboard-cluster-card {
+  position: relative;
+  overflow: hidden;
+  border-left: 3px solid var(--signal-color, var(--color-primary));
+}
+
+.dashboard-cluster-card__title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-cluster-card__title-wrap .traffic-light {
+  margin-top: 6px;
+}
+
+.dashboard-cluster-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.dashboard-cluster-card__review {
+  color: var(--color-text-muted);
+}
+
+.signal-label {
+  font-weight: 700;
+}
+
+.signal-label--red,
+.event-card__signal--red { color: var(--color-danger); }
+
+.signal-label--amber,
+.event-card__signal--amber { color: #b45309; }
+
+.signal-label--green,
+.event-card__signal--green { color: var(--color-success); }
+
+.signal-label--blue,
+.event-card__signal--blue { color: var(--color-primary); }
+
+.event-card--red { border-left-color: var(--color-danger); }
+.event-card--amber { border-left-color: var(--color-warning); }
+.event-card--green { border-left-color: var(--color-success); }
+.event-card--muted { border-left-color: var(--color-border-strong); }
+
+.event-card__row--bottom {
+  align-items: center;
+}
+
+.event-card__stats {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.event-card__actions {
+  flex: 0 0 auto;
+}
+
+.event-card__detail-link {
+  width: auto;
+  min-width: 72px;
+  height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+  font-size: 12px;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-light);
+}
+
+.event-card__signal {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.work-order-signal-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.work-order-signal-strip__title {
+  display: grid;
+  gap: 3px;
+  min-width: 160px;
+}
+
+.work-order-signal-strip__title strong {
+  font-size: 16px;
+  letter-spacing: -0.2px;
+}
+
+.work-order-signal-strip__title > span:last-child {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.work-order-signal-strip__items {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 18px;
+  flex: 1;
+}
+
+.table-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.analysis-status-ribbon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.status-dot--ok { background: var(--sidebar-dot-ok); }
+.status-dot--down { background: var(--sidebar-dot-down); }
+.status-dot--loading { background: var(--sidebar-dot-loading); }
+
+@media (max-width: 1080px) {
+  .dashboard-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .work-order-signal-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .work-order-signal-strip__items {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .event-card__row--bottom {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

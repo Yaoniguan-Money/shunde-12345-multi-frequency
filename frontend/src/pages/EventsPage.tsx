@@ -9,6 +9,7 @@ import { Pagination } from "../components/Pagination";
 import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
 import { StatusBadge } from "../components/StatusBadge";
+import { handlingSignal } from "../components/signalState";
 
 const PAGE_SIZE = 10;
 type StatusFilter = "all" | "pending" | "confirmed" | "rejected";
@@ -21,11 +22,15 @@ function getSummary(cluster: ClusterSummaryResponse): string {
 }
 
 function EventCard({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Element {
+  const handling = handlingSignal(cluster.handling_status);
+  const signalTone = cluster.is_high_frequency ? "red" : handling.tone;
+  const signalLabel = cluster.is_high_frequency ? "高频关注" : handling.label;
   return (
-    <article className="event-card">
+    <article className={`event-card event-card--${signalTone}`}>
       <div className="event-card__body">
         <div className="event-card__row event-card__row--top">
           <div className="event-card__title-wrap">
+            <span className={`traffic-light traffic-light--${signalTone}`} aria-label={signalLabel} />
             <Link to={`/events/${cluster.cluster_id}`} className="event-card__title">
               {cluster.name}
             </Link>
@@ -48,6 +53,9 @@ function EventCard({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Elemen
             <span className="event-card__stat">📋 {cluster.work_order_count} 个关联工单</span>
             <span className="event-card__stat">📌 {cluster.event_count} 个 AI 事件</span>
             <span className="event-card__stat">置信度 {Math.round(cluster.confidence * 100)}%</span>
+            <span className={`event-card__signal event-card__signal--${signalTone}`}>
+              {signalLabel}
+            </span>
           </div>
           <div className="event-card__actions">
             <Link to={`/events/${cluster.cluster_id}`} className="event-card__detail-link">

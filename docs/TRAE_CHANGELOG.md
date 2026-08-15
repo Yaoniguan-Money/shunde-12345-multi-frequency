@@ -2,6 +2,18 @@
 
 TRAE appends entries; do not rewrite history.
 
+## 2026-08-15 — Frontend traffic-light status layer
+
+- 改动目标：参考政务看板的红/黄/绿信号灯风格，提升状态识别和多频事件浏览效率，同时保持后端真实数据约束。
+- 修改文件：`frontend/src/components/SignalLight.tsx`、`frontend/src/components/signalState.ts`、
+  `frontend/src/App.tsx`、`frontend/src/pages/DashboardPage.tsx`、`frontend/src/pages/EventsPage.tsx`、
+  `frontend/src/pages/WorkOrdersPage.tsx`、`frontend/src/pages/ImportsPage.tsx`、`frontend/src/styles.css`。
+- 数据口径：系统灯来自 health/dependencies；事件灯来自 `handling_status`、`review_status` 和
+  `is_high_frequency`；工单灯来自 `analysis_state`；研判灯来自 `AnalysisJob.status/current_stage`。
+  状态统计限定当前页/当前加载数据，不冒充全量。
+- 兼容修复：多频卡片“查看详情”链接不再因窄宽度被逐字竖排。
+- 验证：前端 32 tests、lint、build 通过；无 API、数据库或原始数据改动。
+
 ## 2026-08-15 — Backend high-frequency window contract
 
 - 改动目标：落实“ 三天内三条及以上 ”的高频口径，避免前端用模糊相似度或本地日期推断。

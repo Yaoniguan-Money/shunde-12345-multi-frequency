@@ -281,6 +281,10 @@ Dashboard、多频事件、工单中心和导入/研判页都适用此规则；�
 `POST /imports/preview`，研判进度/计数必须来自 `GET /analysis-jobs/{job_id}`。
 列表接口返回空数组时显示空状态；接口失败时显示失败和重试入口，不保留旧的模拟卡片。
 
+状态灯是视觉映射，不是新增业务判断：红/黄/绿只允许映射后端已有的健康状态、
+`handling_status`、`review_status`、`analysis_state`、`is_high_frequency` 和分析任务阶段。
+分页页面的状态数量必须标注“当前页/当前已加载”，不能从当前页推断全量分布；没有后端字段就不显示。
+
 当前 `/multi-frequency-events` 的“多频”含义是后端已确认的跨不同 WorkOrder cluster，
 “高频”是其独立的后端投影：任意滚动 3 个日历日窗口内至少 3 条不同真实 WorkOrder，且每条
 工单对应的 EventInstance 有可解析 `occurrence_date`。同一工单的多个 EventInstance 只计一条，

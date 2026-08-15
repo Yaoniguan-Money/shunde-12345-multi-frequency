@@ -8,6 +8,8 @@ import type { WorkOrderAnalysisState, WorkOrderListItem } from "../types/api";
 import { Pagination } from "../components/Pagination";
 import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
+import { SignalLight } from "../components/SignalLight";
+import type { SignalTone } from "../components/signalState";
 
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 350;
@@ -27,6 +29,19 @@ function getStateBadge(state: WorkOrderAnalysisState | undefined): { label: stri
       return { label: "失败", cls: "badge badge--danger" };
     default:
       return { label: "未处理", cls: "badge badge--neutral" };
+  }
+}
+
+function analysisSignal(state: WorkOrderAnalysisState | undefined): { tone: SignalTone; label: string } {
+  switch (state) {
+    case "analyzed":
+      return { tone: "green", label: "已分析" };
+    case "analyzed_no_event":
+      return { tone: "blue", label: "无事件" };
+    case "failed":
+      return { tone: "red", label: "分析失败" };
+    default:
+      return { tone: "amber", label: "未处理" };
   }
 }
 
@@ -80,6 +95,11 @@ export function WorkOrdersPage(): JSX.Element {
     return true;
   });
   const total = query.data?.total ?? 0;
+  const stateCounts = items.reduce<Record<string, number>>((counts, item) => {
+    const key = item.analysis_state ?? "unprocessed";
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
 
   return (
     <section>
@@ -96,6 +116,20 @@ export function WorkOrdersPage(): JSX.Element {
         <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
           当前列表没有后端导入历史、趋势或类型分布合同，因此页面不显示模拟导入、随机趋势或估算统计。
         </p>
+      </div>
+
+      <div className="work-order-signal-strip">
+        <div className="work-order-signal-strip__title">
+          <span className="eyebrow">CURRENT PAGE SIGNALS</span>
+          <strong>工单研判状态灯</strong>
+          <span>当前页 {items.length} 条，不对全量状态做估算</span>
+        </div>
+        <div className="work-order-signal-strip__items">
+          <SignalLight tone="green" label="已分析" value={stateCounts.analyzed ?? 0} compact />
+          <SignalLight tone="amber" label="未处理" value={stateCounts.unprocessed ?? 0} compact />
+          <SignalLight tone="blue" label="无事件" value={stateCounts.analyzed_no_event ?? 0} compact />
+          <SignalLight tone="red" label="失败" value={stateCounts.failed ?? 0} compact />
+        </div>
       </div>
 
       <div className="filter-bar">
@@ -141,12 +175,18 @@ export function WorkOrdersPage(): JSX.Element {
                 const number = item.external_work_order_number ?? `WO-${item.source_row_number}`;
                 const title = item.raw_title?.trim() || "未提供标题";
                 const badge = getStateBadge(item.analysis_state);
+                const signal = analysisSignal(item.analysis_state);
                 return (
                   <tr key={item.work_order_id}>
                     <td><Link to={`/work-orders/${item.work_order_id}`} className="data-table__wo-link">{number}</Link></td>
                     <td><span className="data-table__title-text">{title.length > 40 ? `${title.slice(0, 40)}...` : title}</span></td>
                     <td><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{item.title_tags.length > 0 ? item.title_tags.slice(0, 2).map((tag) => <span key={tag} className={`tag ${getTagVariant(tag)}`}>{tag}</span>) : <span className="text-muted">未提供</span>}</div></td>
-                    <td><span className={badge.cls}>{badge.label}</span></td>
+                    <td>
+                      <span className="table-status-cell">
+                        <span className={`traffic-light traffic-light--${signal.tone}`} aria-label={signal.label} />
+                        <span className={badge.cls}>{badge.label}</span>
+                      </span>
+                    </td>
                     <td>{item.event_count}</td>
                     <td>{item.is_urgent ? <span className="tag tag--danger">紧急</span> : <span className="text-muted">—</span>}</td>
                     <td className="text-muted">{formatTime(item.created_at)}</td>

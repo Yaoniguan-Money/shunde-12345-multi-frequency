@@ -3,7 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import type { JSX } from "react";
 
-import { fetchLiveness } from "./api/health";
+import { fetchDependencies, fetchLiveness } from "./api/health";
 import "./styles.css";
 
 interface NavItem {
@@ -69,8 +69,18 @@ function SidebarStatus(): JSX.Element {
     retry: false,
     refetchInterval: 30_000,
   });
+  const dependencies = useQuery({
+    queryKey: ["backend-dependencies-sidebar"],
+    queryFn: ({ signal }) => fetchDependencies(signal),
+    retry: false,
+    refetchInterval: 30_000,
+  });
 
   const aiOk = health.isSuccess;
+  const dependencyState = (key: "database" | "gazetteer") => {
+    if (dependencies.isPending) return "loading";
+    return dependencies.data?.[key]?.state === "up" ? "ok" : "down";
+  };
 
   return (
     <div className="app-sidebar__status">
@@ -78,6 +88,14 @@ function SidebarStatus(): JSX.Element {
       <div className="app-sidebar__status-item">
         <span className={`status-dot ${aiOk ? "status-dot--ok" : health.isPending ? "status-dot--loading" : "status-dot--down"}`} />
         <span>{aiOk ? "后端在线" : health.isPending ? "后端连接中…" : "后端未连接"}</span>
+      </div>
+      <div className="app-sidebar__status-item">
+        <span className={`status-dot status-dot--${dependencyState("database")}`} />
+        <span>数据库 {dependencyState("database") === "ok" ? "正常" : dependencyState("database") === "loading" ? "检测中…" : "异常"}</span>
+      </div>
+      <div className="app-sidebar__status-item">
+        <span className={`status-dot status-dot--${dependencyState("gazetteer")}`} />
+        <span>地名服务 {dependencyState("gazetteer") === "ok" ? "正常" : dependencyState("gazetteer") === "loading" ? "检测中…" : "异常"}</span>
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
+import { SignalLight } from "../components/SignalLight";
+import { handlingSignal, reviewSignal } from "../components/signalState";
 import type { ClusterSummaryResponse } from "../types/api";
 
 const PANEL_STYLE = {
@@ -42,15 +44,25 @@ function StatCard({
 }
 
 function ClusterRow({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Element {
+  const handling = handlingSignal(cluster.handling_status);
+  const review = reviewSignal(cluster.review_status);
+  const tone = cluster.is_high_frequency ? "red" : handling.tone;
+  const signalLabel = cluster.is_high_frequency ? "高频关注" : handling.label;
   return (
     <Link
-      className="dashboard-cluster-card"
+      className={`dashboard-cluster-card dashboard-cluster-card--${tone}`}
       to={`/events/${cluster.cluster_id}`}
       style={{ textDecoration: "none" }}
     >
       <div className="dashboard-cluster-card__header">
-        <h3 className="dashboard-cluster-card__title">{cluster.name}</h3>
-        <StatusBadge status={cluster.handling_status} variant="handling" />
+        <div className="dashboard-cluster-card__title-wrap">
+          <span className={`traffic-light traffic-light--${tone}`} aria-label={signalLabel} />
+          <h3 className="dashboard-cluster-card__title">{cluster.name}</h3>
+        </div>
+        <div className="dashboard-cluster-card__badges">
+          <StatusBadge status={cluster.handling_status} variant="handling" />
+          <StatusBadge status={cluster.review_status} variant="neutral" />
+        </div>
       </div>
       <div className="dashboard-cluster-card__meta">
         <span>关联工单：{cluster.work_order_count}</span>
@@ -58,10 +70,53 @@ function ClusterRow({ cluster }: { cluster: ClusterSummaryResponse }): JSX.Eleme
         <span>置信度：{Math.round(cluster.confidence * 100)}%</span>
       </div>
       <div className="dashboard-cluster-card__footer">
-        <span>后端判定：{cluster.is_multi_frequency ? "多频事件" : "非多频"}</span>
+        <span className={`signal-label signal-label--${tone}`}>
+          {signalLabel}
+        </span>
+        <span className="dashboard-cluster-card__review">审核：{review.label}</span>
         <span>查看详情 →</span>
       </div>
     </Link>
+  );
+}
+
+function DashboardSignalPanel({ clusters }: { clusters: ClusterSummaryResponse[] }): JSX.Element {
+  const statusCounts = clusters.reduce<Record<string, number>>((counts, cluster) => {
+    const key = cluster.handling_status?.toLowerCase() || "unknown";
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+  const highCount = clusters.filter((cluster) => cluster.is_high_frequency).length;
+  const rows = [
+    { key: "unhandled", label: "未处理", tone: "red" as const, count: statusCounts.unhandled ?? 0 },
+    { key: "investigating", label: "处理中", tone: "amber" as const, count: statusCounts.investigating ?? 0 },
+    { key: "resolved", label: "已办结", tone: "green" as const, count: statusCounts.resolved ?? 0 },
+  ];
+
+  return (
+    <aside className="dashboard-signal-panel">
+      <div className="dashboard-signal-panel__header">
+        <div>
+          <p className="eyebrow">LIVE SIGNALS</p>
+          <h2 className="dashboard-signal-panel__title">事件状态灯</h2>
+        </div>
+        <span className="dashboard-signal-panel__scope">当前已加载 {clusters.length} 条</span>
+      </div>
+      <div className="dashboard-signal-panel__stack">
+        {rows.map((row) => (
+          <SignalLight key={row.key} tone={row.tone} label={row.label} value={row.count} detail="当前多频列表" />
+        ))}
+        <SignalLight
+          tone={highCount > 0 ? "red" : "muted"}
+          label="高频关注"
+          value={highCount}
+          detail="三天内 ≥ 3 条工单"
+        />
+      </div>
+      <p className="dashboard-signal-panel__note">
+        状态灯只统计后端当前返回的真实 cluster；未加载的数据不在此处估算。
+      </p>
+    </aside>
   );
 }
 
@@ -158,23 +213,26 @@ export function DashboardPage(): JSX.Element {
         />
       </div>
 
-      <div style={{ ...PANEL_STYLE, marginBottom: 20 }}>
-        <div className="detail-section__title" style={{ marginBottom: 14 }}>
-          当前多频事件
-          <span className="detail-section__count">（{clusters.length} 条）</span>
-        </div>
-        {clusters.length === 0 ? (
-          <EmptyState
-            title="后端暂无多频事件"
-            description="没有匹配的 cluster 时，前端不显示预置或模拟事件。"
-          />
-        ) : (
-          <div className="dashboard-cluster-grid">
-            {clusters.map((cluster) => (
-              <ClusterRow key={cluster.cluster_id} cluster={cluster} />
-            ))}
+      <div className="dashboard-overview-grid">
+        <div style={PANEL_STYLE}>
+          <div className="detail-section__title" style={{ marginBottom: 14 }}>
+            当前多频事件
+            <span className="detail-section__count">（{clusters.length} 条）</span>
           </div>
-        )}
+          {clusters.length === 0 ? (
+            <EmptyState
+              title="后端暂无多频事件"
+              description="没有匹配的 cluster 时，前端不显示预置或模拟事件。"
+            />
+          ) : (
+            <div className="dashboard-cluster-grid">
+              {clusters.map((cluster) => (
+                <ClusterRow key={cluster.cluster_id} cluster={cluster} />
+              ))}
+            </div>
+          )}
+        </div>
+        <DashboardSignalPanel clusters={clusters} />
       </div>
 
       <div style={PANEL_STYLE}>

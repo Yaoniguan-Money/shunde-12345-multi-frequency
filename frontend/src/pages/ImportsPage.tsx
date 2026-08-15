@@ -22,6 +22,7 @@ import {
 import type { AnalysisJobResponse } from "../types/api";
 import { ToastContext } from "../components/toastContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { SignalLight } from "../components/SignalLight";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -462,10 +463,18 @@ function StageAnalysis({
   }
 
   const isCompleted = job?.status === "completed";
+  const stageTone = isCompleted ? "green" : job?.status === "failed" ? "red" : job?.status === "running" ? "amber" : "blue";
 
   return (
     <div className="import-stage" data-testid="analysis-job">
-      <div style={{ marginBottom: 12 }}><StatusBadge status={job?.status ?? "queued"} variant="analysis" /></div>
+      <div className="analysis-status-ribbon">
+        <SignalLight
+          tone={stageTone}
+          label={job?.current_stage ?? "queued"}
+          detail={statusText}
+        />
+        <StatusBadge status={job?.status ?? "queued"} variant="analysis" />
+      </div>
       {!isCompleted ? (
         <>
           <div className="ai-steps">
