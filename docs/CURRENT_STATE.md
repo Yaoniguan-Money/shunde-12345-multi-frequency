@@ -314,6 +314,10 @@ scripts/check.ps1                            PASS — backend 36 tests; frontend
 
 本次修复不声称固定倍数：实际吞吐仍受 Qwen API 延迟和限流影响；遇到 429 时通过 `SHUNDE_MODEL_CONCURRENCY=4` 降低并发，不得静默回退本地或改用 mock。
 
+### 统一启动依赖修复
+
+2026-08-15 验收发现 analysis job 在 0/100 失败，真实错误为 `gazetteer live service is unavailable`。根因是旧 `scripts/start.ps1` 未启动 8000 地名服务。脚本现会从进程/Windows 用户环境加载 AI 与 gazetteer 配置，启动或复用真实地名服务，等待 `/openapi.json` 成功后才启动 backend，并记录 `gazetteer_pid`。真实 smoke：OpenAPI 1.0、snapshot 229 entities、凤城 resolved、未知地点 unresolved；8000/8080/5173 均 HTTP 200。
+
 安全派生数据 repair 已为存量 event 回填可审计 outcome：`understanding.v1` 11 work orders/11 events，`understanding.v2` 25 work orders/32 events。无 event 的历史工单无法从 event 反推，仍保持 `unprocessed`，不伪造 `analyzed_no_event`。
 
 ### 本轮门禁

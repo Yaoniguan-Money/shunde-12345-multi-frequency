@@ -37,6 +37,8 @@ uv run python scripts/gazetteer_smoke.py
 
 HTTP adapter 启动时读取 `/openapi.json`，从真实 schema 发现批量操作，不猜 endpoint；快照从 SQLite 只读构建并原子写入 `data/runtime/gazetteer.snapshot.json`。运行时先查快照别名，再对剩余 mention 做一次批量远端查询。
 
+日常 Demo 请从仓库根目录运行 `scripts/start.ps1`。该脚本会启动/复用 8000 地名服务并通过真实 OpenAPI 健康检查后再启动 backend/frontend；不要只启动 8080，否则 analysis job 会以 `gazetteer live service is unavailable` 明确失败。
+
 ## 常用检查
 
 ```powershell
