@@ -6,7 +6,7 @@ import { useGSAP } from "@gsap/react";
 import type { JSX } from "react";
 
 import { getCluster } from "../api/catalog";
-import type { EventDetailResponse } from "../types/api";
+import type { EventResponse, WorkOrderDetailResponse } from "../types/api";
 import { EdgeCard } from "../components/EdgeCard";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
@@ -85,13 +85,76 @@ function ClusterEvidenceSummary({
   );
 }
 
-function MemberCard({ member }: { member: EventDetailResponse }): JSX.Element {
-  const { event, work_order: workOrder, raw_title: rawTitle, raw_content: rawContent } = member;
+function EventUnderstanding({ event }: { event: EventResponse }): JSX.Element {
+  return (
+    <section className="member-card__event">
+      <div className="member-card__field">
+        <span className="member-card__field-key">事件摘要</span>
+        <span className="member-card__field-value">{event.normalized_summary}</span>
+      </div>
+      <div className="member-card__field">
+        <span className="member-card__field-key">事件类型</span>
+        <span className="member-card__field-value">{event.event_type ?? "—"}</span>
+      </div>
+      <div className="member-card__field">
+        <span className="member-card__field-key">行为</span>
+        <span className="member-card__field-value">{event.behavior ?? "—"}</span>
+      </div>
+      {event.entities.length > 0 ? (
+        <div className="member-card__field">
+          <span className="member-card__field-key">实体</span>
+          <div className="member-card__chips">
+            {event.entities.map((entity) => (
+              <span
+                className="chip chip--entity"
+                key={entity.entity_id}
+                title={entity.entity_type ?? undefined}
+              >
+                {entity.standard_name ?? entity.entity_id.slice(0, 8)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {event.location_signals.length > 0 ? (
+        <div className="member-card__field">
+          <span className="member-card__field-key">地点信号</span>
+          <div className="member-card__chips">
+            {event.location_signals.map((location, index) => (
+              <span className="chip chip--location" key={`${location}-${index}`}>
+                {location}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {event.time_signals.length > 0 ? (
+        <div className="member-card__field">
+          <span className="member-card__field-key">时间信号</span>
+          <div className="member-card__chips">
+            {event.time_signals.map((time, index) => (
+              <span className="chip chip--time" key={`${time}-${index}`}>
+                {time}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="member-card__field">
+        <TraceTag trace={event.trace} compact />
+      </div>
+    </section>
+  );
+}
+
+function WorkOrderCard({ detail }: { detail: WorkOrderDetailResponse }): JSX.Element {
+  const { summary: workOrder, raw_content: rawContent, events } = detail;
   return (
     <article className="member-card">
       <header className="member-card__header">
         <h4 className="member-card__title">
-          {rawTitle ?? `工单 ${workOrder.external_work_order_number ?? workOrder.work_order_id}`}
+          {workOrder.raw_title ??
+            `工单 ${workOrder.external_work_order_number ?? workOrder.work_order_id}`}
         </h4>
         <span className="uuid-mono">#{workOrder.source_row_number}</span>
       </header>
@@ -108,9 +171,7 @@ function MemberCard({ member }: { member: EventDetailResponse }): JSX.Element {
           </div>
           <div className="member-card__field">
             <span className="member-card__field-key">原始标题</span>
-            <span className="member-card__field-value">
-              {rawTitle ?? "—"}
-            </span>
+            <span className="member-card__field-value">{workOrder.raw_title ?? "—"}</span>
           </div>
           <div className="member-card__field">
             <span className="member-card__field-key">原始内容</span>
@@ -127,69 +188,11 @@ function MemberCard({ member }: { member: EventDetailResponse }): JSX.Element {
         </div>
         <div className="member-card__region member-card__region--ai">
           <div className="member-card__region-label member-card__region-label--ai">
-            AI 理解
+            AI 理解 · {events.length} 个事件
           </div>
-          <div className="member-card__field">
-            <span className="member-card__field-key">事件摘要</span>
-            <span className="member-card__field-value">
-              {event.normalized_summary}
-            </span>
-          </div>
-          <div className="member-card__field">
-            <span className="member-card__field-key">事件类型</span>
-            <span className="member-card__field-value">
-              {event.event_type ?? "—"}
-            </span>
-          </div>
-          <div className="member-card__field">
-            <span className="member-card__field-key">行为</span>
-            <span className="member-card__field-value">
-              {event.behavior ?? "—"}
-            </span>
-          </div>
-          {event.entities.length > 0 ? (
-            <div className="member-card__field">
-              <span className="member-card__field-key">实体</span>
-              <div className="member-card__chips">
-                {event.entities.map((e) => (
-                  <span
-                    className="chip chip--entity"
-                    key={e.entity_id}
-                    title={e.entity_type ?? undefined}
-                  >
-                    {e.standard_name ?? e.entity_id.slice(0, 8)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {event.location_signals.length > 0 ? (
-            <div className="member-card__field">
-              <span className="member-card__field-key">地点信号</span>
-              <div className="member-card__chips">
-                {event.location_signals.map((loc, idx) => (
-                  <span className="chip chip--location" key={`${loc}-${idx}`}>
-                    {loc}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {event.time_signals.length > 0 ? (
-            <div className="member-card__field">
-              <span className="member-card__field-key">时间信号</span>
-              <div className="member-card__chips">
-                {event.time_signals.map((t, idx) => (
-                  <span className="chip chip--time" key={`${t}-${idx}`}>
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <div className="member-card__field">
-            <TraceTag trace={event.trace} compact />
-          </div>
+          {events.map((event) => (
+            <EventUnderstanding event={event} key={event.event_id} />
+          ))}
         </div>
       </div>
     </article>
@@ -258,7 +261,7 @@ export function ClusterDetailPage(): JSX.Element {
   if (!data) {
     return <EmptyState title="未加载到事件数据" />;
   }
-  const { summary, members, edges } = data;
+  const { summary, work_orders: workOrders, edges } = data;
 
   return (
     <section ref={containerRef}>
@@ -283,7 +286,10 @@ export function ClusterDetailPage(): JSX.Element {
         </div>
         <div className="detail-header__meta">
           <span>
-            成员工单：<strong>{summary.member_count}</strong>
+            关联工单：<strong>{summary.work_order_count}</strong>
+          </span>
+          <span>
+            AI 事件：<strong>{summary.event_count}</strong>
           </span>
           <span>
             置信度：
@@ -309,13 +315,15 @@ export function ClusterDetailPage(): JSX.Element {
         <h2 className="detail-section__title">
           关联工单
           <span className="detail-section__count">
-            （{members.length} 条 · 原始工单 vs AI 派生）
+            （{workOrders.length} 条工单 · {summary.event_count} 个 AI 事件）
           </span>
         </h2>
-        {members.length === 0 ? (
+        {workOrders.length === 0 ? (
           <EmptyState title="暂无关联工单" description="该事件簇当前没有任何成员工单。" />
         ) : (
-          members.map((m) => <MemberCard key={m.event.event_id} member={m} />)
+          workOrders.map((workOrder) => (
+            <WorkOrderCard key={workOrder.summary.work_order_id} detail={workOrder} />
+          ))
         )}
       </div>
 

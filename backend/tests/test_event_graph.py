@@ -2,12 +2,14 @@ from uuid import uuid4
 
 import pytest
 
+from backend.app.application.services.event_graph import EventGraphService
 from backend.app.application.services.understanding import WorkOrderUnderstandingService
 from backend.app.domain.analysis import SegmentType
 from backend.app.domain.services.clustering import EventClusterBuilder
 from backend.app.domain.services.segmentation import RuleBasedWorkOrderSegmenter
 from backend.app.domain.types import (
     EntityId,
+    EventCandidate,
     EventForMatching,
     EventInstanceId,
     EventMatchEdgeRecord,
@@ -89,10 +91,11 @@ def _event(
     location: str,
     summary: str,
     event_type: str = "noise",
+    work_order_id: WorkOrderId | None = None,
 ) -> EventForMatching:
     return EventForMatching(
         event_id=event_id,
-        work_order_id=WorkOrderId(uuid4()),
+        work_order_id=work_order_id or WorkOrderId(uuid4()),
         event_type=event_type,
         behavior="要求处理",
         normalized_summary=summary,
@@ -103,6 +106,59 @@ def _event(
         raw_title=None,
         raw_content=summary,
     )
+
+
+@pytest.mark.asyncio
+async def test_event_graph_never_matches_events_from_the_same_work_order() -> None:
+    work_order_id = WorkOrderId(uuid4())
+    entity = EntityId(uuid4())
+    left = _event(
+        event_id=EventInstanceId(uuid4()),
+        work_order_id=work_order_id,
+        entity=entity,
+        location="同一地点",
+        summary="商业噪声投诉",
+    )
+    right = _event(
+        event_id=EventInstanceId(uuid4()),
+        work_order_id=work_order_id,
+        entity=entity,
+        location="同一地点",
+        summary="要求关停音响",
+    )
+
+    class Events:
+        async def get_for_matching(self, event_id):
+            return {left.event_id: left, right.event_id: right}[event_id]
+
+    class Retriever:
+        async def retrieve(self, query):
+            other = right.event_id if query.event_id == left.event_id else left.event_id
+            return (EventCandidate(other, 0.99),)
+
+    class Matcher:
+        async def match(self, _left_event_id, _right_event_id):
+            raise AssertionError("same-work-order events must not reach SameEventMatcher")
+
+    class Graph:
+        async def start_run(self, **_kwargs):
+            return uuid4(), uuid4()
+
+        async def save_match_edge(self, *_args, **_kwargs):
+            raise AssertionError("same-work-order events must not persist a match edge")
+
+        async def save_cluster(self, *_args, **_kwargs):
+            raise AssertionError("same-work-order events must not persist a cluster")
+
+        async def finish_run(self, _run_id, _metrics):
+            return None
+
+    result = await EventGraphService(Events(), Graph(), Retriever(), Matcher()).run(
+        (left.event_id, right.event_id)
+    )
+
+    assert result.decisions == ()
+    assert result.cluster_ids == ()
 
 
 @pytest.mark.asyncio
@@ -148,6 +204,37 @@ async def test_remote_same_event_forces_disjoint_entities_false_and_routes_remot
     assert llm.routes == [ProviderRoute.REMOTE]
 
 
+@pytest.mark.asyncio
+async def test_remote_same_event_rejects_events_from_the_same_work_order() -> None:
+    work_order_id = WorkOrderId(uuid4())
+    entity = EntityId(uuid4())
+    left = _event(
+        event_id=EventInstanceId(uuid4()),
+        work_order_id=work_order_id,
+        entity=entity,
+        location="同一地点",
+        summary="商业噪声投诉",
+    )
+    right = _event(
+        event_id=EventInstanceId(uuid4()),
+        work_order_id=work_order_id,
+        entity=entity,
+        location="同一地点",
+        summary="部门已约谈",
+    )
+
+    class Events:
+        async def get_for_matching(self, event_id):
+            return {left.event_id: left, right.event_id: right}[event_id]
+
+    class LLM:
+        async def generate_batch(self, _requests):
+            raise AssertionError("same-work-order events must be rejected before the LLM")
+
+    with pytest.raises(ValueError, match="different work orders"):
+        await RemoteSameEventMatcher(Events(), LLM()).match(left.event_id, right.event_id)
+
+
 def test_cluster_builder_rejects_contradictory_transitive_merge() -> None:
     entity = EntityId(uuid4())
     a = _event(event_id=EventInstanceId(uuid4()), entity=entity, location="同一地点", summary="A")
@@ -171,6 +258,41 @@ def test_cluster_builder_rejects_contradictory_transitive_merge() -> None:
     assert len(proposals) == 1
     assert set(proposals[0].members) == {a.event_id, b.event_id}
     assert (b.event_id, c.event_id) in proposals[0].rejected_edges
+
+
+def test_cluster_builder_never_creates_multi_frequency_from_one_work_order() -> None:
+    work_order_id = WorkOrderId(uuid4())
+    entity = EntityId(uuid4())
+    events = tuple(
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            work_order_id=work_order_id,
+            entity=entity,
+            location="同一地点",
+            summary=summary,
+        )
+        for summary in ("商业噪声", "部门已约谈", "要求关停音响")
+    )
+    edges = (
+        EventMatchEdgeRecord(
+            events[0].event_id,
+            events[1].event_id,
+            True,
+            0.96,
+            SameEventEvidence(True, True, True, True),
+            _remote_trace(),
+        ),
+        EventMatchEdgeRecord(
+            events[1].event_id,
+            events[2].event_id,
+            True,
+            0.95,
+            SameEventEvidence(True, True, True, True),
+            _remote_trace(),
+        ),
+    )
+
+    assert EventClusterBuilder().build(events, edges) == ()
 
 
 def test_cluster_builder_keeps_semantic_event_type_synonyms_together() -> None:

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from backend.app.domain.catalog import (
     EntityReference,
     EventDetail,
     MatchEdgeView,
+    WorkOrderDetail,
     WorkOrderSummary,
 )
 from backend.app.domain.types import VersionTrace
@@ -59,13 +61,48 @@ class _CatalogFixture:
             raw_title=self.summary.raw_title,
             raw_content="新桂北路29号116号铺有噪音",
         )
+        second_event = replace(
+            self.event,
+            event_id=uuid4(),
+            ordinal=1,
+            normalized_summary="要求再次关停音响",
+        )
+        second_work_order = replace(
+            self.summary,
+            work_order_id=uuid4(),
+            external_work_order_number="WO-2",
+            source_row_number=2,
+        )
+        third_event = replace(
+            self.event,
+            event_id=uuid4(),
+            work_order_id=second_work_order.work_order_id,
+            normalized_summary="再次反映同一地点商业噪音",
+        )
+        self.members = (
+            self.detail,
+            EventDetail(
+                event=second_event,
+                work_order=self.summary,
+                raw_title=self.summary.raw_title,
+                raw_content=self.detail.raw_content,
+            ),
+            EventDetail(
+                event=third_event,
+                work_order=second_work_order,
+                raw_title=second_work_order.raw_title,
+                raw_content="再次反映新桂北路29号116号铺商业噪音",
+            ),
+        )
         self.cluster = ClusterSummary(
             cluster_id=self.cluster_id,
             name="同一地点商业噪音",
             status="active",
             confidence=0.95,
             handling_status="unhandled",
-            member_count=1,
+            member_count=2,
+            work_order_count=2,
+            event_count=3,
             evidence={"positive_edge_count": 1},
             trace=self.trace,
         )
@@ -88,7 +125,23 @@ class _CatalogFixture:
     async def get_cluster(self, _cluster_id):
         return ClusterDetail(
             summary=self.cluster,
-            members=(self.detail,),
+            members=self.members,
+            work_orders=(
+                WorkOrderDetail(
+                    summary=self.summary,
+                    import_batch_id=uuid4(),
+                    raw_content=self.detail.raw_content,
+                    raw_fields={"工单编号": "WO-1"},
+                    events=(self.members[0].event, self.members[1].event),
+                ),
+                WorkOrderDetail(
+                    summary=self.members[2].work_order,
+                    import_batch_id=uuid4(),
+                    raw_content=self.members[2].raw_content,
+                    raw_fields={"工单编号": "WO-2"},
+                    events=(self.members[2].event,),
+                ),
+            ),
             edges=(
                 MatchEdgeView(
                     left_event_id=self.event_id,
@@ -119,5 +172,11 @@ async def test_catalog_api_exposes_trace_evidence_and_pagination() -> None:
     assert work_orders.json()["total"] == 1
     assert events.json()["items"][0]["event"]["trace"]["provider"] == ("remote-openai-compatible")
     assert event.json()["event"]["evidence"][0]["validation"] == "exact_quote"
-    assert clusters.json()["items"][0]["member_count"] == 1
+    assert clusters.json()["items"][0]["member_count"] == 2
+    assert clusters.json()["items"][0]["work_order_count"] == 2
+    assert clusters.json()["items"][0]["event_count"] == 3
+    assert cluster.json()["summary"]["work_order_count"] == 2
+    assert cluster.json()["summary"]["event_count"] == 3
+    assert len(cluster.json()["work_orders"]) == 2
+    assert sorted(len(item["events"]) for item in cluster.json()["work_orders"]) == [1, 2]
     assert cluster.json()["edges"][0]["evidence"]["same_issue"] is True

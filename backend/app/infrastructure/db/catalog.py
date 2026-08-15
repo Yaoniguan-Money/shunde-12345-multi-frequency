@@ -141,10 +141,19 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         self, *, offset: int, limit: int
     ) -> tuple[tuple[ClusterSummary, ...], int]:
         async with self._session_factory() as session:
-            total = int(await session.scalar(select(func.count()).select_from(EventCluster)) or 0)
+            valid_ids = _valid_multi_frequency_cluster_ids()
+            total = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(EventCluster)
+                    .where(EventCluster.id.in_(valid_ids))
+                )
+                or 0
+            )
             clusters = (
                 await session.scalars(
                     select(EventCluster)
+                    .where(EventCluster.id.in_(valid_ids))
                     .order_by(EventCluster.created_at.desc())
                     .offset(offset)
                     .limit(limit)
@@ -155,7 +164,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             )
             return (
                 tuple(
-                    self._cluster_summary(cluster, counts.get(cluster.id, 0))
+                    self._cluster_summary(cluster, counts.get(cluster.id, (0, 0)))
                     for cluster in clusters
                 ),
                 total,
@@ -175,14 +184,32 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                     .order_by(EventInstance.work_order_id, EventInstance.ordinal)
                 )
             ).all()
+            work_order_count = len({row[2].id for row in member_rows})
+            if work_order_count < 2:
+                return None
             events = tuple(row[1] for row in member_rows)
             entity_map = await self._entity_map(session, events)
-            work_orders = tuple(row[2] for row in member_rows)
+            work_order_by_id = {row[2].id: row[2] for row in member_rows}
+            work_orders = tuple(work_order_by_id.values())
             summaries = await self._summaries(session, work_orders)
             summary_by_id = {item.work_order_id: item for item in summaries}
             members = tuple(
                 self._event_detail(event, work_order, summary_by_id[work_order.id], entity_map)
                 for _, event, work_order in member_rows
+            )
+            grouped_work_orders = tuple(
+                WorkOrderDetail(
+                    summary=summary_by_id[work_order.id],
+                    import_batch_id=work_order.import_batch_id,
+                    raw_content=work_order.raw_content,
+                    raw_fields=work_order.raw_fields,
+                    events=tuple(
+                        self._catalog_event(event, work_order.id, entity_map)
+                        for _, event, member_work_order in member_rows
+                        if member_work_order.id == work_order.id
+                    ),
+                )
+                for work_order in work_orders
             )
             member_ids = tuple(event.id for event in events)
             run_ids = tuple(row[0].analysis_run_id for row in member_rows)
@@ -190,8 +217,9 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             handling_history = await self._handling_history(session, cluster.id)
             human_corrections = await self._human_corrections(session, cluster.id)
             return ClusterDetail(
-                summary=self._cluster_summary(cluster, len(members)),
+                summary=self._cluster_summary(cluster, (work_order_count, len(members))),
                 members=members,
+                work_orders=grouped_work_orders,
                 edges=edges,
                 handling_history=handling_history,
                 human_corrections=human_corrections,
@@ -362,17 +390,22 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
 
     async def _cluster_member_counts(
         self, session: AsyncSession, ids: tuple[UUID, ...]
-    ) -> dict[UUID, int]:
+    ) -> dict[UUID, tuple[int, int]]:
         if not ids:
             return {}
         rows = (
             await session.execute(
-                select(EventClusterMember.event_cluster_id, func.count(EventClusterMember.id))
+                select(
+                    EventClusterMember.event_cluster_id,
+                    func.count(func.distinct(EventInstance.work_order_id)),
+                    func.count(EventClusterMember.id),
+                )
+                .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
                 .where(EventClusterMember.event_cluster_id.in_(ids))
                 .group_by(EventClusterMember.event_cluster_id)
             )
         ).all()
-        return {row[0]: int(row[1]) for row in rows}
+        return {row[0]: (int(row[1]), int(row[2])) for row in rows}
 
     async def _cluster_edges(
         self,
@@ -406,17 +439,29 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         )
 
     @staticmethod
-    def _cluster_summary(cluster: EventCluster, member_count: int) -> ClusterSummary:
+    def _cluster_summary(cluster: EventCluster, counts: tuple[int, int]) -> ClusterSummary:
+        work_order_count, event_count = counts
         return ClusterSummary(
             cluster_id=cluster.id,
             name=cluster.name,
             status=cluster.status,
             confidence=cluster.confidence,
             handling_status=cluster.handling_status,
-            member_count=member_count,
+            member_count=work_order_count,
+            work_order_count=work_order_count,
+            event_count=event_count,
             evidence=cluster.evidence,
             trace=_trace(cluster),
         )
+
+
+def _valid_multi_frequency_cluster_ids():
+    return (
+        select(EventClusterMember.event_cluster_id)
+        .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+        .group_by(EventClusterMember.event_cluster_id)
+        .having(func.count(func.distinct(EventInstance.work_order_id)) >= 2)
+    )
 
 
 def _work_order_search(query: str | None) -> ColumnElement[bool]:

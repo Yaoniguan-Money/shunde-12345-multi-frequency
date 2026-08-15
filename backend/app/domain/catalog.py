@@ -110,6 +110,8 @@ class ClusterSummary:
     confidence: float
     handling_status: str
     member_count: int
+    work_order_count: int
+    event_count: int
     evidence: dict[str, object] = field(default_factory=_empty_object_dict)
     trace: VersionTrace | None = None
 
@@ -118,6 +120,7 @@ class ClusterSummary:
 class ClusterDetail:
     summary: ClusterSummary
     members: tuple[EventDetail, ...]
+    work_orders: tuple[WorkOrderDetail, ...]
     edges: tuple[MatchEdgeView, ...]
     handling_history: tuple[HandlingRecordView, ...] = ()
     human_corrections: tuple[HumanCorrectionView, ...] = ()

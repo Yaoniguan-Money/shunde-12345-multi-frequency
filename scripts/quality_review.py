@@ -31,6 +31,7 @@ from backend.app.domain.types import (
     ProviderMode,
     RetrievalQuery,
     VersionTrace,
+    WorkOrderId,
 )
 from backend.app.infrastructure.ai.factory import AIProviderBundle, build_provider_bundle
 from backend.app.infrastructure.db.analysis import SQLAlchemyUnderstandingRepository
@@ -473,6 +474,7 @@ async def main() -> None:
                         )
                         query = RetrievalQuery(
                             event_id=synthetic_event_id,
+                            work_order_id=WorkOrderId(sample.work_order_id),
                             entity_ids=tuple(
                                 mention.canonical_entity_id
                                 for mention_index in event.mention_indexes

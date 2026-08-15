@@ -12,6 +12,8 @@
 - AI 直接输出多频事件结果，不设置强制人工复核队列。
 - 保留人工纠错和操作留痕；当前 Demo 已提供 `remove_member` / `confirm_member`，merge/split 仍需单独的领域规则与验收后再做。
 - 原始工单永远与 AI 派生理解分离。
+- 多频次数按不同原始工单（distinct WorkOrder）计算，不按 AI 拆出的 EventInstance 数计算；一张工单即使包含多个真实问题，也不能单独形成多频事件。
+- 同一工单内的多个真实问题可以保留为多个 EventInstance，但它们不进入跨工单 retrieval / SameEvent / cluster；部门回复、历史处置和当前请求只是事件上下文，不应被拆成虚假独立事件。
 - 同主体不同事件不能合并。
 - 当前比赛/Demo 路径显式采用 cloud-first：理解、embedding、SameEventMatcher 均可走已配置的 remote OpenAI-compatible provider；未显式设置 remote 时，代码安全默认仍是 local，绝不自动云回退。
 - Demo Core 只处理从真实 PostgreSQL 动态选择的小样本，不把 128,278 条全量 LLM 分析伪装成完成；每条远程结果必须保留 provider、model、config hash、pipeline/schema trace。

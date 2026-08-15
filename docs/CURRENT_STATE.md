@@ -236,3 +236,46 @@ real CSV export smoke                      PASS — HTTP 200 / text/csv / requir
 - `BLOCKED（正式质量验收）`：没有业务确认 Gold Set；Demo edge 仅是可人工审核候选，不得转写成 Recall/Precision/F1。
 - `PARTIAL（全量理解/embedding）`：全量远程推理尚未执行；除非另行批准成本、吞吐和隐私边界，不运行全量。
 - 远程调用必须保持显式 `SHUNDE_AI_PROVIDER_MODE=remote` 与环境变量 API key。API key 曾在聊天中暴露，使用者应在 DashScope 控制台撤销并重新生成；仓库、日志、数据库 trace 均不保存 key。
+
+## Distinct-WorkOrder 多频语义修复（2026-08-15）
+
+### 修复前真实事实
+
+- PostgreSQL 中存在 cluster `1b018cea-52b7-489d-97ad-7685fb406bb4`：2 个 EventInstance 却只来自 1 个 WorkOrder，被错误展示为多频。
+- 存量 match edge 中有 12 条连接同一 WorkOrder 内的事件，其中 4 条为 positive。这些记录保留用于审计，未删除。
+
+### 当前状态
+
+| 项目 | 状态 | 实际结果 |
+|---|---|---|
+| Domain invariant | DONE | 多频次数锁定为 distinct WorkOrder；一张工单可有多个真实 EventInstance，但不能自己构成多频 |
+| Retrieval / matcher / graph | DONE | pgvector query 排除同 WorkOrder；RemoteSameEventMatcher 在 LLM 前拒绝同 WorkOrder 事件对；EventGraphService 不调用 matcher、不保存该类 edge |
+| Cluster guard | DONE | builder 忽略同 WorkOrder positive edge，只输出至少 2 个 distinct WorkOrder 的簇；repository 在持久化边界再次拒绝单工单簇 |
+| Understanding correction | DONE | prompt 与保守 post-processing 将可唯一归属的部门回复/历史处置/当前请求并入投诉事件上下文；噪音+消防等真实多问题仍保留分开 |
+| Catalog API | DONE | `work_order_count` 与 `event_count` 分开；`member_count` 兼容语义为 distinct WorkOrder；详情提供 `work_orders[].events`，旧 event-level `members` 保留 |
+| Legacy invalid cluster | DONE | 保留 DB 审计记录，Catalog 列表与详情都不再暴露（列表 total `0`，旧 ID 详情 HTTP 404） |
+| Frontend semantics | DONE | 列表分开显示关联工单/AI 事件；详情按 WorkOrder 分组，同一 raw work order 只渲染一次，其下可展示多个 AI 事件 |
+
+### 真实 Demo 回归
+
+```text
+uv run python scripts/demo_core.py --anchor-limit 4 --candidate-limit 4
+PASS — selected 6 real WorkOrders; positive edges 3; negative edges 3
+PASS — new cluster aecafa40-cf77-4dd7-ac86-d66342c77a87
+PASS — work_order_count=3; event_count=3; member_count=3
+PASS — latest analysis run same-WorkOrder edges=0
+PASS — detail grouped_work_orders=3; legacy event members=3
+```
+
+该 smoke 是小样本真实云端链路，没有运行 128,278 条全量 AI，没有 Gold Set/benchmark，也没有修改 Provider routing 或模型。
+
+### 本轮代码门禁
+
+```text
+uv run pytest -q                             PASS — 36 passed
+uv run pyright backend                       PASS — 0 errors, 0 warnings
+pnpm --dir frontend lint                     PASS
+pnpm --dir frontend build                    PASS
+pnpm --dir frontend test --run               PASS — 2 files, 3 tests
+scripts/check.ps1                            PASS — backend 36 tests; frontend lint/test/build; ruff/format/pyright all green
+```

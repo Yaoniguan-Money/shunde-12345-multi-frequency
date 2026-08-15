@@ -85,3 +85,22 @@ durable `AnalysisJob`/`AnalysisRun`/checkpoint records and calls the same
 duplicate model, retrieval or clustering logic. Every request must carry an
 explicit `max_work_orders` bounded to 1–300, and the Demo route requires an
 explicit remote provider configuration with no local/cloud fallback.
+
+# ADR-013: Multi-frequency is counted over distinct WorkOrders
+Status: accepted
+
+A WorkOrder is the immutable frequency unit; an EventInstance is an AI-derived
+issue inside that WorkOrder. One WorkOrder may legitimately produce several
+EventInstances, but those events must not match each other or make that WorkOrder
+look repeatedly reported. Retrieval, SameEvent matching and graph construction
+therefore accept only pairs from different WorkOrders, and cluster construction
+and persistence require at least two distinct WorkOrder IDs.
+
+Cluster membership remains event-level so evidence and human corrections retain
+their existing identity. Product projections count distinct WorkOrders separately
+from EventInstances: `work_order_count` is the frequency count, `event_count` is
+the supporting AI-event count, and compatibility `member_count` has the same
+meaning as `work_order_count`. Detail projections group events by WorkOrder to
+avoid duplicating immutable raw content. Legacy invalid stored clusters are kept
+for audit history but excluded from product Catalog responses; this decision does
+not rewrite raw work orders or historical AI records.

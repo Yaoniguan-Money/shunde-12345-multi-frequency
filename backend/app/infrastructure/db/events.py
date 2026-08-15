@@ -222,6 +222,20 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
         cluster_id = EventClusterId(uuid4())
         async with self._session_factory() as session:
             async with session.begin():
+                unique_member_ids = tuple(dict.fromkeys(member_ids))
+                member_rows = (
+                    await session.execute(
+                        select(EventInstance.id, EventInstance.work_order_id).where(
+                            EventInstance.id.in_(unique_member_ids)
+                        )
+                    )
+                ).all()
+                if len(member_rows) != len(unique_member_ids):
+                    raise LookupError("every cluster member event must exist")
+                if len({row.work_order_id for row in member_rows}) < 2:
+                    raise ValueError(
+                        "multi-frequency cluster requires at least two distinct work orders"
+                    )
                 session.add(
                     EventCluster(
                         id=cluster_id,
@@ -238,7 +252,7 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                         pipeline_version=pipeline_version,
                     )
                 )
-                for event_id in member_ids:
+                for event_id in unique_member_ids:
                     session.add(
                         EventClusterMember(
                             event_cluster_id=cluster_id,

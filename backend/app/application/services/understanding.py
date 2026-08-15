@@ -6,6 +6,7 @@ from backend.app.domain.analysis import (
     EventEvidence,
     ExtractedEvent,
     ExtractedMention,
+    SegmentType,
     StructuredUnderstanding,
     TextSegment,
 )
@@ -176,6 +177,25 @@ class WorkOrderUnderstandingService:
         segments: tuple[TextSegment, ...],
     ) -> StructuredUnderstanding:
         segments_by_ordinal = {segment.ordinal: segment for segment in segments}
+        events = tuple(
+            ExtractedEvent(
+                event_type=event.event_type,
+                behavior=event.behavior,
+                normalized_summary=event.normalized_summary,
+                location_signals=tuple(event.location_signals),
+                time_signals=tuple(
+                    signal.strip()
+                    for signal in event.time_signals
+                    if signal.strip()
+                    and any(signal.strip() in segment.text for segment in segments)
+                ),
+                mention_indexes=tuple(event.mention_indexes),
+                evidence=WorkOrderUnderstandingService._validated_event_evidence(
+                    event.evidence, segments_by_ordinal
+                ),
+            )
+            for event in understanding.events
+        )
         return StructuredUnderstanding(
             current_complaint=understanding.current_complaint,
             historical_context=understanding.historical_context,
@@ -194,26 +214,33 @@ class WorkOrderUnderstandingService:
                 )
                 for mention in understanding.mentions
             ),
-            events=tuple(
-                ExtractedEvent(
-                    event_type=event.event_type,
-                    behavior=event.behavior,
-                    normalized_summary=event.normalized_summary,
-                    location_signals=tuple(event.location_signals),
-                    time_signals=tuple(
-                        signal.strip()
-                        for signal in event.time_signals
-                        if signal.strip()
-                        and any(signal.strip() in segment.text for segment in segments)
-                    ),
-                    mention_indexes=tuple(event.mention_indexes),
-                    evidence=WorkOrderUnderstandingService._validated_event_evidence(
-                        event.evidence, segments_by_ordinal
-                    ),
-                )
-                for event in understanding.events
-            ),
+            events=WorkOrderUnderstandingService._normalize_intra_work_order_events(events),
         )
+
+    @staticmethod
+    def _normalize_intra_work_order_events(
+        events: tuple[ExtractedEvent, ...],
+    ) -> tuple[ExtractedEvent, ...]:
+        """Attach handling-only projections to one unambiguous complaint issue."""
+        complaint_indexes = tuple(
+            index for index, event in enumerate(events) if _has_complaint_evidence(event)
+        )
+        normalized = list(events)
+        attached: set[int] = set()
+        for index, event in enumerate(events):
+            if index in complaint_indexes or not _is_handling_context_only(event):
+                continue
+            candidates = tuple(
+                complaint_index
+                for complaint_index in complaint_indexes
+                if _shares_event_anchor(events[complaint_index], event)
+            )
+            if len(candidates) != 1:
+                continue
+            complaint_index = candidates[0]
+            normalized[complaint_index] = _merge_event_context(normalized[complaint_index], event)
+            attached.add(index)
+        return tuple(event for index, event in enumerate(normalized) if index not in attached)
 
     @staticmethod
     def _validated_event_evidence(
@@ -252,7 +279,12 @@ class WorkOrderUnderstandingService:
         )
         return (
             f"{title_line}请从以下已分段工单中抽取当前投诉、历史背景、部门回复、当前诉求、"
-            f"地点/机构 mention 和一个或多个独立事件。每个事件必须单独填写 behavior（该事件的"
+            f"地点/机构 mention 和一个或多个独立现实问题。事件拆分必须依据投诉主体/地点/实际问题/"
+            f"现实故障或扰民行为；不要把部门回复、历史处置或当前诉求中的处理动作单独建成事件。"
+            f"同一问题的已约谈、已到场、要求再次处理或关停等内容应保留在 department_reply、"
+            f"current_request、behavior 和 evidence 中，并归到同一事件。只有同一工单确实包含不同"
+            f"问题（例如商业噪声与消防设施故障）时才拆成多个事件。每个事件必须单独填写 behavior"
+            f"（该事件的"
             f"处理/诉求动作，不要把整张工单 current_request 原样复制）、time_signals（原文中出现的"
             f"时间词或时间表达）和 evidence。evidence 只能引用下面输入中连续出现的原文，填写准确的"
             f"segment_ordinal 与 quote；不能改写或编造证据。mention 的 offset 相对于对应原文段落"
@@ -260,3 +292,60 @@ class WorkOrderUnderstandingService:
             f"处理结论，不要复制整段回复；每个事件摘要不超过100个汉字。"
             f"无法确认时使用 unresolved。\n{segment_lines}"
         )
+
+
+_HANDLING_CONTEXT_TYPES = {
+    SegmentType.HISTORY.value,
+    SegmentType.DEPARTMENT_REPLY.value,
+    SegmentType.CURRENT_REQUEST.value,
+}
+
+
+def _has_complaint_evidence(event: ExtractedEvent) -> bool:
+    return any(item.segment_type == SegmentType.COMPLAINT.value for item in event.evidence)
+
+
+def _is_handling_context_only(event: ExtractedEvent) -> bool:
+    evidence_types = {item.segment_type for item in event.evidence}
+    return bool(evidence_types) and evidence_types.issubset(_HANDLING_CONTEXT_TYPES)
+
+
+def _shares_event_anchor(left: ExtractedEvent, right: ExtractedEvent) -> bool:
+    left_mentions = set(left.mention_indexes)
+    right_mentions = set(right.mention_indexes)
+    if left_mentions and right_mentions and left_mentions.isdisjoint(right_mentions):
+        return False
+    left_locations = _normalized_texts(left.location_signals)
+    right_locations = _normalized_texts(right.location_signals)
+    if left_locations and right_locations and left_locations.isdisjoint(right_locations):
+        return False
+    return bool(
+        (left_mentions and right_mentions and left_mentions & right_mentions)
+        or (left_locations and right_locations and left_locations & right_locations)
+    )
+
+
+def _merge_event_context(primary: ExtractedEvent, context: ExtractedEvent) -> ExtractedEvent:
+    behaviors = tuple(
+        dict.fromkeys(
+            value.strip()
+            for value in (primary.behavior, context.behavior)
+            if value and value.strip()
+        )
+    )
+    evidence = tuple(dict.fromkeys((*primary.evidence, *context.evidence)))
+    return ExtractedEvent(
+        event_type=primary.event_type,
+        behavior="；".join(behaviors) or None,
+        normalized_summary=primary.normalized_summary,
+        location_signals=tuple(
+            dict.fromkeys((*primary.location_signals, *context.location_signals))
+        ),
+        time_signals=tuple(dict.fromkeys((*primary.time_signals, *context.time_signals))),
+        mention_indexes=tuple(dict.fromkeys((*primary.mention_indexes, *context.mention_indexes))),
+        evidence=evidence,
+    )
+
+
+def _normalized_texts(values: tuple[str, ...]) -> set[str]:
+    return {"".join(value.split()).casefold() for value in values if value.strip()}

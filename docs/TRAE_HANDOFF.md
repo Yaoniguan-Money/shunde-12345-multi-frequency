@@ -50,6 +50,7 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - `uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text`：运行 pgvector candidate retrieval 性能测试；没有业务 Gold Set 时 `quality` 必须保持 `null`。
 - 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id` 等 trace 字段。
 - Demo Core 已提供真实事件聚类、同事件判定、详情和产品处理闭环 API；TRAE 不应为不存在的全量能力制作静态“已完成”页面。当前 Demo 只覆盖真实数据库动态抽出的少量工单，列表必须显示分页总数和当前状态，未知/未解析状态必须原样显示。
+- **锁定语义：多频按 distinct WorkOrder 计算，不按 EventInstance 数计算。** 一张工单可以有多个真实 AI 事件，但不能自己构成多频；同工单事件不会进入跨工单 retrieval / SameEvent / cluster。
 - 质量 review：`uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candidate-limit 5`。输出在 `data/runtime/quality/`，逐条展示原始工单→分段→v2 事件→实体解析→embedding/pgvector 候选→SameEvent evidence→版本 trace；弱标签只是待人工确认候选，不能显示为 Gold Label，也不能显示 Recall/Precision/F1。
 
 ## Demo Core 云端路径与 API
@@ -101,7 +102,9 @@ RemoteSameEventMatcher 与 EventGraphService；请求不会同步等待整批模
 必须显式使用 `SHUNDE_AI_PROVIDER_MODE=remote`、`qwen-plus` 和
 `qwen3.7-text-embedding`，不会自动回退本地，API key 永不进入响应。
 
-事件详情字段：`event_type`、`behavior`、`normalized_summary`、`entities`（canonical ID/name/type）、`location_signals`、`time_signals`、`evidence`（原文 quote/offset/segment）、`trace`。多频详情还包含成员工单、`same_event` edge、`same_entity/same_location/same_issue/time_compatible/contradictions`、cluster `handling_status` 和 trace，以及 `handling_history`、`human_corrections`。处理记录写入 `handling_status`、说明、结果和附件引用；纠错当前支持 `remove_member` / `confirm_member`，两者均写入 HumanCorrection 与 AuditLog，原始工单不变。CSV 至少包含 cluster、工单编号、标题、事件摘要、主体/地点、AI 依据、处理状态和处理结果。不要把 `confidence` 或 embedding 分数单独渲染成事实结论。
+事件详情字段：`event_type`、`behavior`、`normalized_summary`、`entities`（canonical ID/name/type）、`location_signals`、`time_signals`、`evidence`（原文 quote/offset/segment）、`trace`。多频列表的 `work_order_count` 是不同原始工单数，`event_count` 是 AI 事件成员数，兼容字段 `member_count` 也表示 `work_order_count`，不得将其当成 event 数。详情页优先遍历 `work_orders`：每张原始工单只渲染一张 raw card，其下遍历该工单的 `events`；`members` 仅为 event-level 旧合同兼容。
+
+多频详情还包含 `same_event` edge、`same_entity/same_location/same_issue/time_compatible/contradictions`、cluster `handling_status` 和 trace，以及 `handling_history`、`human_corrections`。处理记录写入 `handling_status`、说明、结果和附件引用；纠错当前支持 `remove_member` / `confirm_member`，两者均写入 HumanCorrection 与 AuditLog，原始工单不变。CSV 至少包含 cluster、工单编号、标题、事件摘要、主体/地点、AI 依据、处理状态和处理结果。不要把 `confidence` 或 embedding 分数单独渲染成事实结论。
 
 # TRAE 可以改
 
@@ -119,6 +122,7 @@ RemoteSameEventMatcher 与 EventGraphService；请求不会同步等待整批模
 - 不得删字段或降功能来适配页面。
 - 不得把真实 API 换成静态 mock 作为正式路径。
 - 不得私自改变 Entity/Event 数据语义。
+- 不得将 EventInstance 数当成多频次数，不得在详情页重复渲染同一张原始工单。
 - 不得把 AI 结果改回强制人工复核流程。
 - 不得删除人工纠错与审计信息。
 - 不得隐藏失败/未知状态以制造“全部成功”的观感。

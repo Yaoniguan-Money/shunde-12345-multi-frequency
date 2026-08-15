@@ -142,6 +142,10 @@ GET /multi-frequency-events/{cluster_id}
 
 列表响应包含 `items/offset/limit/total`；详情分别包含 immutable raw work-order、v2 event（`event_type/behavior/normalized_summary/location_signals/time_signals/evidence`）、canonical entity references、SameEvent edges、cluster handling status 与 provider/model/config/schema/pipeline trace。Embedding 分数不能直接当 `same_event`。
 
+多频簇的频次单位是 distinct WorkOrder，不是 EventInstance。Catalog 只返回至少包含 2 张不同工单的簇；列表/详情中 `work_order_count` 是频次，`event_count` 是事件证据数，兼容字段 `member_count == work_order_count`。详情中 `work_orders[].events` 是前端的主渲染合同，原始工单每张只展示一次；`members` 仅保留为 event-level 兼容投影。
+
+retrieval 、`RemoteSameEventMatcher` 和 `EventGraphService` 均禁止同一 WorkOrder 内的事件对，cluster builder/repository 再次校验至少 2 个 distinct WorkOrder。这些是产品不变量，不能为了展示层方便在前端重算或放宽。
+
 ## Bounded AI analysis job API
 
 导入完成后，Demo 前端通过 HTTP 启动后台研判，不调用脚本：

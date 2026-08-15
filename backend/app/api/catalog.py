@@ -190,6 +190,8 @@ def _cluster_summary(summary: ClusterSummary) -> ClusterSummaryResponse:
         confidence=summary.confidence,
         handling_status=summary.handling_status,
         member_count=summary.member_count,
+        work_order_count=summary.work_order_count,
+        event_count=summary.event_count,
         evidence=summary.evidence,
         trace=_trace(summary.trace) if summary.trace else None,
     )
@@ -199,6 +201,7 @@ def _cluster_detail(detail: ClusterDetail) -> ClusterDetailResponse:
     return ClusterDetailResponse(
         summary=_cluster_summary(detail.summary),
         members=[_event_detail(member) for member in detail.members],
+        work_orders=[_work_order_detail(work_order) for work_order in detail.work_orders],
         edges=[
             MatchEdgeResponse(
                 left_event_id=edge.left_event_id,

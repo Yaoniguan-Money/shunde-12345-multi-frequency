@@ -91,6 +91,8 @@ class ClusterSummaryResponse(BaseModel):
     confidence: float = Field(ge=0, le=1)
     handling_status: str
     member_count: int
+    work_order_count: int
+    event_count: int
     evidence: dict[str, object]
     trace: TraceResponse | None
 
@@ -105,6 +107,7 @@ class ClusterListResponse(BaseModel):
 class ClusterDetailResponse(BaseModel):
     summary: ClusterSummaryResponse
     members: list[EventDetailResponse]
+    work_orders: list[WorkOrderDetailResponse]
     edges: list[MatchEdgeResponse]
     handling_history: list["HandlingRecordResponse"]
     human_corrections: list["HumanCorrectionResponse"]

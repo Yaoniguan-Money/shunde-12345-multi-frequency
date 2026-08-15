@@ -27,6 +27,10 @@ class EventClusterBuilder:
         }
 
         for edge in sorted(edges, key=lambda item: item.confidence, reverse=True):
+            left_event = by_id[edge.left_event_id]
+            right_event = by_id[edge.right_event_id]
+            if left_event.work_order_id == right_event.work_order_id:
+                continue
             left_root = _find(parent, edge.left_event_id)
             right_root = _find(parent, edge.right_event_id)
             if left_root == right_root:
@@ -48,7 +52,8 @@ class EventClusterBuilder:
 
         proposals: list[ClusterProposal] = []
         for root, event_ids in members.items():
-            if len(event_ids) < 2:
+            work_order_ids = {by_id[event_id].work_order_id for event_id in event_ids}
+            if len(event_ids) < 2 or len(work_order_ids) < 2:
                 continue
             scores = accepted_confidence.get(root, [])
             proposals.append(

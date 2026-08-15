@@ -156,6 +156,7 @@ class EmbeddingResult:
 @dataclass(frozen=True, slots=True)
 class RetrievalQuery:
     event_id: EventInstanceId
+    work_order_id: WorkOrderId
     entity_ids: tuple[EntityId, ...]
     location_signals: tuple[str, ...]
     event_type: str | None

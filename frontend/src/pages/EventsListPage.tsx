@@ -20,7 +20,7 @@ import {
 
 gsap.registerPlugin(useGSAP);
 
-type SortKey = "member_count" | "confidence" | "handling_status" | "default";
+type SortKey = "work_order_count" | "confidence" | "handling_status" | "default";
 
 const PAGE_SIZE = 20;
 
@@ -69,8 +69,8 @@ export function EventsListPage(): JSX.Element {
     }
 
     switch (sortKey) {
-      case "member_count":
-        result.sort((a, b) => b.member_count - a.member_count);
+      case "work_order_count":
+        result.sort((a, b) => b.work_order_count - a.work_order_count);
         break;
       case "confidence":
         result.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
@@ -114,7 +114,7 @@ export function EventsListPage(): JSX.Element {
             onChange={(e) => setSortKey(e.target.value as SortKey)}
           >
             <option value="default">默认（按接口顺序）</option>
-            <option value="member_count">成员工单数 降序</option>
+            <option value="work_order_count">关联工单数 降序</option>
             <option value="confidence">置信度 降序</option>
             <option value="handling_status">处理状态 字典序</option>
           </select>
@@ -180,10 +180,14 @@ export function EventsListPage(): JSX.Element {
               </div>
               <div className="cluster-card__meta">
                 <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">成员工单</span>
+                  <span className="cluster-card__meta-key">关联工单</span>
                   <span className="cluster-card__meta-value">
-                    {cluster.member_count}
+                    {cluster.work_order_count}
                   </span>
+                </span>
+                <span className="cluster-card__meta-item">
+                  <span className="cluster-card__meta-key">AI 事件</span>
+                  <span className="cluster-card__meta-value">{cluster.event_count}</span>
                 </span>
                 <span className="cluster-card__meta-item">
                   <span className="cluster-card__meta-key">置信度</span>

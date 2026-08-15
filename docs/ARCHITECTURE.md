@@ -9,6 +9,7 @@
 5. Obsidian = knowledge source，runtime 使用编译 snapshot。
 6. 离线历史建库与在线新工单分离。
 7. 所有 AI 输出可追溯到版本与证据。
+8. 多频是跨不同 WorkOrder 的现实事件重复，不是单张工单内部 EventInstance 的数量。
 
 ## Pipeline
 
@@ -91,7 +92,9 @@ offsets. The understanding service accepts a model quote only when it is an exac
 contiguous substring of the corresponding segmented raw text; fabricated quotes
 are discarded before persistence. SameEventMatcher consumes these structured
 fields plus canonical entity IDs and never treats an embedding score as a final
-decision.
+decision. Reply/history/request-action segments remain context on a complaint-backed
+event when they share an unambiguous subject/location anchor; genuinely different
+issues in one work order remain separate EventInstances.
 
 ### Same-event and cluster contract
 
@@ -100,9 +103,13 @@ decision.
 `contradictions`) with a full provider/model/config/schema/pipeline trace. The
 matcher is instructed that recurring unresolved complaints at the same place can
 be one underlying issue even when dates differ, while same subject does not erase
-different issue/behavior evidence. `EventClusterBuilder` uses positive edges but
-rejects a merge that would create disjoint canonical entities, disjoint locations,
-or incompatible event types; this prevents an A~B/B~C transitive contradiction.
+different issue/behavior evidence. Candidate retrieval excludes events from the
+query's own WorkOrder, the matcher rejects a same-WorkOrder pair before any model
+call, and graph persistence applies the same guard. `EventClusterBuilder` uses
+cross-WorkOrder positive edges but rejects a merge that would create disjoint
+canonical entities, disjoint locations or explicit SameEvent contradictions; a
+cluster is emitted and persisted only when it spans at least two distinct
+WorkOrders. Different `event_type` strings alone are not a contradiction.
 
 ### Read API boundary
 
@@ -110,7 +117,12 @@ The backend exposes typed, read-only projections at `/work-orders`, `/events` an
 `/multi-frequency-events` (list/detail). Raw work-order text remains immutable and
 is returned only by explicit detail endpoints. Derived event evidence, normalized
 entities, match edges, handling status and AI trace stay separate so a frontend
-cannot mistake a similarity score for a business decision.
+cannot mistake a similarity score for a business decision. Multi-frequency list
+items expose `work_order_count` and `event_count`; compatibility field
+`member_count` also means distinct WorkOrders. Detail responses group member events
+under `work_orders`, so one immutable raw work-order card is rendered once even
+when it contains multiple events. Legacy event-level `members` remains readable
+for existing clients.
 
 ## Port allocation
 

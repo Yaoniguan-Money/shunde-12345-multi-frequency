@@ -798,6 +798,12 @@ button {
   color: var(--color-ai-bar);
 }
 
+.member-card__event + .member-card__event {
+  border-top: 1px solid var(--color-divider);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
 .member-card__field {
   margin-bottom: 8px;
   font-size: 13px;

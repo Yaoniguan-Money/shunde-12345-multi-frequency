@@ -10,6 +10,7 @@ from backend.app.domain.types import (
     EmbeddingResult,
     EventInstanceId,
     RetrievalQuery,
+    WorkOrderId,
 )
 from backend.app.infrastructure.db.models import (
     EventInstance,
@@ -37,7 +38,7 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
     session_factory = create_session_factory(engine)
     batch_id = uuid4()
     work_order_ids = (uuid4(), uuid4(), uuid4())
-    event_ids = (uuid4(), uuid4(), uuid4())
+    event_ids = (uuid4(), uuid4(), uuid4(), uuid4())
     try:
         try:
             async with session_factory() as session:
@@ -74,7 +75,7 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
                         EventInstance(
                             id=event_id,
                             work_order_id=work_order_id,
-                            ordinal=0,
+                            ordinal=ordinal,
                             event_type="test",
                             behavior=None,
                             normalized_summary=f"event {index}",
@@ -88,8 +89,14 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
                             knowledge_snapshot_id=None,
                             pipeline_version="test.v1",
                         )
-                        for index, (event_id, work_order_id) in enumerate(
-                            zip(event_ids, work_order_ids, strict=True), start=1
+                        for index, (event_id, work_order_id, ordinal) in enumerate(
+                            (
+                                (event_ids[0], work_order_ids[0], 0),
+                                (event_ids[1], work_order_ids[0], 1),
+                                (event_ids[2], work_order_ids[1], 0),
+                                (event_ids[3], work_order_ids[2], 0),
+                            ),
+                            start=1,
                         )
                     )
                     await session.flush()
@@ -109,8 +116,9 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
                         )
                         for work_order_id, event_id, vector in (
                             (work_order_ids[0], event_ids[0], [1.0, 0.0, 0.0]),
-                            (work_order_ids[1], event_ids[1], [0.99, 0.01, 0.0]),
-                            (work_order_ids[2], event_ids[2], [0.0, 1.0, 0.0]),
+                            (work_order_ids[0], event_ids[1], [0.999, 0.001, 0.0]),
+                            (work_order_ids[1], event_ids[2], [0.99, 0.01, 0.0]),
+                            (work_order_ids[2], event_ids[3], [0.0, 1.0, 0.0]),
                         )
                     )
         except (OSError, SQLAlchemyError) as error:
@@ -121,18 +129,20 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
         )
         candidates = await retriever.retrieve(
             RetrievalQuery(
-                EventInstanceId(event_ids[0]),
-                (),
-                (),
-                "test",
-                "query",
-                2,
+                event_id=EventInstanceId(event_ids[0]),
+                work_order_id=WorkOrderId(work_order_ids[0]),
+                entity_ids=(),
+                location_signals=(),
+                event_type="test",
+                text="query",
+                limit=2,
             )
         )
 
         assert candidates
-        assert candidates[0].event_id == EventInstanceId(event_ids[1])
+        assert candidates[0].event_id == EventInstanceId(event_ids[2])
         assert all(candidate.event_id != EventInstanceId(event_ids[0]) for candidate in candidates)
+        assert all(candidate.event_id != EventInstanceId(event_ids[1]) for candidate in candidates)
         assert candidates[0].score > candidates[-1].score
     finally:
         try:

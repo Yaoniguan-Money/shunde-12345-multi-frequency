@@ -80,6 +80,8 @@ export interface ClusterSummaryResponse {
   confidence: number;
   handling_status: HandlingStatus;
   member_count: number;
+  work_order_count: number;
+  event_count: number;
   evidence: Record<string, unknown>;
   trace: TraceResponse | null;
 }
@@ -87,6 +89,7 @@ export interface ClusterSummaryResponse {
 export interface ClusterDetailResponse {
   summary: ClusterSummaryResponse;
   members: EventDetailResponse[];
+  work_orders: WorkOrderDetailResponse[];
   edges: MatchEdgeResponse[];
   handling_history: HandlingRecordResponse[];
   human_corrections: HumanCorrectionResponse[];

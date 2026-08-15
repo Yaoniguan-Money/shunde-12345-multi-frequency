@@ -27,3 +27,11 @@ TRAE appends entries; do not rewrite history.
 - 架构边界：单机 asyncio 后台 task；复用既有 analysis job/run/checkpoint、`UnderstandingAndIndexingPipeline` 与 `EventGraphService`。`scripts/demo_core.py` 已改为调用同一 `DemoAnalysisOrchestrator` application seam。
 - Provider/安全：当前 Demo 强制显式 remote provider（`qwen-plus` + `qwen3.7-text-embedding`）；不会自动 fallback 到 local，API key 不进请求/响应/日志。
 - 验证：API 合同、bounded chunk 上限、完成计数、失败状态测试通过；真实 HTTP bounded smoke 为 total `128278`、selected/processed `1`、event `1`、remote trace `qwen-plus`，未触发全量。
+
+## 2026-08-15 — Distinct-WorkOrder multi-frequency invariant
+
+- 改动目标：修复“单张工单被 AI 拆成多个 EventInstance，却被计成多频”的领域语义错误。
+- 后端合同：retrieval / SameEvent / graph 只允许不同 WorkOrder 的事件对；cluster 必须至少覆盖 2 个 distinct WorkOrder。旧的无效存量簇保留审计，但不再由 Catalog API 返回。
+- API 变更：cluster 列表/详情新增 `work_order_count` 和 `event_count`；兼容字段 `member_count` 改为 distinct WorkOrder 数。详情新增按原始工单聚合的 `work_orders`，保留 event-level `members` 供旧客户端兼容。
+- 前端变更：列表分开显示“关联工单”和“AI 事件”；详情按 `work_orders` 渲染，同一原始工单只显示一张 raw card，其下可有多个 AI 事件。
+- 理解纠偏：部门回复/历史处置/当前请求在主体或地点锚点唯一时并入投诉事件上下文；真实的噪音+消防等多问题仍保留为多事件。

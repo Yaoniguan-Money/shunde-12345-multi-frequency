@@ -38,6 +38,8 @@ class RemoteSameEventMatcher(SameEventMatcher):
         right = await self._events.get_for_matching(right_event_id)
         if left is None or right is None:
             raise LookupError("both events must exist before SameEventMatcher evaluation")
+        if left.work_order_id == right.work_order_id:
+            raise ValueError("SameEventMatcher requires events from different work orders")
         request = LLMRequest(
             request_id=f"same-event:{left_event_id}:{right_event_id}",
             prompt=self._prompt(left, right),

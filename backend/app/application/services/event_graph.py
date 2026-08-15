@@ -57,6 +57,7 @@ class EventGraphService:
                 raise LookupError(f"event not found: {event_id}")
             loaded_events.append(event)
         events = tuple(loaded_events)
+        events_by_id = {event.event_id: event for event in events}
         selected_ids = {event.event_id for event in events}
         _job_id, run_id = await self._graph.start_run(
             pipeline_version=self._pipeline_version,
@@ -68,6 +69,7 @@ class EventGraphService:
             candidates = await self._retriever.retrieve(
                 RetrievalQuery(
                     event_id=event.event_id,
+                    work_order_id=event.work_order_id,
                     entity_ids=event.entity_ids,
                     location_signals=event.location_signals,
                     event_type=event.event_type,
@@ -77,6 +79,9 @@ class EventGraphService:
             )
             for candidate in candidates:
                 if candidate.event_id not in selected_ids:
+                    continue
+                candidate_event = events_by_id[candidate.event_id]
+                if candidate_event.work_order_id == event.work_order_id:
                     continue
                 left_event_id, right_event_id = sorted(
                     (event.event_id, candidate.event_id), key=str
@@ -100,9 +105,8 @@ class EventGraphService:
         positive = tuple(edge for edge in decisions if edge.same_event)
         proposals = EventClusterBuilder().build(events, positive)
         cluster_ids: list[UUID] = []
-        by_id = {event.event_id: event for event in events}
         for proposal in proposals:
-            member_events = [by_id[event_id] for event_id in proposal.members]
+            member_events = [events_by_id[event_id] for event_id in proposal.members]
             trace = next(
                 edge.trace
                 for edge in positive

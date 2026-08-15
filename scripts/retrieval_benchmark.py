@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from backend.app.config import get_settings
-from backend.app.domain.types import RetrievalQuery
+from backend.app.domain.types import RetrievalQuery, WorkOrderId
 from backend.app.infrastructure.ai.factory import build_provider_bundle
 from backend.app.infrastructure.db.models import EventInstance, WorkOrderEmbedding
 from backend.app.infrastructure.db.retrieval import PostgresCandidateRetriever
@@ -105,7 +105,11 @@ async def main() -> None:
     try:
         async with session_factory() as session:
             statement = (
-                select(EventInstance.id, EventInstance.normalized_summary)
+                select(
+                    EventInstance.id,
+                    EventInstance.work_order_id,
+                    EventInstance.normalized_summary,
+                )
                 .join(
                     WorkOrderEmbedding,
                     WorkOrderEmbedding.event_instance_id == EventInstance.id,
@@ -122,10 +126,18 @@ async def main() -> None:
         latencies: list[float] = []
         retrieval_results: dict[str, tuple[UUID, ...]] = {}
         started = time.perf_counter()
-        for event_id, summary in rows:
+        for event_id, work_order_id, summary in rows:
             query_started = time.perf_counter()
             candidates = await retriever.retrieve(
-                RetrievalQuery(event_id, (), (), None, summary, args.k)
+                RetrievalQuery(
+                    event_id,
+                    WorkOrderId(work_order_id),
+                    (),
+                    (),
+                    None,
+                    summary,
+                    args.k,
+                )
             )
             latencies.append((time.perf_counter() - query_started) * 1000)
             retrieval_results[str(event_id)] = tuple(candidate.event_id for candidate in candidates)

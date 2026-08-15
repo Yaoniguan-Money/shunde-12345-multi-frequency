@@ -45,6 +45,7 @@ class PostgresCandidateRetriever(CandidateRetriever):
                 WorkOrderEmbedding.model_id == self._model_id,
                 WorkOrderEmbedding.dimensions == len(vector),
                 EventInstance.id != query.event_id,
+                EventInstance.work_order_id != query.work_order_id,
             )
             .order_by(distance)
             .limit(query.limit)
