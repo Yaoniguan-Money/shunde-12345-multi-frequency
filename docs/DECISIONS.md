@@ -74,3 +74,14 @@ updating or deleting a corrected cluster, so the correction fact and its old
 projection survive reruns rather than being silently overwritten. Current
 product scope intentionally exposes only `remove_member` and `confirm_member`;
 merge/split requires a separate domain decision and reconciliation contract.
+
+# ADR-012: Bounded HTTP analysis jobs reuse the Demo application seam
+Status: accepted
+
+The Demo UI starts AI analysis through `POST /analysis-jobs` and polls
+`GET /analysis-jobs/{job_id}`. A single-process asyncio task uses the existing
+durable `AnalysisJob`/`AnalysisRun`/checkpoint records and calls the same
+`DemoAnalysisOrchestrator` as `scripts/demo_core.py`; the HTTP layer does not
+duplicate model, retrieval or clustering logic. Every request must carry an
+explicit `max_work_orders` bounded to 1–300, and the Demo route requires an
+explicit remote provider configuration with no local/cloud fallback.
