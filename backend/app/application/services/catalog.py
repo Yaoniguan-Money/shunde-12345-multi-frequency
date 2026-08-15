@@ -17,9 +17,23 @@ class CatalogService:
         self._repository = repository
 
     async def list_work_orders(
-        self, *, offset: int, limit: int, query: str | None
+        self,
+        *,
+        offset: int,
+        limit: int,
+        query: str | None,
+        analysis_state: str | None = None,
+        event_type: str | None = None,
+        title_tag: str | None = None,
     ) -> tuple[tuple[WorkOrderSummary, ...], int]:
-        return await self._repository.list_work_orders(offset=offset, limit=limit, query=query)
+        return await self._repository.list_work_orders(
+            offset=offset,
+            limit=limit,
+            query=query,
+            analysis_state=analysis_state,
+            event_type=event_type,
+            title_tag=title_tag,
+        )
 
     async def get_work_order(self, work_order_id: UUID) -> WorkOrderDetail | None:
         return await self._repository.get_work_order(work_order_id)
@@ -41,6 +55,9 @@ class CatalogService:
 
     async def get_event(self, event_id: UUID) -> EventDetail | None:
         return await self._repository.get_event(event_id)
+
+    async def event_occurrence_counts(self, pipeline_version: str | None) -> tuple[int, int]:
+        return await self._repository.event_occurrence_counts(pipeline_version)
 
     async def list_clusters(
         self, *, offset: int, limit: int

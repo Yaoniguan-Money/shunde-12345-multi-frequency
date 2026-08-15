@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.app.domain.catalog import HandlingRecordView, HumanCorrectionView
+from backend.app.domain.catalog import ClusterReviewView, HandlingRecordView, HumanCorrectionView
 from backend.app.domain.ports.review import EventReviewRepository
 from backend.app.infrastructure.db.models import (
     AuditLog,
@@ -192,6 +192,47 @@ class SQLAlchemyEventReviewRepository(EventReviewRepository):
                 )
             ).all()
             return tuple(_correction_view(row) for row in rows)
+
+    async def set_review_status(
+        self,
+        cluster_id: UUID,
+        *,
+        review_status: str,
+        actor_id: str,
+        reason: str | None,
+    ) -> ClusterReviewView:
+        if review_status not in {"pending_review", "confirmed", "rejected"}:
+            raise ValueError("invalid review_status")
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            async with session.begin():
+                cluster = await session.get(EventCluster, cluster_id, with_for_update=True)
+                if cluster is None:
+                    raise LookupError(f"cluster not found: {cluster_id}")
+                previous = cluster.review_status
+                cluster.review_status = review_status
+                session.add(
+                    AuditLog(
+                        action="event_cluster.review_status_changed",
+                        actor_id=actor_id,
+                        target_type="event_cluster",
+                        target_id=str(cluster.id),
+                        correlation_id=None,
+                        before_summary={"review_status": previous},
+                        after_summary={"review_status": review_status},
+                        metadata_json={"reason": reason},
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                return ClusterReviewView(
+                    cluster_id=cluster.id,
+                    previous_status=previous,
+                    review_status=review_status,
+                    actor_id=actor_id,
+                    reason=reason,
+                    reviewed_at=now,
+                )
 
 
 def _handling_view(row: EventHandlingRecord) -> HandlingRecordView:

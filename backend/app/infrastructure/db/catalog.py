@@ -3,13 +3,14 @@
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, true
+from sqlalchemy import and_, exists, func, not_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
 from backend.app.domain.catalog import (
     CatalogEvent,
     ClusterDetail,
+    ClusterReference,
     ClusterSummary,
     EntityReference,
     EventDetail,
@@ -20,6 +21,7 @@ from backend.app.domain.catalog import (
     WorkOrderSummary,
 )
 from backend.app.domain.ports.catalog import CatalogRepository
+from backend.app.domain.title_tags import TITLE_TAG_WHITELIST, parse_title_tags
 from backend.app.domain.types import VersionTrace
 from backend.app.infrastructure.db.models import (
     CanonicalEntity,
@@ -30,18 +32,36 @@ from backend.app.infrastructure.db.models import (
     EventMatchEdge,
     HumanCorrection,
     WorkOrder,
+    WorkOrderAnalysisResult,
 )
 
 
 class SQLAlchemyCatalogRepository(CatalogRepository):
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        pipeline_version: str = "understanding.v2",
+    ) -> None:
         self._session_factory = session_factory
+        self._pipeline_version = pipeline_version
 
     async def list_work_orders(
-        self, *, offset: int, limit: int, query: str | None
+        self,
+        *,
+        offset: int,
+        limit: int,
+        query: str | None,
+        analysis_state: str | None = None,
+        event_type: str | None = None,
+        title_tag: str | None = None,
     ) -> tuple[tuple[WorkOrderSummary, ...], int]:
         async with self._session_factory() as session:
-            condition = _work_order_search(query)
+            condition = self._work_order_condition(
+                query=query,
+                analysis_state=analysis_state,
+                event_type=event_type,
+                title_tag=title_tag,
+            )
             total = int(
                 await session.scalar(select(func.count()).select_from(WorkOrder).where(condition))
                 or 0
@@ -66,17 +86,22 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             event_rows = (
                 await session.scalars(
                     select(EventInstance)
-                    .where(EventInstance.work_order_id == work_order.id)
-                    .order_by(EventInstance.pipeline_version, EventInstance.ordinal)
+                    .where(
+                        EventInstance.work_order_id == work_order.id,
+                        EventInstance.pipeline_version == self._pipeline_version,
+                    )
+                    .order_by(EventInstance.ordinal)
                 )
             ).all()
             details = await self._event_details(session, tuple(event_rows), summary)
+            cluster_refs = await self._cluster_refs(session, work_order.id)
             return WorkOrderDetail(
                 summary=summary,
                 import_batch_id=work_order.import_batch_id,
                 raw_content=work_order.raw_content,
                 raw_fields=work_order.raw_fields,
                 events=details,
+                cluster_refs=cluster_refs,
             )
 
     async def list_events(
@@ -88,7 +113,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         work_order_id: UUID | None,
     ) -> tuple[tuple[EventDetail, ...], int]:
         async with self._session_factory() as session:
-            condition = _event_condition(pipeline_version, work_order_id)
+            condition = _event_condition(pipeline_version or self._pipeline_version, work_order_id)
             join = select(EventInstance, WorkOrder).join(
                 WorkOrder, WorkOrder.id == EventInstance.work_order_id
             )
@@ -128,6 +153,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                     select(EventInstance, WorkOrder)
                     .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
                     .where(EventInstance.id == event_id)
+                    .where(EventInstance.pipeline_version == self._pipeline_version)
                 )
             ).first()
             if row is None:
@@ -137,11 +163,38 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             entity_map = await self._entity_map(session, (event,))
             return self._event_detail(event, work_order, summary, entity_map)
 
+    async def event_occurrence_counts(self, pipeline_version: str | None) -> tuple[int, int]:
+        version = pipeline_version or self._pipeline_version
+        async with self._session_factory() as session:
+            dated = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(EventInstance)
+                    .where(
+                        EventInstance.pipeline_version == version,
+                        EventInstance.occurrence_date.is_not(None),
+                    )
+                )
+                or 0
+            )
+            unknown = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(EventInstance)
+                    .where(
+                        EventInstance.pipeline_version == version,
+                        EventInstance.occurrence_date.is_(None),
+                    )
+                )
+                or 0
+            )
+            return dated, unknown
+
     async def list_clusters(
         self, *, offset: int, limit: int
     ) -> tuple[tuple[ClusterSummary, ...], int]:
         async with self._session_factory() as session:
-            valid_ids = _valid_multi_frequency_cluster_ids()
+            valid_ids = _valid_multi_frequency_cluster_ids(self._pipeline_version)
             total = int(
                 await session.scalar(
                     select(func.count())
@@ -181,12 +234,11 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                     .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
                     .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
                     .where(EventClusterMember.event_cluster_id == cluster.id)
+                    .where(EventInstance.pipeline_version == self._pipeline_version)
                     .order_by(EventInstance.work_order_id, EventInstance.ordinal)
                 )
             ).all()
             work_order_count = len({row[2].id for row in member_rows})
-            if work_order_count < 2:
-                return None
             events = tuple(row[1] for row in member_rows)
             entity_map = await self._entity_map(session, events)
             work_order_by_id = {row[2].id: row[2] for row in member_rows}
@@ -208,6 +260,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                         for _, event, member_work_order in member_rows
                         if member_work_order.id == work_order.id
                     ),
+                    cluster_refs=(),
                 )
                 for work_order in work_orders
             )
@@ -288,7 +341,10 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         event_counts = await self._group_counts(
             session,
             select(EventInstance.work_order_id, func.count(EventInstance.id))
-            .where(EventInstance.work_order_id.in_(ids))
+            .where(
+                EventInstance.work_order_id.in_(ids),
+                EventInstance.pipeline_version == self._pipeline_version,
+            )
             .group_by(EventInstance.work_order_id),
         )
         cluster_counts = await self._group_counts(
@@ -298,9 +354,16 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                 func.count(func.distinct(EventClusterMember.event_cluster_id)),
             )
             .join(EventClusterMember, EventClusterMember.event_instance_id == EventInstance.id)
-            .where(EventInstance.work_order_id.in_(ids))
+            .where(
+                EventInstance.work_order_id.in_(ids),
+                EventInstance.pipeline_version == self._pipeline_version,
+                EventClusterMember.event_cluster_id.in_(
+                    _valid_multi_frequency_cluster_ids(self._pipeline_version)
+                ),
+            )
             .group_by(EventInstance.work_order_id),
         )
+        analysis_states = await self._analysis_states(session, ids)
         return tuple(
             WorkOrderSummary(
                 work_order_id=row.id,
@@ -310,6 +373,9 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                 created_at=row.created_at,
                 event_count=event_counts.get(row.id, 0),
                 cluster_count=cluster_counts.get(row.id, 0),
+                analysis_state=analysis_states.get(row.id, "unprocessed"),
+                title_tags=parse_title_tags(row.raw_title),
+                is_urgent="急" in parse_title_tags(row.raw_title),
             )
             for row in work_orders
         )
@@ -346,6 +412,9 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                 created_at=work_order.created_at,
                 event_count=0,
                 cluster_count=0,
+                analysis_state="unprocessed",
+                title_tags=parse_title_tags(work_order.raw_title),
+                is_urgent="急" in parse_title_tags(work_order.raw_title),
             )
         catalog_event = SQLAlchemyCatalogRepository._catalog_event(event, work_order.id, entity_map)
         return EventDetail(
@@ -368,13 +437,14 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             behavior=event.behavior,
             normalized_summary=event.normalized_summary,
             entities=tuple(
-                entity_map.get(entity_id, EntityReference(entity_id, None, None))
+                entity_map.get(entity_id, EntityReference(entity_id, None, None, "unresolved"))
                 for entity_id in event_ids
             ),
             location_signals=tuple(str(value) for value in (event.location_signals or [])),
             time_signals=tuple(str(value) for value in (event.time_signals or [])),
             evidence=_evidence_items(event.evidence),
             trace=_trace(event),
+            occurrence_date=event.occurrence_date,
         )
 
     async def _entity_map(
@@ -386,7 +456,10 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         rows = (
             await session.scalars(select(CanonicalEntity).where(CanonicalEntity.id.in_(ids)))
         ).all()
-        return {row.id: EntityReference(row.id, row.standard_name, row.entity_type) for row in rows}
+        return {
+            row.id: EntityReference(row.id, row.standard_name, row.entity_type, "resolved")
+            for row in rows
+        }
 
     async def _cluster_member_counts(
         self, session: AsyncSession, ids: tuple[UUID, ...]
@@ -452,15 +525,116 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             event_count=event_count,
             evidence=cluster.evidence,
             trace=_trace(cluster),
+            review_status=cluster.review_status,
+            is_multi_frequency=work_order_count >= 2,
         )
 
+    async def _analysis_states(
+        self, session: AsyncSession, work_order_ids: tuple[UUID, ...]
+    ) -> dict[UUID, str]:
+        rows = (
+            await session.scalars(
+                select(WorkOrderAnalysisResult)
+                .where(
+                    WorkOrderAnalysisResult.work_order_id.in_(work_order_ids),
+                    WorkOrderAnalysisResult.pipeline_version == self._pipeline_version,
+                )
+                .order_by(
+                    WorkOrderAnalysisResult.work_order_id,
+                    WorkOrderAnalysisResult.analyzed_at.desc(),
+                )
+            )
+        ).all()
+        result: dict[UUID, str] = {}
+        for row in rows:
+            result.setdefault(row.work_order_id, row.status)
+        return result
 
-def _valid_multi_frequency_cluster_ids():
+    async def _cluster_refs(
+        self, session: AsyncSession, work_order_id: UUID
+    ) -> tuple[ClusterReference, ...]:
+        rows = (
+            await session.scalars(
+                select(EventCluster)
+                .join(EventClusterMember, EventClusterMember.event_cluster_id == EventCluster.id)
+                .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+                .where(
+                    EventInstance.work_order_id == work_order_id,
+                    EventInstance.pipeline_version == self._pipeline_version,
+                    EventCluster.id.in_(_valid_multi_frequency_cluster_ids(self._pipeline_version)),
+                )
+                .distinct()
+                .order_by(EventCluster.created_at.desc())
+            )
+        ).all()
+        return tuple(
+            ClusterReference(
+                cluster_id=row.id,
+                cluster_name=row.name,
+                review_status=row.review_status,
+                handling_status=row.handling_status,
+            )
+            for row in rows
+        )
+
+    def _work_order_condition(
+        self,
+        *,
+        query: str | None,
+        analysis_state: str | None,
+        event_type: str | None,
+        title_tag: str | None,
+    ) -> ColumnElement[bool]:
+        conditions: list[ColumnElement[bool]] = [_work_order_search(query)]
+        latest_state = (
+            select(WorkOrderAnalysisResult.status)
+            .where(
+                WorkOrderAnalysisResult.work_order_id == WorkOrder.id,
+                WorkOrderAnalysisResult.pipeline_version == self._pipeline_version,
+            )
+            .order_by(WorkOrderAnalysisResult.analyzed_at.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        if analysis_state == "unprocessed":
+            conditions.append(latest_state.is_(None))
+        elif analysis_state in {"analyzed", "analyzed_no_event", "failed"}:
+            conditions.append(latest_state == analysis_state)
+        elif analysis_state is not None:
+            conditions.append(not_(true()))
+        if event_type:
+            conditions.append(
+                exists(
+                    select(EventInstance.id).where(
+                        EventInstance.work_order_id == WorkOrder.id,
+                        EventInstance.pipeline_version == self._pipeline_version,
+                        EventInstance.event_type == event_type,
+                    )
+                )
+            )
+        if title_tag:
+            conditions.append(_title_tag_condition(title_tag))
+        return and_(*conditions)
+
+
+def _valid_multi_frequency_cluster_ids(pipeline_version: str):
     return (
         select(EventClusterMember.event_cluster_id)
         .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+        .where(EventInstance.pipeline_version == pipeline_version)
         .group_by(EventClusterMember.event_cluster_id)
         .having(func.count(func.distinct(EventInstance.work_order_id)) >= 2)
+    )
+
+
+def _title_tag_condition(title_tag: str) -> ColumnElement[bool]:
+    if title_tag not in TITLE_TAG_WHITELIST:
+        return not_(true())
+    title = func.coalesce(WorkOrder.raw_title, "")
+    return or_(
+        title.contains(f"【{title_tag}】"),
+        title.contains(f"（{title_tag}）"),
+        title.contains(f"({title_tag})"),
     )
 
 

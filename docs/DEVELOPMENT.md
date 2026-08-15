@@ -154,7 +154,8 @@ retrieval 、`RemoteSameEventMatcher` 和 `EventGraphService` 均禁止同一 Wo
 $base = 'http://127.0.0.1:8080'
 $body = @{
   import_batch_id = '<completed-or-partial-import-batch-id>'
-  max_work_orders = 50       # 必填；当前允许 1–300
+  max_work_orders = 100      # 必填；当前允许 1–300
+  selection_mode = 'recurrence_candidates'
 } | ConvertTo-Json
 $job = Invoke-RestMethod -Method Post -Uri "$base/analysis-jobs" `
   -ContentType 'application/json' -Body $body
@@ -172,6 +173,34 @@ provider/model/config hash/schema/pipeline，不含 API key。后台链路复用
 embedding、pgvector candidate retrieval、`RemoteSameEventMatcher` 和
 `EventGraphService`。上限是硬门禁，省略 `max_work_orders` 或填写大于 300 会被拒绝，不能误触
 128,278 条全量公网推理；remote 失败必须显示 `failed`，不得伪装 `completed`。
+
+只验证确定性选择、不调用 AI：
+
+```powershell
+uv run python scripts/selection_smoke.py --limit 100
+```
+
+2026-08-15 真实 128,278 条批次结果：顺序前 100 条含复发词 6/编号引用 9；`recurrence_candidates` 100 条含复发词 51/编号引用 90，source row 范围 2–777。该脚本不会调用 LLM/embedding。
+
+## Product semantics and attachment contracts
+
+```text
+GET  /work-orders?analysis_state=analyzed&event_type=noise&title_tag=急
+POST /attachments                       # multipart field: file
+GET  /attachments/{attachment_id}
+POST /multi-frequency-events/{id}/review
+```
+
+WorkOrder 产品投影固定使用 `SHUNDE_ANALYSIS_PIPELINE_VERSION`（当前 `understanding.v2`）。历史 event 不删除，`GET /events?pipeline_version=understanding.v1` 是显式技术访问，不应混入 WorkOrder 产品详情。`work_order_analysis_results` 是 AI 处理状态真相源，不能由 event_count 反推。
+
+派生数据安全修复（不写 raw WorkOrder）：
+
+```powershell
+uv run python scripts/repair_event_semantics.py
+```
+
+脚本只删除无法 join CanonicalEntity 的 event `entity_ids`，并将 time_signals 中唯一、有效、完整日期写入 `occurrence_date`。当前 v2 实测 dated/unknown = 16/16。附件保存在 `data/runtime/attachments/`（gitignored），默认上限 10 MiB，API 不返回本机路径。
+对能从 event evidence 确认 analysis_run 的存量派生数据，该脚本还会幂等回填 `work_order_analysis_results`；实测回填 v1=11 work orders、v2=25 work orders。无 event 工单不会被猜测为已分析。
 
 ## Demo product loop API
 

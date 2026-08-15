@@ -1,10 +1,13 @@
 """Stable read contracts for the demo catalog endpoints."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+AnalysisState = Literal["unprocessed", "analyzed_no_event", "analyzed", "failed"]
+ReviewStatus = Literal["pending_review", "confirmed", "rejected"]
 
 
 class TraceResponse(BaseModel):
@@ -20,6 +23,7 @@ class EntityReferenceResponse(BaseModel):
     entity_id: UUID
     standard_name: str | None
     entity_type: str | None
+    resolution_state: str
 
 
 class EventResponse(BaseModel):
@@ -34,6 +38,7 @@ class EventResponse(BaseModel):
     time_signals: list[str]
     evidence: list[dict[str, object]]
     trace: TraceResponse
+    occurrence_date: date | None
 
 
 class WorkOrderSummaryResponse(BaseModel):
@@ -44,6 +49,16 @@ class WorkOrderSummaryResponse(BaseModel):
     created_at: datetime
     event_count: int
     cluster_count: int
+    analysis_state: AnalysisState
+    title_tags: list[str]
+    is_urgent: bool
+
+
+class ClusterReferenceResponse(BaseModel):
+    cluster_id: UUID
+    cluster_name: str
+    review_status: str
+    handling_status: str
 
 
 class WorkOrderListResponse(BaseModel):
@@ -59,6 +74,7 @@ class WorkOrderDetailResponse(BaseModel):
     raw_content: str
     raw_fields: dict[str, object]
     events: list[EventResponse]
+    cluster_refs: list[ClusterReferenceResponse]
 
 
 class EventDetailResponse(BaseModel):
@@ -73,6 +89,8 @@ class EventListResponse(BaseModel):
     offset: int
     limit: int
     total: int
+    occurrence_dated_total: int
+    occurrence_unknown_total: int
 
 
 class MatchEdgeResponse(BaseModel):
@@ -95,6 +113,23 @@ class ClusterSummaryResponse(BaseModel):
     event_count: int
     evidence: dict[str, object]
     trace: TraceResponse | None
+    review_status: ReviewStatus
+    is_multi_frequency: bool
+
+
+class ClusterReviewCreate(BaseModel):
+    review_status: ReviewStatus
+    actor_id: str = Field(min_length=1, max_length=255)
+    reason: str | None = Field(default=None, max_length=10000)
+
+
+class ClusterReviewResponse(BaseModel):
+    cluster_id: UUID
+    previous_status: str
+    review_status: ReviewStatus
+    actor_id: str
+    reason: str | None
+    reviewed_at: datetime
 
 
 class ClusterListResponse(BaseModel):

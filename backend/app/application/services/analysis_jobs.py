@@ -43,19 +43,25 @@ class AnalysisJobService:
             self._orchestrator_factory = orchestrator_factory
         self._tasks: dict[UUID, asyncio.Task[None]] = {}
 
-    async def submit(self, batch_id: UUID, max_work_orders: int) -> AnalysisJobView:
+    async def submit(
+        self, batch_id: UUID, max_work_orders: int, selection_mode: str = "sequential"
+    ) -> AnalysisJobView:
         if self._settings.ai_provider_mode is not ProviderMode.REMOTE:
             raise ValueError(
                 "analysis jobs require explicit SHUNDE_AI_PROVIDER_MODE=remote; no local fallback"
             )
         if max_work_orders < 1 or max_work_orders > DEMO_MAX_WORK_ORDERS:
             raise ValueError(f"max_work_orders must be between 1 and {DEMO_MAX_WORK_ORDERS}")
+        if selection_mode not in {"sequential", "recurrence_candidates"}:
+            raise ValueError("selection_mode must be sequential or recurrence_candidates")
         batch = await self._repository.get_batch_info(batch_id)
         if batch is None:
             raise LookupError(f"import batch not found: {batch_id}")
         if batch.status not in {"completed", "partial"}:
             raise ValueError(f"import batch is not ready for analysis: {batch.status}")
-        sources = await self._repository.load_work_orders(batch_id, 0, max_work_orders)
+        sources = await self._repository.select_work_orders(
+            batch_id, max_work_orders, selection_mode
+        )
         if not sources:
             raise ValueError("import batch contains no successful work orders")
         plan = build_provider_plan(self._settings)
@@ -63,7 +69,8 @@ class AnalysisJobService:
         if remote_llm is None:
             raise ValueError("remote LLM provider is not configured")
         idempotency_key = (
-            f"demo-analysis:{batch_id}:{max_work_orders}:{self._settings.analysis_pipeline_version}"
+            f"demo-analysis:{batch_id}:{selection_mode}:{max_work_orders}:"
+            f"{self._settings.analysis_pipeline_version}"
         )
         state = await self._repository.create_or_requeue(
             idempotency_key=idempotency_key,
@@ -74,6 +81,7 @@ class AnalysisJobService:
             model_config_hash=remote_llm.config_hash(),
             total_rows=batch.total_rows,
             selected_rows=len(sources),
+            selection_mode=selection_mode,
         )
         view = await self._repository.get_job_view(state.job_id)
         if view is None:
@@ -85,6 +93,7 @@ class AnalysisJobService:
                     state.run_id,
                     batch_id,
                     max_work_orders,
+                    selection_mode,
                     idempotency_key,
                 )
             )
@@ -113,6 +122,7 @@ class AnalysisJobService:
         run_id: UUID,
         batch_id: UUID,
         max_work_orders: int,
+        selection_mode: str,
         idempotency_key: str,
     ) -> None:
         try:
@@ -121,6 +131,7 @@ class AnalysisJobService:
                 batch_id,
                 max_work_orders,
                 idempotency_key=idempotency_key,
+                selection_mode=selection_mode,
             )
             await self._repository.finish(
                 job_id,

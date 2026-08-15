@@ -14,7 +14,14 @@ from backend.app.domain.catalog import (
 
 class CatalogRepository(Protocol):
     async def list_work_orders(
-        self, *, offset: int, limit: int, query: str | None
+        self,
+        *,
+        offset: int,
+        limit: int,
+        query: str | None,
+        analysis_state: str | None,
+        event_type: str | None,
+        title_tag: str | None,
     ) -> tuple[tuple[WorkOrderSummary, ...], int]: ...
 
     async def get_work_order(self, work_order_id: UUID) -> WorkOrderDetail | None: ...
@@ -29,6 +36,8 @@ class CatalogRepository(Protocol):
     ) -> tuple[tuple[EventDetail, ...], int]: ...
 
     async def get_event(self, event_id: UUID) -> EventDetail | None: ...
+
+    async def event_occurrence_counts(self, pipeline_version: str | None) -> tuple[int, int]: ...
 
     async def list_clusters(
         self, *, offset: int, limit: int

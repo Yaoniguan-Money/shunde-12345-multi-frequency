@@ -1,4 +1,8 @@
-from backend.app.infrastructure.db.models.analysis import AnalysisJob, AnalysisRun
+from backend.app.infrastructure.db.models.analysis import (
+    AnalysisJob,
+    AnalysisRun,
+    WorkOrderAnalysisResult,
+)
 from backend.app.infrastructure.db.models.audit import (
     AuditLog,
     EventHandlingRecord,
@@ -29,6 +33,7 @@ from backend.app.infrastructure.db.models.work_orders import (
 __all__ = [
     "AnalysisJob",
     "AnalysisRun",
+    "WorkOrderAnalysisResult",
     "AuditLog",
     "Base",
     "CanonicalEntity",

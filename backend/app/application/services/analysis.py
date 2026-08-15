@@ -124,6 +124,7 @@ class DemoAnalysisOrchestrator:
         *,
         idempotency_key: str,
         candidate_limit: int = 10,
+        selection_mode: str = "sequential",
     ) -> AnalysisExecution:
         _validate_max_work_orders(max_work_orders)
         batch = await self._understanding_repository.get_batch_info(batch_id)
@@ -131,8 +132,8 @@ class DemoAnalysisOrchestrator:
             raise LookupError(f"import batch not found: {batch_id}")
         if batch.status not in {"completed", "partial"}:
             raise ValueError(f"import batch is not ready for analysis: {batch.status}")
-        sources = await self._understanding_repository.load_work_orders(
-            batch_id, 0, max_work_orders
+        sources = await self._understanding_repository.select_work_orders(
+            batch_id, max_work_orders, selection_mode
         )
         if not sources:
             raise ValueError("import batch contains no successful work orders")
@@ -141,7 +142,7 @@ class DemoAnalysisOrchestrator:
             batch_id,
             batch.total_rows,
             max_rows=len(sources),
-            max_source_row=sources[-1].source_row_number,
+            selected_work_order_ids=tuple(source.work_order_id for source in sources),
             idempotency_key=idempotency_key,
         )
         event_ids = await self._event_repository.list_event_ids(

@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from backend.app.api.dependencies import get_exporter, get_review_service
-from backend.app.domain.catalog import HandlingRecordView, HumanCorrectionView
+from backend.app.domain.catalog import ClusterReviewView, HandlingRecordView, HumanCorrectionView
 from backend.app.domain.types import ExportArtifact, ExportRequest
 from backend.app.main import create_app
 
@@ -37,6 +37,14 @@ class _ReviewFixture:
             created_at=datetime.now(UTC),
         )
         self.export_requests: list[ExportRequest] = []
+        self.review = ClusterReviewView(
+            cluster_id=self.cluster_id,
+            previous_status="pending_review",
+            review_status="confirmed",
+            actor_id="reviewer",
+            reason="证据已核对",
+            reviewed_at=datetime.now(UTC),
+        )
 
     async def add_handling_record(self, *_args, **_kwargs):
         return self.record
@@ -49,6 +57,9 @@ class _ReviewFixture:
 
     async def list_corrections(self, _cluster_id):
         return (self.correction,)
+
+    async def set_review_status(self, *_args, **_kwargs):
+        return self.review
 
     async def export(self, request: ExportRequest) -> ExportArtifact:
         self.export_requests.append(request)
@@ -90,6 +101,14 @@ async def test_review_api_exposes_audited_write_contracts_and_csv_export() -> No
             },
         )
         corrections = await client.get(f"/multi-frequency-events/{fixture.cluster_id}/corrections")
+        reviewed = await client.post(
+            f"/multi-frequency-events/{fixture.cluster_id}/review",
+            json={
+                "review_status": "confirmed",
+                "actor_id": "reviewer",
+                "reason": "证据已核对",
+            },
+        )
         exported = await client.get(
             f"/multi-frequency-events/export.csv?cluster_id={fixture.cluster_id}"
         )
@@ -100,6 +119,8 @@ async def test_review_api_exposes_audited_write_contracts_and_csv_export() -> No
     assert correction.status_code == 201
     assert correction.json()["correction_type"] == "confirm_member"
     assert corrections.json()["items"][0]["payload"]["member_added"] is True
+    assert reviewed.status_code == 200
+    assert reviewed.json()["review_status"] == "confirmed"
     assert exported.status_code == 200
     assert exported.headers["content-disposition"].endswith('filename="multi-frequency-events.csv"')
     assert exported.text.startswith("cluster_id,handling_status")

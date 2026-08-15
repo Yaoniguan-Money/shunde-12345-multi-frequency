@@ -119,6 +119,9 @@ class _CatalogFixture:
     async def get_event(self, _event_id):
         return self.detail
 
+    async def event_occurrence_counts(self, _pipeline_version):
+        return 1, 0
+
     async def list_clusters(self, **_kwargs):
         return (self.cluster,), 1
 
@@ -172,6 +175,8 @@ async def test_catalog_api_exposes_trace_evidence_and_pagination() -> None:
     assert work_orders.json()["total"] == 1
     assert events.json()["items"][0]["event"]["trace"]["provider"] == ("remote-openai-compatible")
     assert event.json()["event"]["evidence"][0]["validation"] == "exact_quote"
+    assert events.json()["occurrence_dated_total"] == 1
+    assert events.json()["occurrence_unknown_total"] == 0
     assert clusters.json()["items"][0]["member_count"] == 2
     assert clusters.json()["items"][0]["work_order_count"] == 2
     assert clusters.json()["items"][0]["event_count"] == 3

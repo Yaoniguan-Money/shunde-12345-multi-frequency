@@ -53,6 +53,7 @@ class AnalysisJobView:
     finished_at: datetime | None
     error: str | None
     trace: VersionTrace | None
+    selection_mode: str = "sequential"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +77,14 @@ class UnderstandingRepository(Protocol):
         model_config_hash: str | None,
         total_rows: int,
         selected_rows: int,
+        selection_mode: str,
     ) -> AnalysisJobState: ...
 
     async def get_job_view(self, job_id: UUID) -> AnalysisJobView | None: ...
+
+    async def select_work_orders(
+        self, batch_id: UUID, limit: int, selection_mode: str
+    ) -> tuple[WorkOrderSource, ...]: ...
 
     async def start_or_resume(
         self,
@@ -98,6 +104,7 @@ class UnderstandingRepository(Protocol):
         after_source_row: int,
         limit: int,
         max_source_row: int | None = None,
+        selected_work_order_ids: tuple[UUID, ...] | None = None,
     ) -> tuple[WorkOrderSource, ...]: ...
 
     async def persist_records(
@@ -107,6 +114,15 @@ class UnderstandingRepository(Protocol):
         pipeline_version: str,
         schema_version: str,
     ) -> tuple[PersistedEvent, ...]: ...
+
+    async def mark_results_failed(
+        self,
+        run_id: UUID,
+        work_order_ids: tuple[UUID, ...],
+        pipeline_version: str,
+        error_code: str,
+        error_summary: str,
+    ) -> None: ...
 
     async def persist_embeddings(
         self,

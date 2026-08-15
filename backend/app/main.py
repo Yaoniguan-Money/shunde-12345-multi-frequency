@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.analysis import router as analysis_router
+from backend.app.api.attachments import router as attachments_router
 from backend.app.api.catalog import router as catalog_router
 from backend.app.api.entities import router as entities_router
 from backend.app.api.health import router as health_router
@@ -15,6 +16,7 @@ from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
 from backend.app.config import get_settings
+from backend.app.infrastructure.attachments import LocalAttachmentStore
 from backend.app.infrastructure.db.catalog import SQLAlchemyCatalogRepository
 from backend.app.infrastructure.db.imports import SQLAlchemyImportRepository
 from backend.app.infrastructure.db.review import SQLAlchemyEventReviewRepository
@@ -35,12 +37,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
-    catalog_repository = SQLAlchemyCatalogRepository(session_factory)
+    catalog_repository = SQLAlchemyCatalogRepository(
+        session_factory, settings.analysis_pipeline_version
+    )
     app.state.catalog_service = CatalogService(catalog_repository)
     analysis_job_service = AnalysisJobService(settings, session_factory)
     app.state.analysis_job_service = analysis_job_service
     app.state.review_service = EventReviewService(SQLAlchemyEventReviewRepository(session_factory))
     app.state.exporter = SQLAlchemyCSVExporter(session_factory)
+    app.state.attachment_store = LocalAttachmentStore(
+        settings.runtime_dir / "attachments", settings.attachment_max_bytes
+    )
     app.state.health_probe = DependencyHealthProbe(engine, settings)
     app.state.import_handler = ImportHandler(
         PolarsTabularReader(), SQLAlchemyImportRepository(session_factory)
@@ -78,6 +85,7 @@ def create_app() -> FastAPI:
     )
     application.include_router(health_router)
     application.include_router(analysis_router)
+    application.include_router(attachments_router)
     application.include_router(imports_router)
     application.include_router(entities_router)
     application.include_router(review_router)

@@ -44,3 +44,21 @@ class AnalysisRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     pipeline_version: Mapped[str] = mapped_column(String(64), nullable=False)
     metrics: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WorkOrderAnalysisResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "work_order_analysis_results"
+    __table_args__ = (UniqueConstraint("work_order_id", "analysis_run_id", "pipeline_version"),)
+
+    work_order_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+    )
+    analysis_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), index=True
+    )
+    pipeline_version: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

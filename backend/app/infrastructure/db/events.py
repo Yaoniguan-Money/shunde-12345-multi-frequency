@@ -1,5 +1,6 @@
 """SQLAlchemy repositories for event matching and demo graph persistence."""
 
+import hashlib
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
@@ -236,6 +237,14 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                     raise ValueError(
                         "multi-frequency cluster requires at least two distinct work orders"
                     )
+                signature = _member_signature(unique_member_ids)
+                existing = await session.scalar(
+                    select(EventCluster.id).where(EventCluster.member_signature == signature)
+                )
+                if existing is None:
+                    existing = await _find_legacy_cluster(session, unique_member_ids)
+                if existing is not None:
+                    return EventClusterId(existing)
                 session.add(
                     EventCluster(
                         id=cluster_id,
@@ -244,6 +253,8 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                         confidence=confidence,
                         evidence=evidence,
                         handling_status="unhandled",
+                        review_status="pending_review",
+                        member_signature=signature,
                         provider=trace.provider,
                         model_id=trace.model_id,
                         model_config_hash=trace.model_config_hash,
@@ -280,6 +291,40 @@ def _is_uuid(value: object) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _member_signature(member_ids: tuple[EventInstanceId, ...]) -> str:
+    payload = "\n".join(sorted(str(value) for value in member_ids))
+    return hashlib.sha256(payload.encode("ascii")).hexdigest()
+
+
+async def _find_legacy_cluster(
+    session: AsyncSession, member_ids: tuple[EventInstanceId, ...]
+) -> UUID | None:
+    expected = set(member_ids)
+    candidates = (
+        await session.scalars(
+            select(EventClusterMember.event_cluster_id).where(
+                EventClusterMember.event_instance_id == member_ids[0]
+            )
+        )
+    ).all()
+    for candidate in candidates:
+        actual = set(
+            (
+                await session.scalars(
+                    select(EventClusterMember.event_instance_id).where(
+                        EventClusterMember.event_cluster_id == candidate
+                    )
+                )
+            ).all()
+        )
+        if actual == expected:
+            cluster = await session.get(EventCluster, candidate)
+            if cluster is not None and cluster.member_signature is None:
+                cluster.member_signature = _member_signature(member_ids)
+            return candidate
+    return None
 
 
 def _same_event_evidence_dict(evidence: SameEventEvidence) -> dict[str, object]:

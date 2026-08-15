@@ -51,6 +51,9 @@ class _JobRepository:
             for row in range(1, min(limit, 3) + 1)
         )
 
+    async def select_work_orders(self, batch_id, limit, _selection_mode):
+        return await self.load_work_orders(batch_id, 0, limit)
+
     async def create_or_requeue(self, **_kwargs):
         return AnalysisJobState(self.job_id, self.run_id, 0, "queued")
 
@@ -95,8 +98,11 @@ class _Orchestrator:
     def __init__(self, *, fail=False):
         self.fail = fail
 
-    async def run_import_batch(self, _batch_id, _max_work_orders, *, idempotency_key):
+    async def run_import_batch(
+        self, _batch_id, _max_work_orders, *, idempotency_key, selection_mode="sequential"
+    ):
         assert idempotency_key.startswith("demo-analysis:")
+        assert selection_mode in {"sequential", "recurrence_candidates"}
         if self.fail:
             raise RuntimeError("remote provider unavailable")
         edge = EventMatchEdgeRecord(

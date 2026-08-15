@@ -19,6 +19,7 @@ export interface EntityReferenceResponse {
   entity_id: UUID;
   standard_name: string | null;
   entity_type: string | null;
+  resolution_state: "resolved" | "unresolved" | string;
 }
 
 export interface EventResponse {
@@ -33,7 +34,14 @@ export interface EventResponse {
   time_signals: string[];
   evidence: Record<string, unknown>[];
   trace: TraceResponse;
+  occurrence_date: ISODateString | null;
 }
+
+export type WorkOrderAnalysisState =
+  | "unprocessed"
+  | "analyzed_no_event"
+  | "analyzed"
+  | "failed";
 
 export interface WorkOrderSummaryResponse {
   work_order_id: UUID;
@@ -43,6 +51,16 @@ export interface WorkOrderSummaryResponse {
   created_at: ISODateString;
   event_count: number;
   cluster_count: number;
+  analysis_state: WorkOrderAnalysisState;
+  title_tags: string[];
+  is_urgent: boolean;
+}
+
+export interface ClusterReferenceResponse {
+  cluster_id: UUID;
+  cluster_name: string;
+  review_status: ReviewStatus;
+  handling_status: string;
 }
 
 export interface WorkOrderDetailResponse {
@@ -51,6 +69,7 @@ export interface WorkOrderDetailResponse {
   raw_content: string;
   raw_fields: Record<string, unknown>;
   events: EventResponse[];
+  cluster_refs: ClusterReferenceResponse[];
 }
 
 export interface EventDetailResponse {
@@ -72,6 +91,8 @@ export interface MatchEdgeResponse {
 export type ClusterStatus = string;
 export type HandlingStatus = string;
 export type AnalysisJobStatus = "queued" | "running" | "completed" | "failed";
+export type AnalysisSelectionMode = "sequential" | "recurrence_candidates";
+export type ReviewStatus = "pending_review" | "confirmed" | "rejected";
 
 export interface ClusterSummaryResponse {
   cluster_id: UUID;
@@ -84,6 +105,8 @@ export interface ClusterSummaryResponse {
   event_count: number;
   evidence: Record<string, unknown>;
   trace: TraceResponse | null;
+  review_status: ReviewStatus;
+  is_multi_frequency: boolean;
 }
 
 export interface ClusterDetailResponse {
@@ -132,6 +155,24 @@ export interface AnalysisJobResponse {
   finished_at: ISODateString | null;
   error: string | null;
   trace: TraceResponse | null;
+  selection_mode: AnalysisSelectionMode;
+}
+
+export interface AttachmentResponse {
+  attachment_id: UUID;
+  reference: string;
+  original_filename: string;
+  size: number;
+  content_type: string;
+}
+
+export interface ClusterReviewResponse {
+  cluster_id: UUID;
+  previous_status: ReviewStatus;
+  review_status: ReviewStatus;
+  actor_id: string;
+  reason: string | null;
+  reviewed_at: ISODateString;
 }
 
 /** 统一列表响应。 */
@@ -151,6 +192,9 @@ export interface WorkOrderListItem {
   created_at: ISODateString;
   event_count: number;
   cluster_count: number;
+  analysis_state: WorkOrderAnalysisState;
+  title_tags: string[];
+  is_urgent: boolean;
 }
 
 export type WorkOrderListResponse = ListResponse<WorkOrderListItem>;

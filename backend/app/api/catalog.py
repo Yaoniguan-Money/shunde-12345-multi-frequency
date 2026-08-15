@@ -1,5 +1,6 @@
 """Read-only demo catalog endpoints."""
 
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -17,8 +18,10 @@ from backend.app.domain.catalog import (
 )
 from backend.app.domain.types import VersionTrace
 from backend.app.schemas.catalog import (
+    AnalysisState,
     ClusterDetailResponse,
     ClusterListResponse,
+    ClusterReferenceResponse,
     ClusterSummaryResponse,
     EntityReferenceResponse,
     EventDetailResponse,
@@ -27,6 +30,7 @@ from backend.app.schemas.catalog import (
     HandlingRecordResponse,
     HumanCorrectionResponse,
     MatchEdgeResponse,
+    ReviewStatus,
     TraceResponse,
     WorkOrderDetailResponse,
     WorkOrderListResponse,
@@ -42,8 +46,18 @@ async def list_work_orders(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
     query: str | None = Query(default=None, min_length=1, max_length=128),
+    analysis_state: str | None = Query(default=None, max_length=32),
+    event_type: str | None = Query(default=None, max_length=128),
+    title_tag: str | None = Query(default=None, max_length=64),
 ) -> WorkOrderListResponse:
-    items, total = await service.list_work_orders(offset=offset, limit=limit, query=query)
+    items, total = await service.list_work_orders(
+        offset=offset,
+        limit=limit,
+        query=query,
+        analysis_state=analysis_state,
+        event_type=event_type,
+        title_tag=title_tag,
+    )
     return WorkOrderListResponse(
         items=[_work_order_summary(item) for item in items],
         offset=offset,
@@ -76,11 +90,16 @@ async def list_events(
         pipeline_version=pipeline_version,
         work_order_id=work_order_id,
     )
+    occurrence_dated_total, occurrence_unknown_total = await service.event_occurrence_counts(
+        pipeline_version
+    )
     return EventListResponse(
         items=[_event_detail(item) for item in items],
         offset=offset,
         limit=limit,
         total=total,
+        occurrence_dated_total=occurrence_dated_total,
+        occurrence_unknown_total=occurrence_unknown_total,
     )
 
 
@@ -137,6 +156,9 @@ def _work_order_summary(summary: WorkOrderSummary) -> WorkOrderSummaryResponse:
         created_at=summary.created_at,
         event_count=summary.event_count,
         cluster_count=summary.cluster_count,
+        analysis_state=cast(AnalysisState, summary.analysis_state),
+        title_tags=list(summary.title_tags),
+        is_urgent=summary.is_urgent,
     )
 
 
@@ -153,6 +175,7 @@ def _event(event: CatalogEvent) -> EventResponse:
                 entity_id=entity.entity_id,
                 standard_name=entity.standard_name,
                 entity_type=entity.entity_type,
+                resolution_state=entity.resolution_state,
             )
             for entity in event.entities
         ],
@@ -160,6 +183,7 @@ def _event(event: CatalogEvent) -> EventResponse:
         time_signals=list(event.time_signals),
         evidence=list(event.evidence),
         trace=_trace(event.trace),
+        occurrence_date=event.occurrence_date,
     )
 
 
@@ -170,6 +194,15 @@ def _work_order_detail(detail: WorkOrderDetail) -> WorkOrderDetailResponse:
         raw_content=detail.raw_content,
         raw_fields=detail.raw_fields,
         events=[_event(item) for item in detail.events],
+        cluster_refs=[
+            ClusterReferenceResponse(
+                cluster_id=item.cluster_id,
+                cluster_name=item.cluster_name,
+                review_status=item.review_status,
+                handling_status=item.handling_status,
+            )
+            for item in detail.cluster_refs
+        ],
     )
 
 
@@ -194,6 +227,8 @@ def _cluster_summary(summary: ClusterSummary) -> ClusterSummaryResponse:
         event_count=summary.event_count,
         evidence=summary.evidence,
         trace=_trace(summary.trace) if summary.trace else None,
+        review_status=cast(ReviewStatus, summary.review_status),
+        is_multi_frequency=summary.is_multi_frequency,
     )
 
 

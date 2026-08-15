@@ -6,7 +6,7 @@ request, but derived fields always retain their own pipeline/model trace.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from backend.app.domain.types import VersionTrace
@@ -21,6 +21,7 @@ class EntityReference:
     entity_id: UUID
     standard_name: str | None
     entity_type: str | None
+    resolution_state: str = "resolved"
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,7 @@ class CatalogEvent:
     time_signals: tuple[str, ...]
     evidence: tuple[dict[str, object], ...]
     trace: VersionTrace
+    occurrence_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +49,17 @@ class WorkOrderSummary:
     created_at: datetime
     event_count: int
     cluster_count: int
+    analysis_state: str = "unprocessed"
+    title_tags: tuple[str, ...] = ()
+    is_urgent: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterReference:
+    cluster_id: UUID
+    cluster_name: str
+    review_status: str
+    handling_status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +69,7 @@ class WorkOrderDetail:
     raw_content: str
     raw_fields: dict[str, object]
     events: tuple[CatalogEvent, ...]
+    cluster_refs: tuple[ClusterReference, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +117,16 @@ class HumanCorrectionView:
 
 
 @dataclass(frozen=True, slots=True)
+class ClusterReviewView:
+    cluster_id: UUID
+    previous_status: str
+    review_status: str
+    actor_id: str
+    reason: str | None
+    reviewed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterSummary:
     cluster_id: UUID
     name: str
@@ -114,6 +138,8 @@ class ClusterSummary:
     event_count: int
     evidence: dict[str, object] = field(default_factory=_empty_object_dict)
     trace: VersionTrace | None = None
+    review_status: str = "pending_review"
+    is_multi_frequency: bool = True
 
 
 @dataclass(frozen=True, slots=True)

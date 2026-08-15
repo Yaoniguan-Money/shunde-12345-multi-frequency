@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     dependency_timeout_seconds: float = 2.0
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
     runtime_dir: Path = Path("./data/runtime")
+    attachment_max_bytes: int = 10 * 1024 * 1024
     gazetteer_home: Path | None = None
     gazetteer_database_path: Path | None = None
     gazetteer_snapshot_path: Path = Path("./data/runtime/gazetteer.snapshot.json")

@@ -7,6 +7,7 @@ from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
+from backend.app.domain.attachments import AttachmentStore
 from backend.app.domain.ports.export import Exporter
 from backend.app.infrastructure.health import DependencyHealthProbe
 from backend.app.infrastructure.imports import SourceStager
@@ -74,3 +75,10 @@ def get_exporter(request: Request) -> Exporter:
 
 
 ExporterDependency = Annotated[Exporter, Depends(get_exporter)]
+
+
+def get_attachment_store(request: Request) -> AttachmentStore:
+    return request.app.state.attachment_store
+
+
+AttachmentStoreDependency = Annotated[AttachmentStore, Depends(get_attachment_store)]

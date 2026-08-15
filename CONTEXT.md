@@ -27,3 +27,15 @@ _Avoid_: Event count
 **Event Count**:
 The number of Event Instances represented by a Multi-Frequency Event; this may exceed its Work Order Count.
 _Avoid_: Complaint frequency
+
+**Analysis Outcome**:
+The auditable result of applying one analysis pipeline run to one Work Order: unprocessed, analyzed with events, analyzed with no event, or failed.
+_Avoid_: Inferring analysis completion from Event Count
+
+**Review Status**:
+The human review conclusion for a Multi-Frequency Event, independent from its business handling progress.
+_Avoid_: Handling status, AI confidence
+
+**Occurrence Date**:
+A calendar date explicitly recoverable from an Event Instance's business-time evidence; unknown when the evidence cannot determine a full date.
+_Avoid_: Import time, database creation time

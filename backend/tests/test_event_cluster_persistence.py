@@ -121,7 +121,7 @@ async def test_catalog_counts_distinct_work_orders_and_groups_member_events() ->
     engine = create_engine(get_settings())
     session_factory = create_session_factory(engine)
     event_repository = SQLAlchemyEventRepository(session_factory)
-    catalog = SQLAlchemyCatalogRepository(session_factory)
+    catalog = SQLAlchemyCatalogRepository(session_factory, "test.v1")
     batch_id = uuid4()
     work_order_ids = (uuid4(), uuid4())
     event_ids = (uuid4(), uuid4(), uuid4())

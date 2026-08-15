@@ -23,13 +23,21 @@ class _BoundedRepository:
     async def start_or_resume(self, **_kwargs):
         return AnalysisJobState(uuid4(), uuid4(), 0, "running")
 
-    async def load_work_orders(self, _batch_id, after_source_row, limit, max_source_row=None):
+    async def load_work_orders(
+        self,
+        _batch_id,
+        after_source_row,
+        limit,
+        max_source_row=None,
+        selected_work_order_ids=None,
+    ):
         self.limits.append((limit, max_source_row))
         return tuple(
             source
             for source in self.sources
             if source.source_row_number > after_source_row
             and (max_source_row is None or source.source_row_number <= max_source_row)
+            and (selected_work_order_ids is None or source.work_order_id in selected_work_order_ids)
         )[:limit]
 
     async def persist_records(self, _run_id, records, *_args):
@@ -48,6 +56,9 @@ class _BoundedRepository:
 
     async def fail(self, *_args):
         raise AssertionError("bounded run must not fail")
+
+    async def mark_results_failed(self, *_args):
+        raise AssertionError("bounded run must not mark successful rows failed")
 
 
 class _Understanding:

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -14,6 +14,7 @@ from backend.app.domain.analysis_jobs import (
     UnderstandingRepository,
     WorkOrderSource,
 )
+from backend.app.domain.time_normalization import occurrence_date_from_signals
 from backend.app.domain.types import GazetteerSnapshot, VersionTrace
 from backend.app.infrastructure.db.models import (
     AnalysisJob,
@@ -26,6 +27,7 @@ from backend.app.infrastructure.db.models import (
     ImportBatch,
     KnowledgeSnapshot,
     WorkOrder,
+    WorkOrderAnalysisResult,
     WorkOrderEmbedding,
 )
 
@@ -103,6 +105,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
         model_config_hash: str | None,
         total_rows: int,
         selected_rows: int,
+        selection_mode: str,
     ) -> AnalysisJobState:
         metrics = {
             "total_rows": total_rows,
@@ -111,6 +114,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
             "event_count": 0,
             "match_edge_count": 0,
             "cluster_count": 0,
+            "selection_mode": selection_mode,
         }
         async with self._session_factory() as session:
             async with session.begin():
@@ -207,6 +211,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     finished_at=None,
                     error=self._error_message(job.error_metadata),
                     trace=None,
+                    selection_mode="sequential",
                 )
             metrics = run.metrics or {}
             return AnalysisJobView(
@@ -229,6 +234,35 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     pipeline_version=run.pipeline_version,
                     provider=run.provider,
                 ),
+                selection_mode=self._metric_str(metrics, "selection_mode", "sequential"),
+            )
+
+    async def select_work_orders(
+        self, batch_id: UUID, limit: int, selection_mode: str
+    ) -> tuple[WorkOrderSource, ...]:
+        if selection_mode == "sequential":
+            return await self.load_work_orders(batch_id, 0, limit)
+        if selection_mode != "recurrence_candidates":
+            raise ValueError("selection_mode must be sequential or recurrence_candidates")
+        recurrence_condition = or_(
+            WorkOrder.raw_content.op("~")("曾反映|再次反映|多次反映|重复反映"),
+            WorkOrder.raw_content.op("~")("(工单号|诉求编号)"),
+        )
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    select(WorkOrder)
+                    .where(
+                        WorkOrder.import_batch_id == batch_id,
+                        recurrence_condition,
+                    )
+                    .order_by(WorkOrder.source_row_number)
+                    .limit(limit)
+                )
+            ).all()
+            return tuple(
+                WorkOrderSource(row.id, row.source_row_number, row.raw_title, row.raw_content)
+                for row in rows
             )
 
     async def start_or_resume(
@@ -309,6 +343,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
         after_source_row: int,
         limit: int,
         max_source_row: int | None = None,
+        selected_work_order_ids: tuple[UUID, ...] | None = None,
     ) -> tuple[WorkOrderSource, ...]:
         async with self._session_factory() as session:
             rows = (
@@ -317,6 +352,11 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     .where(
                         WorkOrder.import_batch_id == batch_id,
                         WorkOrder.source_row_number > after_source_row,
+                        *(
+                            (WorkOrder.id.in_(selected_work_order_ids),)
+                            if selected_work_order_ids is not None
+                            else ()
+                        ),
                         *(
                             (WorkOrder.source_row_number <= max_source_row,)
                             if max_source_row is not None
@@ -393,9 +433,11 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                                 for index in event.mention_indexes
                                 if 0 <= index < len(record.understanding.mentions)
                                 and record.understanding.mentions[index].canonical_entity_id
+                                in canonical_ids
                             ],
                             "location_signals": event.location_signals,
                             "time_signals": list(event.time_signals),
+                            "occurrence_date": occurrence_date_from_signals(event.time_signals),
                             "evidence": {
                                 "source": "raw_segment_quote",
                                 "items": [
@@ -422,12 +464,17 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         await session.execute(
                             pg_insert(EventInstance)
                             .values(**event_values)
-                            .on_conflict_do_nothing(
+                            .on_conflict_do_update(
                                 index_elements=[
                                     EventInstance.work_order_id,
                                     EventInstance.ordinal,
                                     EventInstance.pipeline_version,
-                                ]
+                                ],
+                                set_={
+                                    key: value
+                                    for key, value in event_values.items()
+                                    if key not in {"id", "work_order_id", "ordinal"}
+                                },
                             )
                         )
                         existing_id = await session.scalar(
@@ -484,6 +531,30 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                                 ]
                             )
                         )
+                    event_count = len(record.understanding.events)
+                    await session.execute(
+                        pg_insert(WorkOrderAnalysisResult)
+                        .values(
+                            work_order_id=record.work_order_id,
+                            analysis_run_id=run_id,
+                            pipeline_version=pipeline_version,
+                            status="analyzed" if event_count else "analyzed_no_event",
+                            event_count=event_count,
+                            error_code=None,
+                            error_summary=None,
+                            analyzed_at=datetime.now(UTC),
+                        )
+                        .on_conflict_do_update(
+                            constraint="uq_work_order_analysis_result_run",
+                            set_={
+                                "status": "analyzed" if event_count else "analyzed_no_event",
+                                "event_count": event_count,
+                                "error_code": None,
+                                "error_summary": None,
+                                "analyzed_at": datetime.now(UTC),
+                            },
+                        )
+                    )
                 previous = (run.metrics or {}).get("records_persisted", 0)
                 prior_count = previous if isinstance(previous, int) else 0
                 run.metrics = {
@@ -491,6 +562,44 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     "records_persisted": prior_count + len(records),
                 }
         return tuple(persisted)
+
+    async def mark_results_failed(
+        self,
+        run_id: UUID,
+        work_order_ids: tuple[UUID, ...],
+        pipeline_version: str,
+        error_code: str,
+        error_summary: str,
+    ) -> None:
+        if not work_order_ids:
+            return
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            async with session.begin():
+                for work_order_id in work_order_ids:
+                    await session.execute(
+                        pg_insert(WorkOrderAnalysisResult)
+                        .values(
+                            work_order_id=work_order_id,
+                            analysis_run_id=run_id,
+                            pipeline_version=pipeline_version,
+                            status="failed",
+                            event_count=0,
+                            error_code=error_code,
+                            error_summary=error_summary[:1000],
+                            analyzed_at=now,
+                        )
+                        .on_conflict_do_update(
+                            constraint="uq_work_order_analysis_result_run",
+                            set_={
+                                "status": "failed",
+                                "event_count": 0,
+                                "error_code": error_code,
+                                "error_summary": error_summary[:1000],
+                                "analyzed_at": now,
+                            },
+                        )
+                    )
 
     async def persist_embeddings(
         self,
@@ -600,6 +709,11 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
             if isinstance(value, int):
                 return value
         return 0
+
+    @staticmethod
+    def _metric_str(metrics: dict[str, object], key: str, default: str) -> str:
+        value = metrics.get(key)
+        return value if isinstance(value, str) else default
 
     @staticmethod
     def _error_message(metadata: dict[str, object] | None) -> str | None:

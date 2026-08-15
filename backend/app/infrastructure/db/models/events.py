@@ -1,7 +1,8 @@
+from datetime import date
 from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +28,7 @@ class EventInstance(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
     entity_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     location_signals: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     time_signals: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    occurrence_date: Mapped[date | None] = mapped_column(Date, index=True)
     evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
 
 
@@ -90,6 +92,8 @@ class EventCluster(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     handling_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_review")
+    member_signature: Mapped[str | None] = mapped_column(String(64), unique=True)
 
 
 class EventClusterMember(UUIDPrimaryKeyMixin, TimestampMixin, Base):

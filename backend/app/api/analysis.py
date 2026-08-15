@@ -7,7 +7,12 @@ from fastapi import APIRouter, HTTPException, status
 
 from backend.app.api.dependencies import AnalysisJobServiceDependency
 from backend.app.domain.analysis_jobs import AnalysisJobView
-from backend.app.schemas.analysis import AnalysisJobCreate, AnalysisJobResponse, AnalysisJobStatus
+from backend.app.schemas.analysis import (
+    AnalysisJobCreate,
+    AnalysisJobResponse,
+    AnalysisJobStatus,
+    AnalysisSelectionMode,
+)
 from backend.app.schemas.catalog import TraceResponse
 
 router = APIRouter(tags=["analysis"])
@@ -23,7 +28,9 @@ async def create_analysis_job(
     service: AnalysisJobServiceDependency,
 ) -> AnalysisJobResponse:
     try:
-        view = await service.submit(request.import_batch_id, request.max_work_orders)
+        view = await service.submit(
+            request.import_batch_id, request.max_work_orders, request.selection_mode
+        )
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except ValueError as error:
@@ -68,6 +75,7 @@ def _response(view: AnalysisJobView) -> AnalysisJobResponse:
             if trace is not None
             else None
         ),
+        selection_mode=cast(AnalysisSelectionMode, view.selection_mode),
     )
 
 

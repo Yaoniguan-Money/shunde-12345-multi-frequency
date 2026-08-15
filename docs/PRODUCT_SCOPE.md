@@ -17,6 +17,10 @@
 - 同主体不同事件不能合并。
 - 当前比赛/Demo 路径显式采用 cloud-first：理解、embedding、SameEventMatcher 均可走已配置的 remote OpenAI-compatible provider；未显式设置 remote 时，代码安全默认仍是 local，绝不自动云回退。
 - Demo Core 只处理从真实 PostgreSQL 动态选择的小样本，不把 128,278 条全量 LLM 分析伪装成完成；每条远程结果必须保留 provider、model、config hash、pipeline/schema trace。
+- 导入总数与 AI 实际研判数必须分开显示；Demo 可用 `recurrence_candidates` 在全批次中定位最多 300 条弱候选，但规则只决定送入 AI 的工单，不直接产生 SameEvent 结论。
+- 产品工单默认只展示当前 analysis pipeline 的事件；历史 pipeline 数据保留，只能通过显式技术查询访问。
+- 工单 AI 状态不得由 event_count 猜测；必须区分 `unprocessed / analyzed_no_event / analyzed / failed`。
+- Cluster `review_status` 与业务 `handling_status` 完全独立；AI 簇默认 `pending_review` 且立即可见，人工确认/驳回必须留审计。
 - 支持 Excel/CSV。
 - 支持事件业务处理状态/过程/结果。
 - 多频事件详情必须可核查成员工单、SameEvent evidence、AI trace、处理历史和人工纠错；处理记录与纠错通过 backend API 写入既有表并留下审计。

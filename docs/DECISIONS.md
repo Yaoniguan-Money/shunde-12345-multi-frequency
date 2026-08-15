@@ -104,3 +104,35 @@ meaning as `work_order_count`. Detail projections group events by WorkOrder to
 avoid duplicating immutable raw content. Legacy invalid stored clusters are kept
 for audit history but excluded from product Catalog responses; this decision does
 not rewrite raw work orders or historical AI records.
+
+# ADR-014: Product truth is a current-pipeline projection with explicit outcomes
+Status: accepted
+
+Imported WorkOrders are not implicitly AI-analyzed. Each pipeline run records an
+auditable per-WorkOrder outcome (`analyzed`, `analyzed_no_event` or `failed`), and
+absence of that record means `unprocessed`. Product Catalog projections use only
+the configured current analysis pipeline; historical EventInstances remain
+available only through explicit technical pipeline queries. This avoids both
+v1/v2 double counting and the false claim that an imported corpus was fully
+analyzed.
+
+# ADR-015: Bounded recurrence selection is evidence routing, not judgment
+Status: accepted
+
+Demo jobs may explicitly choose `recurrence_candidates`, which scans the import
+batch for deterministic recurrence phrases or referenced work-order numbers and
+returns only the requested 1–300 rows. Selection mode and selected count are part
+of the job trace. This inexpensive routing never creates SameEvent evidence;
+understanding, embedding retrieval, SameEventMatcher and cluster consistency
+remain the only conclusion path. Sequential selection remains the compatibility
+default.
+
+# ADR-016: Cluster identity and human review survive projection changes
+Status: accepted
+
+New clusters have a deterministic signature over their EventInstance member set,
+so overlapping analysis runs reuse the same cluster instead of inflating product
+counts. Human `review_status` is independent of `handling_status`. Removing a
+member may make a cluster inactive in the multi-frequency list, but direct detail
+access, corrections and handling history remain available so the operator can
+undo the decision. Reruns do not silently restore human-removed membership.

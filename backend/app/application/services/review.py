@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from backend.app.domain.catalog import HandlingRecordView, HumanCorrectionView
+from backend.app.domain.catalog import ClusterReviewView, HandlingRecordView, HumanCorrectionView
 from backend.app.domain.ports.review import EventReviewRepository
 
 
@@ -57,3 +57,20 @@ class EventReviewService:
 
     async def list_corrections(self, cluster_id: UUID) -> tuple[HumanCorrectionView, ...]:
         return await self._repository.list_corrections(cluster_id)
+
+    async def set_review_status(
+        self,
+        cluster_id: UUID,
+        *,
+        review_status: str,
+        actor_id: str,
+        reason: str | None,
+    ) -> ClusterReviewView:
+        if review_status not in {"pending_review", "confirmed", "rejected"}:
+            raise ReviewCommandError("invalid review_status")
+        return await self._repository.set_review_status(
+            cluster_id,
+            review_status=review_status,
+            actor_id=actor_id,
+            reason=reason,
+        )

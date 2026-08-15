@@ -13,6 +13,8 @@ from backend.app.application.services.review import ReviewCommandError
 from backend.app.domain.catalog import HandlingRecordView, HumanCorrectionView
 from backend.app.domain.types import EventClusterId, ExportRequest
 from backend.app.schemas.catalog import (
+    ClusterReviewCreate,
+    ClusterReviewResponse,
     HandlingHistoryResponse,
     HandlingRecordCreate,
     HandlingRecordResponse,
@@ -22,6 +24,36 @@ from backend.app.schemas.catalog import (
 )
 
 router = APIRouter(tags=["review"])
+
+
+@router.post(
+    "/multi-frequency-events/{cluster_id}/review",
+    response_model=ClusterReviewResponse,
+)
+async def set_review_status(
+    cluster_id: UUID,
+    request: ClusterReviewCreate,
+    service: ReviewServiceDependency,
+) -> ClusterReviewResponse:
+    try:
+        result = await service.set_review_status(
+            cluster_id,
+            review_status=request.review_status,
+            actor_id=request.actor_id,
+            reason=request.reason,
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except (ReviewCommandError, ValueError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ClusterReviewResponse(
+        cluster_id=result.cluster_id,
+        previous_status=result.previous_status,
+        review_status=result.review_status,  # type: ignore[arg-type]
+        actor_id=result.actor_id,
+        reason=result.reason,
+        reviewed_at=result.reviewed_at,
+    )
 
 
 @router.post(

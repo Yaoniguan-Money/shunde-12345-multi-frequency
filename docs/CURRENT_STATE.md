@@ -279,3 +279,39 @@ pnpm --dir frontend build                    PASS
 pnpm --dir frontend test --run               PASS — 2 files, 3 tests
 scripts/check.ps1                            PASS — backend 36 tests; frontend lint/test/build; ruff/format/pyright all green
 ```
+
+## Product semantics + Dashboard backend prerequisites（2026-08-15）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| Imported vs analyzed | DONE | Analysis job 回传 `total_rows / selected_rows / processed_rows / selection_mode`；128,278 导入不再被表述为 128,278 AI 已研判 |
+| Recurrence selection | DONE | `sequential` 保持兼容；`recurrence_candidates` 仅用确定性复发词/编号引用路由 bounded 工单，不产生 SameEvent |
+| Real selection smoke | DONE | `--limit 100`：顺序样本 recurrence=6/reference=9；candidate 样本 recurrence=51/reference=90，实际 source rows 2–777；未调用任何模型 |
+| Current pipeline projection | DONE | 真实 DB 修复前 v1=11 events/v2=32 events；WorkOrder 产品详情和 event/cluster counts 只使用当前 `understanding.v2`，历史未删 |
+| WorkOrder analysis outcome | DONE | 新增 `work_order_analysis_results`，按 run/work order/pipeline 记录 `analyzed / analyzed_no_event / failed`；无记录明确为 `unprocessed` |
+| Entity integrity | DONE | 审计发现 30/30 entity refs 无法 join，影响 26 events；迁移+修复脚本后 orphan refs=0，新写入只接受真实 CanonicalEntity ID |
+| Correction undo | DONE | 2-work-order cluster remove 1 后不出现在多频列表，direct detail 返回 `is_multi_frequency=false` 及纠错历史；confirm 后恢复列表 |
+| Attachments | DONE | `POST /attachments` 真实 multipart 写入 gitignored runtime，`GET /attachments/{id}` 安全下载；UUID 存储名、文件名安全化、10 MiB 默认上限、响应不暴露绝对路径 |
+| WorkOrder cluster refs | DONE | WorkOrder detail 返回当前有效 `cluster_id/name/review_status/handling_status`，可实现真实跳转 |
+| Structured filters | DONE | `/work-orders` 增加 `analysis_state / event_type / title_tag`；返回 whitelist `title_tags[]` 与基于原标题的 `is_urgent`，不把括号文字猜成部门 |
+| Review status | DONE | EventCluster 新增 `pending_review / confirmed / rejected`；`POST /multi-frequency-events/{id}/review` 写 AuditLog，与 handling status 独立 |
+| Occurrence date | DONE | 只解析 time_signals 中明确完整日期；当前 v2 events 32 条中 dated=16/unknown=16，不使用 WorkOrder.created_at |
+| Cluster rerun dedup | DONE | 新 cluster 按排序成员集签名；不同 run 保存相同成员集返回原 cluster_id；修复前真实 DB 无重复成员集 |
+
+本轮没有运行 100 条云端 AI；只运行了 100 条确定性候选选择 smoke。没有 Dashboard UI、全量推理、Gold Set、模型比较或新基础设施。
+
+安全派生数据 repair 已为存量 event 回填可审计 outcome：`understanding.v1` 11 work orders/11 events，`understanding.v2` 25 work orders/32 events。无 event 的历史工单无法从 event 反推，仍保持 `unprocessed`，不伪造 `analyzed_no_event`。
+
+### 本轮门禁
+
+```text
+uv run alembic upgrade head                  PASS — ad1e2f3a4b5c
+scripts/check.ps1                            PASS
+uv run pytest -q                             PASS — 41 passed
+uv run pyright backend                       PASS — 0 errors, 0 warnings
+pnpm --dir frontend test --run               PASS — 5 files, 28 tests
+pnpm --dir frontend lint                     PASS
+pnpm --dir frontend build                    PASS — Vite 8.2.1
+selection_smoke.py --limit 100               PASS — deterministic only, no AI
+repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/unknown=16/16
+```

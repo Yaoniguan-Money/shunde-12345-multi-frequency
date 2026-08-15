@@ -75,6 +75,9 @@ GET /multi-frequency-events?offset=0&limit=20
 GET /multi-frequency-events/{cluster_id}
 POST /analysis-jobs
 GET /analysis-jobs/{job_id}
+POST /attachments
+GET /attachments/{attachment_id}
+POST /multi-frequency-events/{cluster_id}/review
 POST /multi-frequency-events/{cluster_id}/handling-records
 GET /multi-frequency-events/{cluster_id}/handling-records
 POST /multi-frequency-events/{cluster_id}/corrections
@@ -101,6 +104,18 @@ hash/schema/pipeline）。API 后台复用 understanding.v2、remote embedding�
 RemoteSameEventMatcher 与 EventGraphService；请求不会同步等待整批模型推理。当前 Demo
 必须显式使用 `SHUNDE_AI_PROVIDER_MODE=remote`、`qwen-plus` 和
 `qwen3.7-text-embedding`，不会自动回退本地，API key 永不进入响应。
+
+`POST /analysis-jobs` 新增可选 `selection_mode=sequential|recurrence_candidates`，默认 `sequential` 保持兼容。Demo 建议显式选择 `recurrence_candidates` 且按操作者当前要求使用 `max_work_orders=100`。页面必须同时显示 `total_rows=128278`、`selected_rows=100`和真实 `processed_rows`，不得写成“13 万条已全部 AI 研判”。候选规则仅路由工单，不是 SameEvent 结论。
+
+### Product semantics contracts
+
+- `GET /work-orders` 支持 `analysis_state / event_type / title_tag`；summary 新增 `analysis_state`、`title_tags[]`、`is_urgent`。`analysis_state` 只能是 `unprocessed / analyzed_no_event / analyzed / failed`。
+- `GET /work-orders/{id}` 默认只包含当前 `understanding.v2` events，不混合 v1；`cluster_refs[]` 提供真实 cluster ID/name/review/handling status 供跳转。
+- Event 新增 `occurrence_date`；只有 time_signals 可确定完整年月日时才有值。`GET /events` 额外返回 `occurrence_dated_total / occurrence_unknown_total`，严禁用 `created_at` 补空。
+- Entity reference 新增 `resolution_state`；`unresolved` 时页面显示“未解析”，不能把 UUID 前 8 位当业务名称。
+- Cluster summary 新增 `review_status` 和 `is_multi_frequency`。多频列表仍只返回 `is_multi_frequency=true`；人工 remove 导致失效后，用 cluster_id 直访详情仍可返回审计/处理/纠错历史，前端必须保留 confirm_member 恢复入口。
+- `POST /multi-frequency-events/{id}/review` 请求为 `review_status / actor_id / reason`；支持 pending/confirmed/rejected，不得用 handling status 替代。
+- `POST /attachments` 是 multipart `file`，返回 `attachment_id/reference/original_filename/size/content_type`；将 `reference` 写入 handling record 的 `attachment_references`，下载调用 `GET /attachments/{attachment_id}`，不传绝对路径。
 
 事件详情字段：`event_type`、`behavior`、`normalized_summary`、`entities`（canonical ID/name/type）、`location_signals`、`time_signals`、`evidence`（原文 quote/offset/segment）、`trace`。多频列表的 `work_order_count` 是不同原始工单数，`event_count` 是 AI 事件成员数，兼容字段 `member_count` 也表示 `work_order_count`，不得将其当成 event 数。详情页优先遍历 `work_orders`：每张原始工单只渲染一张 raw card，其下遍历该工单的 `events`；`members` 仅为 event-level 旧合同兼容。
 

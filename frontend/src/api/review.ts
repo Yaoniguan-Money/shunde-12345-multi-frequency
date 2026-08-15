@@ -2,6 +2,8 @@ import { apiDownload, apiRequest } from "./client";
 import type {
   HandlingRecordResponse,
   HumanCorrectionResponse,
+  ClusterReviewResponse,
+  ReviewStatus,
   UUID,
 } from "../types/api";
 
@@ -11,6 +13,17 @@ export interface HandlingRecordCreate {
   description?: string | null;
   result?: string | null;
   attachment_references?: string[];
+}
+
+export function setClusterReviewStatus(
+  clusterId: string,
+  body: { review_status: ReviewStatus; actor_id: string; reason?: string | null },
+  signal?: AbortSignal,
+): Promise<ClusterReviewResponse> {
+  return apiRequest<ClusterReviewResponse>(
+    `/multi-frequency-events/${clusterId}/review`,
+    { method: "POST", body: body as Record<string, unknown>, signal },
+  );
 }
 
 export interface HumanCorrectionCreate {

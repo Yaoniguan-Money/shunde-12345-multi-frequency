@@ -3,7 +3,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from backend.app.domain.catalog import HandlingRecordView, HumanCorrectionView
+from backend.app.domain.catalog import ClusterReviewView, HandlingRecordView, HumanCorrectionView
 
 
 class EventReviewRepository(Protocol):
@@ -31,3 +31,12 @@ class EventReviewRepository(Protocol):
     ) -> HumanCorrectionView: ...
 
     async def list_corrections(self, cluster_id: UUID) -> tuple[HumanCorrectionView, ...]: ...
+
+    async def set_review_status(
+        self,
+        cluster_id: UUID,
+        *,
+        review_status: str,
+        actor_id: str,
+        reason: str | None,
+    ) -> ClusterReviewView: ...

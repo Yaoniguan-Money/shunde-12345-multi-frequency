@@ -24,6 +24,9 @@ export function listWorkOrders(params: {
   offset?: number;
   limit?: number;
   query?: string;
+  analysisState?: string;
+  eventType?: string;
+  titleTag?: string;
   signal?: AbortSignal;
 }): Promise<WorkOrderListResponse> {
   return apiRequest<WorkOrderListResponse>("/work-orders", {
@@ -32,6 +35,9 @@ export function listWorkOrders(params: {
       offset: params.offset ?? 0,
       limit: params.limit ?? 20,
       query: params.query,
+      analysis_state: params.analysisState,
+      event_type: params.eventType,
+      title_tag: params.titleTag,
     },
   });
 }

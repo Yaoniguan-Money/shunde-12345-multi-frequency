@@ -62,6 +62,7 @@ class UnderstandingAndIndexingPipeline:
         *,
         max_rows: int | None = None,
         max_source_row: int | None = None,
+        selected_work_order_ids: tuple[UUID, ...] | None = None,
         idempotency_key: str | None = None,
     ) -> IndexingSummary:
         started = time.perf_counter()
@@ -90,6 +91,7 @@ class UnderstandingAndIndexingPipeline:
         events_extracted = 0
         embeddings_written = 0
         checkpoint = state.checkpoint_source_row
+        sources = ()
         try:
             while True:
                 remaining = None if max_rows is None else max_rows - rows_processed
@@ -110,6 +112,7 @@ class UnderstandingAndIndexingPipeline:
                     checkpoint,
                     min(self._chunk_size, remaining) if remaining is not None else self._chunk_size,
                     max_source_row,
+                    selected_work_order_ids,
                 )
                 if not sources:
                     break
@@ -204,5 +207,13 @@ class UnderstandingAndIndexingPipeline:
                 False,
             )
         except Exception as error:
+            if sources:
+                await self._repository.mark_results_failed(
+                    state.run_id,
+                    tuple(source.work_order_id for source in sources),
+                    self._pipeline_version,
+                    "analysis_failed",
+                    str(error),
+                )
             await self._repository.fail(state.job_id, state.run_id, "analysis_failed", str(error))
             raise

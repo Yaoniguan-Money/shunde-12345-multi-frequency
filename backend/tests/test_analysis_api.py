@@ -14,7 +14,7 @@ class _AnalysisFixture:
     def __init__(self, *, status: str = "completed", error: str | None = None) -> None:
         self.job_id = uuid4()
         self.batch_id = uuid4()
-        self.last_request: tuple[object, int] | None = None
+        self.last_request: tuple[object, int, str] | None = None
         self.view = AnalysisJobView(
             job_id=self.job_id,
             status=status,
@@ -35,10 +35,11 @@ class _AnalysisFixture:
                 pipeline_version="understanding.v2",
                 provider="remote-openai-compatible",
             ),
+            selection_mode="recurrence_candidates",
         )
 
-    async def submit(self, batch_id, max_work_orders):
-        self.last_request = (batch_id, max_work_orders)
+    async def submit(self, batch_id, max_work_orders, selection_mode="sequential"):
+        self.last_request = (batch_id, max_work_orders, selection_mode)
         return self.view
 
     async def get(self, job_id):
@@ -54,7 +55,11 @@ async def test_analysis_job_api_exposes_bounded_progress_and_trace() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         created = await client.post(
             "/analysis-jobs",
-            json={"import_batch_id": str(fixture.batch_id), "max_work_orders": 3},
+            json={
+                "import_batch_id": str(fixture.batch_id),
+                "max_work_orders": 3,
+                "selection_mode": "recurrence_candidates",
+            },
         )
         progress = await client.get(f"/analysis-jobs/{fixture.job_id}")
         missing_limit = await client.post(
@@ -68,12 +73,14 @@ async def test_analysis_job_api_exposes_bounded_progress_and_trace() -> None:
     assert created.status_code == 202
     assert created.json()["status"] == "completed"
     assert created.json()["selected_rows"] == 3
+    assert created.json()["total_rows"] == 128278
+    assert created.json()["selection_mode"] == "recurrence_candidates"
     assert created.json()["event_count"] == 4
     assert created.json()["match_edge_count"] == 2
     assert created.json()["cluster_count"] == 1
     assert created.json()["trace"]["model_id"] == "qwen-plus"
     assert progress.status_code == 200
-    assert fixture.last_request == (fixture.batch_id, 3)
+    assert fixture.last_request == (fixture.batch_id, 3, "recurrence_candidates")
     assert missing_limit.status_code == 422
     assert too_large.status_code == 422
 
