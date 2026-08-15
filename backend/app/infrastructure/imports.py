@@ -13,12 +13,24 @@ class PolarsTabularReader:
     def read(self, path: Path, sheet_name: str | None = None) -> TabularDocument:
         suffix = path.suffix.casefold()
         if suffix in {".xlsx", ".xls"}:
-            frame = pl.read_excel(
-                path,
-                sheet_name=sheet_name or "Sheet1",
-                engine="calamine",
-                raise_if_empty=False,
-            )
+            if sheet_name:
+                frame = pl.read_excel(
+                    path,
+                    sheet_name=sheet_name,
+                    engine="calamine",
+                    raise_if_empty=False,
+                )
+            else:
+                # Government workbooks frequently use a descriptive first-sheet
+                # name rather than Excel's default ``Sheet1``.  Keep the API
+                # contract simple: an omitted sheet selects the first worksheet.
+                workbook = pl.read_excel(
+                    path,
+                    sheet_id=0,
+                    engine="calamine",
+                    raise_if_empty=False,
+                )
+                frame = next(iter(workbook.values())) if isinstance(workbook, dict) else workbook
         elif suffix == ".csv":
             frame = self._read_csv(path)
         else:
