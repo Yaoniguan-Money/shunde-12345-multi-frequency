@@ -110,6 +110,24 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                 raw_content=work_order.raw_content,
             )
 
+    async def list_event_ids(
+        self, work_order_ids: tuple[WorkOrderId, ...], pipeline_version: str
+    ) -> tuple[EventInstanceId, ...]:
+        if not work_order_ids:
+            return ()
+        async with self._session_factory() as session:
+            rows = (
+                await session.scalars(
+                    select(EventInstance.id)
+                    .where(
+                        EventInstance.work_order_id.in_(work_order_ids),
+                        EventInstance.pipeline_version == pipeline_version,
+                    )
+                    .order_by(EventInstance.work_order_id, EventInstance.ordinal)
+                )
+            ).all()
+            return tuple(EventInstanceId(value) for value in rows)
+
     async def start_run(self, *, pipeline_version: str, schema_version: str) -> tuple[JobId, UUID]:
         async with self._session_factory() as session:
             async with session.begin():

@@ -4,6 +4,7 @@ from fastapi import Depends, Request
 
 from backend.app.application.handlers.health import HealthCheckHandler
 from backend.app.application.handlers.imports import ImportHandler
+from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
 from backend.app.domain.ports.export import Exporter
@@ -52,6 +53,13 @@ def get_catalog_service(request: Request) -> CatalogService:
 
 
 CatalogServiceDependency = Annotated[CatalogService, Depends(get_catalog_service)]
+
+
+def get_analysis_job_service(request: Request) -> AnalysisJobService:
+    return request.app.state.analysis_job_service
+
+
+AnalysisJobServiceDependency = Annotated[AnalysisJobService, Depends(get_analysis_job_service)]
 
 
 def get_review_service(request: Request) -> EventReviewService:

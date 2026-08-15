@@ -4,12 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.api.analysis import router as analysis_router
 from backend.app.api.catalog import router as catalog_router
 from backend.app.api.entities import router as entities_router
 from backend.app.api.health import router as health_router
 from backend.app.api.imports import router as imports_router
 from backend.app.api.review import router as review_router
 from backend.app.application.handlers.imports import ImportHandler
+from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
 from backend.app.config import get_settings
@@ -35,6 +37,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     session_factory = create_session_factory(engine)
     catalog_repository = SQLAlchemyCatalogRepository(session_factory)
     app.state.catalog_service = CatalogService(catalog_repository)
+    analysis_job_service = AnalysisJobService(settings, session_factory)
+    app.state.analysis_job_service = analysis_job_service
     app.state.review_service = EventReviewService(SQLAlchemyEventReviewRepository(session_factory))
     app.state.exporter = SQLAlchemyCSVExporter(session_factory)
     app.state.health_probe = DependencyHealthProbe(engine, settings)
@@ -58,6 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         )
         app.state.entity_resolver = RuntimeEntityResolver(snapshot, remote)
     yield
+    await analysis_job_service.shutdown()
     await engine.dispose()
 
 
@@ -72,6 +77,7 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "X-Correlation-ID"],
     )
     application.include_router(health_router)
+    application.include_router(analysis_router)
     application.include_router(imports_router)
     application.include_router(entities_router)
     application.include_router(review_router)

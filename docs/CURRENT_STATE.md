@@ -13,7 +13,7 @@
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
 - 本轮 cloud-first Demo Core commit：`8e9e5fc`；文档 checkpoint：`79f48b7`，均已推送 `origin/main`。
-- Final Codex hard-install closure commit：`f63e8c5`（multi-frequency review loop），已推送 `origin/main`。
+- Final Codex hard-install closure commit：本轮 bounded analysis job HTTP contract，提交后推送 `origin/main`。
 
 ## Environment
 
@@ -79,10 +79,10 @@
 | 1 repo hardening | DONE | Git checkpoint、uv/pnpm lock、FastAPI、React 19 + Vite 8、PostgreSQL + pgvector、Alembic、CI、health、typed ports、18 表骨架 |
 | 2 import | DONE | 真实 Excel 已导入 PostgreSQL：batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb`，128,278/128,278 成功，0 失败，checkpoint 128,278；第二次真实运行返回 `idempotent=true`，数据库仍 128,278 行 |
 | 3 gazetteer | DONE | 已从真实 SQLite 构建 229 实体运行时快照，真实 `/openapi.json` 发现 `/batch` 并实测凤城/人民医院/未知地点；`/entities/resolve` 已接入，未知明确 unresolved |
-| 4 AI understanding/indexing | PARTIAL | v1 本地 smoke 11 条仍保留；Demo Core 以 `understanding.v2` 真实处理选中工单，当前库有 16 个 v2 event、remote Qwen 1024 维 embedding；128,278 条全量尚未运行 |
+| 4 AI understanding/indexing | PARTIAL | v1 本地 smoke 11 条仍保留；Demo Core 以 `understanding.v2` 真实处理选中工单，当前库有 17 个 v2 event、remote Qwen 1024 维 embedding；128,278 条全量尚未运行 |
 | 5 retrieval/rerank | DONE（Demo Core 范围） | PostgreSQL/pgvector candidate retrieval 已接入 remote embedding；`qwen3.7-text-embedding` 真实返回 1024 维并有专用 HNSW partial index；embedding 仍只是 recall evidence，reranker 接口未实现 |
 | 6 event matching/clustering | DONE（Demo Core 范围） | Remote `SameEventMatcher` 已真实调用 qwen-plus；Demo 产出 6 positive / 5 hard-negative edges、1 个一致性 cluster；不是 128,278 条全量聚类，也没有 cosine threshold 判定 |
-| 7 product loop | DONE（backend contract） | 集群一致性回归已修复；处理状态/历史、人工 remove/confirm 纠错、AuditLog、详情聚合和 CSV 导出均已真实可调用；前端仍为工程/health 骨架，不是四页业务产品 |
+| 7 product loop | DONE（backend contract） | 集群一致性回归、处理状态/历史、人工 remove/confirm 纠错、AuditLog、详情聚合、CSV 导出和 bounded AI analysis job HTTP contract 均已真实可调用；前端仍为工程/health 骨架，不是四页业务产品 |
 | 8 benchmark/handoff | PARTIAL | Demo review artifact 已生成且保留 raw→v2 event→entity→embedding→candidate→SameEvent trace；没有 Gold Set，不报告 Recall/Precision/F1；500–1000 条人工 benchmark 仍是后续工作 |
 
 ## 本轮 Provider / Quality Validation 状态
@@ -177,8 +177,8 @@ remote_provider_smoke.py                     PASS — Qwen `qwen-plus` health �
 | Demo selector | DONE | 从真实数据库动态选取 source rows `9/43/3451/4781/11862/14715`；没有硬编码 UUID，包含恒艺锚点、跨地点噪音、同主体/不同问题候选 |
 | SameEventMatcher | DONE（Demo Core） | `qwen-plus` remote 判断；显式 remote route；实体/地点/问题/行为/时间/evidence 输入；不以 cosine threshold 下结论 |
 | Event graph / cluster | DONE（Demo Core） | 实际 artifact `data/runtime/demo/demo-core-20260815T023809Z.json`：6 positive edges、5 hard negatives、1 cluster；cluster builder 拒绝矛盾的传递合并 |
-| Read API | DONE | 真实 uvicorn smoke：`GET /work-orders` total `128278`、`GET /events` total `16`、`GET /multi-frequency-events` total `1`；三个列表及三个详情均 HTTP 200，详情含 raw、evidence、trace、edge |
-| Full-corpus AI | PARTIAL | 128,278 条原始工单仍未全量发送给 LLM；当前 v2 event 16 条，旧 v1 smoke event 11 条，不能据此宣称全量完成 |
+| Read API | DONE | 真实 uvicorn smoke：`GET /work-orders` total `128278`、`GET /events` total `17`、`GET /multi-frequency-events` total `1`；三个列表及三个详情均 HTTP 200，详情含 raw、evidence、trace、edge |
+| Full-corpus AI | PARTIAL | 128,278 条原始工单仍未全量发送给 LLM；当前 v2 event 17 条（本轮真实 bounded job 选 1 条），旧 v1 smoke event 11 条，不能据此宣称全量完成 |
 
 ### 本轮实际门禁
 
@@ -187,7 +187,7 @@ uv run alembic upgrade head                  PASS — 9c0d1e2f3a4b
 uv run ruff check .                          PASS
 uv run ruff format --check .                 PASS
 uv run pyright backend                       PASS — 0 errors, 0 warnings
-uv run pytest -q                             PASS — 21 passed
+uv run pytest -q                             PASS — 29 passed
 remote_provider_smoke.py                     PASS — qwen-plus / structured JSON
 remote_embedding_smoke.py                    PASS — qwen3.7-text-embedding / 1024 dims
 demo_core.py --anchor-limit 4 --candidate-limit 4 PASS — 6 positive / 5 negative / 1 cluster
@@ -211,13 +211,25 @@ uvicorn + catalog endpoint smoke             PASS — six list/detail endpoints 
 uv run ruff check backend                  PASS
 uv run ruff format --check backend         PASS
 uv run pyright backend                     PASS — 0 errors, 0 warnings
-uv run pytest -q                           PASS — 24 passed（含 review API 合同与 event_type 回归）
+uv run pytest -q                           PASS — 29 passed（含 review API、analysis job 合同与 event_type 回归）
 uv run alembic upgrade head                PASS — 9c0d1e2f3a4b（本轮不新增表）
 real uvicorn review smoke                  PASS — handling=1, corrections=2, audits=3, members restored=2
 real CSV export smoke                      PASS — HTTP 200 / text/csv / required header
 ```
 
 本轮明确没有运行 128,278 条全量 AI、Gold Set/benchmark 或前端页面。当前仍有 `PARTIAL/BLOCKED` 的全量理解、正式质量验收和领域时间边界事项，不能在 TRAE 页面中显示为已完成。远程 API key 曾在聊天中暴露，交接前应在 DashScope 控制台撤销并重新生成；仓库、日志和数据库 trace 不保存 key。
+
+## Bounded AI analysis job HTTP contract (2026-08-15)
+
+| 项目 | 状态 | 实际结果 |
+|---|---|---|
+| `POST /analysis-jobs` | DONE | 必须传 `import_batch_id` 与 `max_work_orders`；Pydantic/API 硬限制 1–300，queued 后立即返回，不同步等待模型 |
+| `GET /analysis-jobs/{job_id}` | DONE | 返回 status、total/selected/processed rows、event/edge/cluster 计数、started/finished、error、provider/model/config/schema/pipeline trace；不含 API key |
+| Shared application seam | DONE | `DemoAnalysisOrchestrator` 同时被 HTTP 后台任务与 `scripts/demo_core.py` 调用；底层复用 indexing checkpoint、remote embedding、pgvector、SameEvent 和 EventGraph |
+| Real bounded HTTP smoke | DONE | job `362398b6-fecc-4423-aa58-9b5fbc596640`：queued → running → completed；total `128278`、selected/processed `1`、event `1`、edges/clusters `0`（单条样本无配对，结果符合事实）；trace 为 remote `qwen-plus` |
+| Job tests | DONE | `pytest` 覆盖创建/查询、必填和上限、失败不伪装 completed、chunk 不越界、完成后 event/edge/cluster 计数合同 |
+
+该 bounded smoke 没有运行全量；现有真实 Demo Core cluster 仍通过多频事件读 API 可查。最大 300 只是 Demo 成本保护，不代表全量 AI 已完成。
 
 ### 当前阻塞与手工动作
 

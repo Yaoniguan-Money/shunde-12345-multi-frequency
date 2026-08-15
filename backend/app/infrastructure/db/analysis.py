@@ -6,7 +6,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.domain.analysis_jobs import (
+    AnalysisBatchInfo,
     AnalysisJobState,
+    AnalysisJobView,
     PersistedEvent,
     UnderstandingRecord,
     UnderstandingRepository,
@@ -21,6 +23,7 @@ from backend.app.infrastructure.db.models import (
     EntityAliasRuntime,
     EntityMention,
     EventInstance,
+    ImportBatch,
     KnowledgeSnapshot,
     WorkOrder,
     WorkOrderEmbedding,
@@ -77,6 +80,157 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         )
         return snapshot_id
 
+    async def get_batch_info(self, batch_id: UUID) -> AnalysisBatchInfo | None:
+        async with self._session_factory() as session:
+            batch = await session.get(ImportBatch, batch_id)
+            if batch is None:
+                return None
+            return AnalysisBatchInfo(
+                batch_id=batch.id,
+                status=batch.status,
+                total_rows=batch.total_rows,
+                successful_rows=batch.successful_rows,
+            )
+
+    async def create_or_requeue(
+        self,
+        *,
+        idempotency_key: str,
+        pipeline_version: str,
+        schema_version: str,
+        model_id: str,
+        provider: str,
+        model_config_hash: str | None,
+        total_rows: int,
+        selected_rows: int,
+    ) -> AnalysisJobState:
+        metrics = {
+            "total_rows": total_rows,
+            "selected_rows": selected_rows,
+            "processed_rows": 0,
+            "event_count": 0,
+            "match_edge_count": 0,
+            "cluster_count": 0,
+        }
+        async with self._session_factory() as session:
+            async with session.begin():
+                job = await session.scalar(
+                    select(AnalysisJob)
+                    .where(
+                        AnalysisJob.idempotency_key == idempotency_key,
+                        AnalysisJob.pipeline_version == pipeline_version,
+                    )
+                    .with_for_update()
+                )
+                if job is None:
+                    job = AnalysisJob(
+                        idempotency_key=idempotency_key,
+                        job_type="demo_analysis",
+                        status="queued",
+                        pipeline_version=pipeline_version,
+                        current_stage="queued",
+                        checkpoint_cursor="0",
+                        attempts=0,
+                        max_attempts=3,
+                    )
+                    session.add(job)
+                    await session.flush()
+                    run = AnalysisRun(
+                        analysis_job_id=job.id,
+                        run_number=1,
+                        status="queued",
+                        provider=provider,
+                        model_id=model_id,
+                        model_config_hash=model_config_hash,
+                        schema_version=schema_version,
+                        pipeline_version=pipeline_version,
+                        metrics=metrics,
+                    )
+                    session.add(run)
+                    await session.flush()
+                    return AnalysisJobState(job.id, run.id, 0, job.status)
+                run = await session.scalar(
+                    select(AnalysisRun)
+                    .where(AnalysisRun.analysis_job_id == job.id)
+                    .order_by(AnalysisRun.run_number.desc())
+                    .with_for_update()
+                )
+                if run is None:
+                    run = AnalysisRun(
+                        analysis_job_id=job.id,
+                        run_number=1,
+                        status="queued",
+                        provider=provider,
+                        model_id=model_id,
+                        model_config_hash=model_config_hash,
+                        schema_version=schema_version,
+                        pipeline_version=pipeline_version,
+                        metrics=metrics,
+                    )
+                    session.add(run)
+                    await session.flush()
+                elif job.status == "failed":
+                    job.status = "queued"
+                    job.current_stage = "queued"
+                    job.error_code = None
+                    job.error_metadata = None
+                    run.status = "queued"
+                    run.metrics = {**(run.metrics or {}), **metrics}
+                return AnalysisJobState(
+                    job.id,
+                    run.id,
+                    self._checkpoint(job.checkpoint_cursor),
+                    job.status,
+                )
+
+    async def get_job_view(self, job_id: UUID) -> AnalysisJobView | None:
+        async with self._session_factory() as session:
+            job = await session.get(AnalysisJob, job_id)
+            if job is None:
+                return None
+            run = await session.scalar(
+                select(AnalysisRun)
+                .where(AnalysisRun.analysis_job_id == job.id)
+                .order_by(AnalysisRun.run_number.desc())
+            )
+            if run is None:
+                return AnalysisJobView(
+                    job_id=job.id,
+                    status=job.status,
+                    total_rows=0,
+                    selected_rows=0,
+                    processed_rows=0,
+                    event_count=0,
+                    match_edge_count=0,
+                    cluster_count=0,
+                    started_at=None,
+                    finished_at=None,
+                    error=self._error_message(job.error_metadata),
+                    trace=None,
+                )
+            metrics = run.metrics or {}
+            return AnalysisJobView(
+                job_id=job.id,
+                status=job.status,
+                total_rows=self._metric_int(metrics, "total_rows"),
+                selected_rows=self._metric_int(metrics, "selected_rows"),
+                processed_rows=self._metric_int(metrics, "processed_rows", "rows_processed"),
+                event_count=self._metric_int(metrics, "event_count", "events_extracted"),
+                match_edge_count=self._metric_int(metrics, "match_edge_count"),
+                cluster_count=self._metric_int(metrics, "cluster_count"),
+                started_at=run.created_at,
+                finished_at=run.completed_at,
+                error=self._error_message(job.error_metadata),
+                trace=VersionTrace(
+                    model_id=run.model_id,
+                    model_config_hash=run.model_config_hash,
+                    schema_version=run.schema_version,
+                    knowledge_snapshot_id=run.knowledge_snapshot_id,
+                    pipeline_version=run.pipeline_version,
+                    provider=run.provider,
+                ),
+            )
+
     async def start_or_resume(
         self,
         *,
@@ -85,6 +239,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
         schema_version: str,
         model_id: str,
         provider: str,
+        model_config_hash: str | None = None,
         total_rows: int,
     ) -> AnalysisJobState:
         async with self._session_factory() as session:
@@ -114,6 +269,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         status="running",
                         provider=provider,
                         model_id=model_id,
+                        model_config_hash=model_config_hash,
                         schema_version=schema_version,
                         pipeline_version=pipeline_version,
                         metrics={"total_rows": total_rows},
@@ -133,6 +289,7 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                         status="running",
                         provider=provider,
                         model_id=model_id,
+                        model_config_hash=model_config_hash,
                         schema_version=schema_version,
                         pipeline_version=pipeline_version,
                         metrics={"total_rows": total_rows},
@@ -147,7 +304,11 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 return AnalysisJobState(job.id, run.id, checkpoint, job.status)
 
     async def load_work_orders(
-        self, batch_id: UUID, after_source_row: int, limit: int
+        self,
+        batch_id: UUID,
+        after_source_row: int,
+        limit: int,
+        max_source_row: int | None = None,
     ) -> tuple[WorkOrderSource, ...]:
         async with self._session_factory() as session:
             rows = (
@@ -156,6 +317,11 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     .where(
                         WorkOrder.import_batch_id == batch_id,
                         WorkOrder.source_row_number > after_source_row,
+                        *(
+                            (WorkOrder.source_row_number <= max_source_row,)
+                            if max_source_row is not None
+                            else ()
+                        ),
                     )
                     .order_by(WorkOrder.source_row_number)
                     .limit(limit)
@@ -426,3 +592,18 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
             return max(0, int(value or "0"))
         except ValueError:
             return 0
+
+    @staticmethod
+    def _metric_int(metrics: dict[str, object], *keys: str) -> int:
+        for key in keys:
+            value = metrics.get(key)
+            if isinstance(value, int):
+                return value
+        return 0
+
+    @staticmethod
+    def _error_message(metadata: dict[str, object] | None) -> str | None:
+        if metadata is None:
+            return None
+        value = metadata.get("message")
+        return value if isinstance(value, str) else None

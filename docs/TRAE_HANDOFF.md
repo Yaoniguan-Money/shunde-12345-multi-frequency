@@ -46,6 +46,7 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - Provider 模式由 `SHUNDE_AI_PROVIDER_MODE=local|remote|hybrid` 显式选择，默认 `local`。remote 使用通用 OpenAI-compatible adapter，API key 只来自环境变量；hybrid 的 `AUTO`/`LOCAL` 走本地，只有显式 `REMOTE` route 才走远端。AI trace 包含 `provider / model_id / model_config_hash / schema_version / pipeline_version`。
 - 远端验证命令：`uv run python scripts/remote_provider_smoke.py`。该命令只发送合成 JSON，不发送政府工单；未配置 key 时状态为 `BLOCKED`。2026-08-15 已用 Qwen `qwen-plus` 实际通过 health 与结构化 JSON，provider trace 为 `remote-openai-compatible`。
 - `uv run python scripts/run_understanding.py --limit N --chunk-size K`：从真实导入批次 checkpoint 继续执行“规则分段 → 批量结构化抽取 → 批量地名解析 → event/mention/segment 持久化 → embedding 写入”。省略 `--limit` 才会继续到全量，当前只实测了前 11 条，不要在演示环境无意触发全量。
+- Demo 前端不再需要手工运行 Python：使用下方 `POST /analysis-jobs` 创建 bounded 后台任务，再轮询 `GET /analysis-jobs/{job_id}`。`max_work_orders` 必填且当前限制为 1–300；没有“默认全量”按钮。
 - `uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text`：运行 pgvector candidate retrieval 性能测试；没有业务 Gold Set 时 `quality` 必须保持 `null`。
 - 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id` 等 trace 字段。
 - Demo Core 已提供真实事件聚类、同事件判定、详情和产品处理闭环 API；TRAE 不应为不存在的全量能力制作静态“已完成”页面。当前 Demo 只覆盖真实数据库动态抽出的少量工单，列表必须显示分页总数和当前状态，未知/未解析状态必须原样显示。
@@ -71,12 +72,34 @@ GET /events?offset=0&limit=20&pipeline_version=understanding.v2&work_order_id=
 GET /events/{event_id}
 GET /multi-frequency-events?offset=0&limit=20
 GET /multi-frequency-events/{cluster_id}
+POST /analysis-jobs
+GET /analysis-jobs/{job_id}
 POST /multi-frequency-events/{cluster_id}/handling-records
 GET /multi-frequency-events/{cluster_id}/handling-records
 POST /multi-frequency-events/{cluster_id}/corrections
 GET /multi-frequency-events/{cluster_id}/corrections
 GET /multi-frequency-events/export.csv?cluster_id={cluster_id}
 ```
+
+### Analysis job HTTP contract
+
+```text
+POST /analysis-jobs
+{
+  "import_batch_id": "<completed-or-partial-import-batch-id>",
+  "max_work_orders": 50
+}
+
+GET /analysis-jobs/{job_id}
+```
+
+创建响应为 HTTP 202，状态从 `queued` → `running` → `completed|failed`。响应字段包含
+`total_rows`、`selected_rows`、`processed_rows`、`event_count`、`match_edge_count`、
+`cluster_count`、`started_at`、`finished_at`、`error` 和 `trace`（provider/model/config
+hash/schema/pipeline）。API 后台复用 understanding.v2、remote embedding、pgvector、
+RemoteSameEventMatcher 与 EventGraphService；请求不会同步等待整批模型推理。当前 Demo
+必须显式使用 `SHUNDE_AI_PROVIDER_MODE=remote`、`qwen-plus` 和
+`qwen3.7-text-embedding`，不会自动回退本地，API key 永不进入响应。
 
 事件详情字段：`event_type`、`behavior`、`normalized_summary`、`entities`（canonical ID/name/type）、`location_signals`、`time_signals`、`evidence`（原文 quote/offset/segment）、`trace`。多频详情还包含成员工单、`same_event` edge、`same_entity/same_location/same_issue/time_compatible/contradictions`、cluster `handling_status` 和 trace，以及 `handling_history`、`human_corrections`。处理记录写入 `handling_status`、说明、结果和附件引用；纠错当前支持 `remove_member` / `confirm_member`，两者均写入 HumanCorrection 与 AuditLog，原始工单不变。CSV 至少包含 cluster、工单编号、标题、事件摘要、主体/地点、AI 依据、处理状态和处理结果。不要把 `confidence` 或 embedding 分数单独渲染成事实结论。
 

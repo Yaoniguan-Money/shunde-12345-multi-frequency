@@ -19,3 +19,11 @@ TRAE appends entries; do not rewrite history.
 - 审计与数据边界：复用既有 `EventHandlingRecord`、`HumanCorrection`、`AuditLog`；raw work order 不变。当前人工纠错只支持 `remove_member` / `confirm_member`，不虚构 merge/split。
 - 本地验证：API 合同测试、真实 uvicorn/PostgreSQL smoke、CSV 200 响应通过；真实 smoke 写入 1 条处理记录、2 条纠错和 3 条审计记录，成员移除后确认恢复为 2。
 - 已知边界：Demo 仍是真实数据库小样本，不是 128,278 条全量 AI 结果；没有 Gold Set，不报告 Recall/Precision/F1；TRAE 仍不得绕过 backend 或改变 Provider routing。
+
+## 2026-08-15 — Bounded AI analysis job HTTP contract
+
+- 改动目标：让 TRAE 可以从导入后的页面通过 HTTP 启动、轮询真实 AI 研判，不再依赖终端脚本。
+- API 变更：新增 `POST /analysis-jobs`（`import_batch_id` + 必填 `max_work_orders`，1–300）和 `GET /analysis-jobs/{job_id}`；状态为 `queued/running/completed/failed`，返回处理进度、event/edge/cluster 计数、错误和 provider/model/config/schema/pipeline trace。
+- 架构边界：单机 asyncio 后台 task；复用既有 analysis job/run/checkpoint、`UnderstandingAndIndexingPipeline` 与 `EventGraphService`。`scripts/demo_core.py` 已改为调用同一 `DemoAnalysisOrchestrator` application seam。
+- Provider/安全：当前 Demo 强制显式 remote provider（`qwen-plus` + `qwen3.7-text-embedding`）；不会自动 fallback 到 local，API key 不进请求/响应/日志。
+- 验证：API 合同、bounded chunk 上限、完成计数、失败状态测试通过；真实 HTTP bounded smoke 为 total `128278`、selected/processed `1`、event `1`、remote trace `qwen-plus`，未触发全量。

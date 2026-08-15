@@ -28,6 +28,10 @@ class EventRepository(Protocol):
 
     async def get_for_matching(self, event_id: EventInstanceId) -> EventForMatching | None: ...
 
+    async def list_event_ids(
+        self, work_order_ids: tuple[WorkOrderId, ...], pipeline_version: str
+    ) -> tuple[EventInstanceId, ...]: ...
+
 
 class EventGraphRepository(Protocol):
     async def start_run(

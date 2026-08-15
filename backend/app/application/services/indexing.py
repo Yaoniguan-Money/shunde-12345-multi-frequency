@@ -39,6 +39,7 @@ class UnderstandingAndIndexingPipeline:
         model_id: str,
         embedding_model_id: str,
         provider: str = "unknown",
+        model_config_hash: str | None = None,
         chunk_size: int = 16,
     ) -> None:
         if chunk_size < 1:
@@ -51,18 +52,26 @@ class UnderstandingAndIndexingPipeline:
         self._model_id = model_id
         self._embedding_model_id = embedding_model_id
         self._provider = provider
+        self._model_config_hash = model_config_hash
         self._chunk_size = chunk_size
 
     async def run(
-        self, batch_id: UUID, total_rows: int, *, max_rows: int | None = None
+        self,
+        batch_id: UUID,
+        total_rows: int,
+        *,
+        max_rows: int | None = None,
+        max_source_row: int | None = None,
+        idempotency_key: str | None = None,
     ) -> IndexingSummary:
         started = time.perf_counter()
         state = await self._repository.start_or_resume(
-            idempotency_key=f"understanding:{batch_id}",
+            idempotency_key=idempotency_key or f"understanding:{batch_id}",
             pipeline_version=self._pipeline_version,
             schema_version=self._schema_version,
             model_id=self._model_id,
             provider=self._provider,
+            model_config_hash=self._model_config_hash,
             total_rows=total_rows,
         )
         if state.status == "completed":
@@ -83,8 +92,24 @@ class UnderstandingAndIndexingPipeline:
         checkpoint = state.checkpoint_source_row
         try:
             while True:
+                remaining = None if max_rows is None else max_rows - rows_processed
+                if remaining is not None and remaining <= 0:
+                    return IndexingSummary(
+                        state.job_id,
+                        state.run_id,
+                        "paused",
+                        rows_processed,
+                        events_extracted,
+                        embeddings_written,
+                        checkpoint,
+                        time.perf_counter() - started,
+                        False,
+                    )
                 sources = await self._repository.load_work_orders(
-                    batch_id, checkpoint, self._chunk_size
+                    batch_id,
+                    checkpoint,
+                    min(self._chunk_size, remaining) if remaining is not None else self._chunk_size,
+                    max_source_row,
                 )
                 if not sources:
                     break

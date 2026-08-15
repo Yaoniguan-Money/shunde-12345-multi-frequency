@@ -142,6 +142,33 @@ GET /multi-frequency-events/{cluster_id}
 
 列表响应包含 `items/offset/limit/total`；详情分别包含 immutable raw work-order、v2 event（`event_type/behavior/normalized_summary/location_signals/time_signals/evidence`）、canonical entity references、SameEvent edges、cluster handling status 与 provider/model/config/schema/pipeline trace。Embedding 分数不能直接当 `same_event`。
 
+## Bounded AI analysis job API
+
+导入完成后，Demo 前端通过 HTTP 启动后台研判，不调用脚本：
+
+```powershell
+$base = 'http://127.0.0.1:8080'
+$body = @{
+  import_batch_id = '<completed-or-partial-import-batch-id>'
+  max_work_orders = 50       # 必填；当前允许 1–300
+} | ConvertTo-Json
+$job = Invoke-RestMethod -Method Post -Uri "$base/analysis-jobs" `
+  -ContentType 'application/json' -Body $body
+do {
+  Start-Sleep -Seconds 2
+  $progress = Invoke-RestMethod "$base/analysis-jobs/$($job.job_id)"
+  $progress | Select-Object status,total_rows,selected_rows,processed_rows,event_count,match_edge_count,cluster_count,error
+} while ($progress.status -in @('queued','running'))
+```
+
+创建接口返回 HTTP 202；状态只能是 `queued`、`running`、`completed` 或 `failed`。完成后
+`event_count`、`match_edge_count`、`cluster_count` 是真实持久化结果，`trace` 只含
+provider/model/config hash/schema/pipeline，不含 API key。后台链路复用
+`UnderstandingAndIndexingPipeline` 的 checkpoint、`understanding.v2`、地名快照、remote
+embedding、pgvector candidate retrieval、`RemoteSameEventMatcher` 和
+`EventGraphService`。上限是硬门禁，省略 `max_work_orders` 或填写大于 300 会被拒绝，不能误触
+128,278 条全量公网推理；remote 失败必须显示 `failed`，不得伪装 `completed`。
+
 ## Demo product loop API
 
 TRAE 仍只访问 backend，不直接访问 PostgreSQL 或模型。使用当前详情中的 `cluster_id` 和成员 `event_instance_id`：
