@@ -12,6 +12,7 @@
 - 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 提交：`8954e18`（已推送 `origin/main`）。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
+- 本轮 cloud-first Demo Core commit：`8e9e5fc`（待本行文档 checkpoint commit 一并 push）。
 
 ## Environment
 
