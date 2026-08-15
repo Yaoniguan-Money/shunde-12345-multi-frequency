@@ -3,7 +3,7 @@
 ## 真实输入位置
 
 - 政府工单 Excel（只读，不复制进仓库）：
-  `C:\Users\Lenovo\Desktop\政数局资料-顺德区12345热线工单（2025年1月至3月）.xlsx`
+  `C:\Users\Lenovo\Desktop\顺德12345热线精选工单数据集（含重复工单）.xlsx`（当前验收数据集，100 条；全量原始 Excel 仅作归档）
 - 地名库交接包（只读知识源）：
   `C:\Users\Lenovo\Desktop\顺德地名库交接包`
 - 地名服务 SQLite：
@@ -20,7 +20,7 @@
 先启动 PostgreSQL 并执行 `uv run alembic upgrade head`，再运行：
 
 ```powershell
-$env:SHUNDE_GOVERNMENT_XLSX = 'C:\Users\Lenovo\Desktop\政数局资料-顺德区12345热线工单（2025年1月至3月）.xlsx'
+$env:SHUNDE_GOVERNMENT_XLSX = 'C:\Users\Lenovo\Desktop\顺德12345热线精选工单数据集（含重复工单）.xlsx'
 uv run python scripts/import_real_smoke.py
 ```
 
