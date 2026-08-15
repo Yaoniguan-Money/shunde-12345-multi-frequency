@@ -104,7 +104,7 @@ export function WorkOrdersPage(): JSX.Element {
   return (
     <section>
       <header className="detail-header" style={{ marginBottom: 20 }}>
-        <p className="eyebrow">BACKEND-CONNECTED WORK ORDERS</p>
+        <p className="eyebrow">工单数据</p>
         <h1 className="detail-header__title">工单中心</h1>
         <p className="text-muted" style={{ margin: "8px 0 0" }}>
           只展示后端返回的真实工单；未提供的字段不补造。
@@ -120,7 +120,7 @@ export function WorkOrdersPage(): JSX.Element {
 
       <div className="work-order-signal-strip">
         <div className="work-order-signal-strip__title">
-          <span className="eyebrow">CURRENT PAGE SIGNALS</span>
+          <span className="eyebrow">当前页状态</span>
           <strong>工单研判状态灯</strong>
           <span>当前页 {items.length} 条，不对全量状态做估算</span>
         </div>
@@ -172,7 +172,7 @@ export function WorkOrdersPage(): JSX.Element {
             </thead>
             <tbody>
               {items.map((item) => {
-                const number = item.external_work_order_number ?? `WO-${item.source_row_number}`;
+                const number = item.external_work_order_number ?? `第${item.source_row_number}行`;
                 const title = item.raw_title?.trim() || "未提供标题";
                 const badge = getStateBadge(item.analysis_state);
                 const signal = analysisSignal(item.analysis_state);

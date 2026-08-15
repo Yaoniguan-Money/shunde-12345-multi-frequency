@@ -110,7 +110,7 @@ export function EventsPage(): JSX.Element {
         <div>
           <h1 className="page-header__title">多频事件</h1>
           <p className="page-header__subtitle">
-            只展示后端已确认的跨不同工单多频 cluster；高频等级需以后端字段为准。
+            只展示后端已确认的跨不同工单多频事件；高频等级需以后端字段为准。
           </p>
         </div>
       </div>
@@ -119,7 +119,7 @@ export function EventsPage(): JSX.Element {
         <span className="evidence-box__label">数据口径</span>
         <p className="text-muted" style={{ margin: "8px 0 0", lineHeight: 1.6 }}>
           高频由后端按滚动三天日历窗口判定：窗口内至少 3 条不同真实工单且工单有可解析日期。
-          未匹配到真实 cluster、缺少日期或不满足该规则的记录不会标记为高频；前端不自行计算。
+          未匹配到真实事件、缺少日期或不满足该规则的记录不会标记为高频；前端不自行计算。
         </p>
       </div>
 
@@ -156,7 +156,7 @@ export function EventsPage(): JSX.Element {
         ) : query.isError ? (
           <ErrorState error={query.error} onRetry={() => query.refetch()} />
         ) : filteredItems.length === 0 ? (
-          <EmptyState title="暂无匹配多频事件" description="后端没有可展示的真实 cluster。" />
+          <EmptyState title="暂无匹配多频事件" description="后端没有可展示的真实事件。" />
         ) : (
           filteredItems.map((cluster) => <EventCard key={cluster.cluster_id} cluster={cluster} />)
         )}

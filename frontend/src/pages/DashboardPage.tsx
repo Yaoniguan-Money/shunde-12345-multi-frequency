@@ -97,7 +97,7 @@ function DashboardSignalPanel({ clusters }: { clusters: ClusterSummaryResponse[]
     <aside className="dashboard-signal-panel">
       <div className="dashboard-signal-panel__header">
         <div>
-          <p className="eyebrow">LIVE SIGNALS</p>
+          <p className="eyebrow">实时状态</p>
           <h2 className="dashboard-signal-panel__title">事件状态灯</h2>
         </div>
         <span className="dashboard-signal-panel__scope">当前已加载 {clusters.length} 条</span>
@@ -177,7 +177,7 @@ export function DashboardPage(): JSX.Element {
   return (
     <section>
       <header className="detail-header" style={{ marginBottom: 20 }}>
-        <p className="eyebrow">BACKEND-CONNECTED OVERVIEW</p>
+        <p className="eyebrow">数据总览</p>
         <h1 className="detail-header__title">研判总览</h1>
         <p className="text-muted" style={{ margin: "8px 0 0" }}>
           只呈现当前 PostgreSQL 和后端目录 API 中存在的真实数据。
@@ -190,13 +190,13 @@ export function DashboardPage(): JSX.Element {
         <StatCard
           label="工单总数"
           value={workOrdersQuery.data?.total ?? null}
-          description="来自 GET /work-orders"
+          description="来自工单目录"
           loading={workOrdersQuery.isPending}
         />
         <StatCard
           label="AI 事件总数"
           value={eventsQuery.data?.total ?? null}
-          description="来自 GET /events，不做样本外估算"
+          description="来自事件目录，仅展示真实数据"
           loading={eventsQuery.isPending}
         />
         <StatCard
@@ -222,7 +222,7 @@ export function DashboardPage(): JSX.Element {
           {clusters.length === 0 ? (
             <EmptyState
               title="后端暂无多频事件"
-              description="没有匹配的 cluster 时，前端不显示预置或模拟事件。"
+          description="没有匹配的事件时，前端不显示预置或模拟内容。"
             />
           ) : (
             <div className="dashboard-cluster-grid">

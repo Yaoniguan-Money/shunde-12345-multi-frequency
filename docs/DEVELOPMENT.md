@@ -290,3 +290,11 @@ Dashboard、多频事件、工单中心和导入/研判页都适用此规则；�
 工单对应的 EventInstance 有可解析 `occurrence_date`。同一工单的多个 EventInstance 只计一条，
 缺日期记录不参与判定。响应提供 `is_high_frequency`、`frequency_window_days`（固定为 3）和
 `frequency_work_order_count`；React 只能展示这些字段，禁止自行按相似度、事件条数或日期重新计算。
+
+## 客户界面字段边界
+
+客户默认视图必须使用中文业务词汇，不直接显示 `cluster_id`、`work_order_id`、事件实例 UUID、
+provider/model/schema/pipeline、原始 evidence JSON 或内部枚举值。详情页只展示可读的事件摘要、
+结构化判断依据、工单号、处理记录和纠错结果；原始扩展字段仅可放在明确标注“工作人员查看”的
+折叠区域。后端字段仍完整保留，审计和纠错请求继续使用原始 ID。未知事件类型显示“其他问题”，
+未知状态显示“状态待同步”，不得把英文枚举直接暴露给客户。

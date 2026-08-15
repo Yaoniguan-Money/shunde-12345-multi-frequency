@@ -396,3 +396,12 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 `GET /multi-frequency-events?limit=20` 返回 4 个真实 cluster，均带新字段且当前数据均为
 `is_high_frequency=false`（已有 cluster 的可解析 occurrence_date 不足三条，或其余事件日期为空）。
 这不是失败或伪造 0，而是按缺日期不计入的规则得出的真实结果。
+
+## 客户界面中文化与技术字段收敛（2026-08-15）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| 多频/工单详情默认视图 | DONE | 去除默认显示的 cluster/work order 标题、UUID、原始 evidence JSON、模型追踪标签和内部字段；不改 API、不改原始数据 |
+| 中文展示映射 | DONE | 事件类型、处理状态、研判阶段和纠错类型统一显示中文；未知后端状态显示“状态待同步” |
+| 工作人员审计字段 | DONE | 原始扩展字段仅在“工作人员查看”折叠区保留；匹配证据只展示结构化中文摘要，避免向客户暴露内部 ID |
+| 前端验证 | DONE | `pnpm --dir frontend test --run` 32 passed；`pnpm --dir frontend lint` passed；`pnpm --dir frontend build` passed |

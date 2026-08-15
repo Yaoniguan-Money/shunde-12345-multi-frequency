@@ -74,6 +74,15 @@ const LABEL_OVERRIDES: Record<string, string> = {
   reason: "理由",
   summary: "摘要",
   note: "备注",
+  quote: "原文引用",
+  segment: "内容片段",
+  locations: "地点信息",
+  consistency: "一致性说明",
+  complete_link: "关联完整性",
+  event_types: "事件类型信息",
+  rejected_edges: "未采用的关联",
+  member_event_ids: "关联事件数量",
+  member_work_order_ids: "关联工单数量",
 };
 
 function resolveTone(key: string): EvidenceItem["tone"] {
@@ -83,7 +92,7 @@ function resolveTone(key: string): EvidenceItem["tone"] {
 }
 
 function resolveLabel(key: string): string {
-  return LABEL_OVERRIDES[key] ?? key;
+  return LABEL_OVERRIDES[key] ?? "其他判断依据";
 }
 
 export function describeEvidence(

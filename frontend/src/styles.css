@@ -3603,3 +3603,6 @@ input, select, textarea { font-family: inherit; }
     flex-direction: column;
   }
 }
+.internal-status-value {
+  display: none;
+}

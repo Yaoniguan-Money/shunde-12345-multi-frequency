@@ -1,7 +1,6 @@
 import type { JSX } from "react";
 
 import type { MatchEdgeResponse } from "../types/api";
-import { TraceTag } from "./TraceTag";
 import {
   describeEvidence,
   formatConfidence,
@@ -15,15 +14,13 @@ interface EdgeCardProps {
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
+  return "已记录";
 }
 
 export function EdgeCard({ edge }: EdgeCardProps): JSX.Element {
-  const items = describeEvidence(edge.evidence);
+  const items = describeEvidence(edge.evidence).filter(
+    (item) => !["member_event_ids", "member_work_order_ids", "rejected_edges"].includes(item.key),
+  );
 
   return (
     <article className="edge-card">
@@ -102,20 +99,11 @@ export function EdgeCard({ edge }: EdgeCardProps): JSX.Element {
         )}
       </div>
 
-      {edge.evidence && Object.keys(edge.evidence).length > 0 ? (
-        <details className="edge-evidence-raw" style={{ marginTop: 8 }}>
-          <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--color-text-muted)" }}>
-            原始 evidence JSON（{Object.keys(edge.evidence).length} 项）
-          </summary>
-          <pre style={{ margin: "8px 0 0" }}>
-{JSON.stringify(edge.evidence, null, 2)}
-          </pre>
-        </details>
+      {items.length > 0 ? (
+        <p className="text-muted edge-card__footer-note">
+          以上为结构化判断依据，需结合原始工单和人工复核使用。
+        </p>
       ) : null}
-
-      <div className="edge-card__trace">
-        <TraceTag trace={edge.trace} />
-      </div>
     </article>
   );
 }

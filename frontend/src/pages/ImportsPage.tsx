@@ -23,6 +23,7 @@ import type { AnalysisJobResponse } from "../types/api";
 import { ToastContext } from "../components/toastContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { SignalLight } from "../components/SignalLight";
+import { displayStage } from "../utils/displayText";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -51,6 +52,13 @@ const AI_STEPS: AiStep[] = [
   { key: "match", label: "相似度匹配", desc: "跨工单事件相似度计算" },
   { key: "cluster", label: "聚类研判", desc: "多频事件聚类与置信度评估" },
 ];
+
+const TARGET_FIELD_LABELS: Record<string, string> = {
+  source_row_number: "来源行号",
+  external_work_order_number: "外部工单号",
+  title: "标题",
+  content: "内容",
+};
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -297,7 +305,7 @@ function StagePreview({
             <tbody>
               {["source_row_number", "external_work_order_number", "title", "content"].map((target) => (
                 <tr key={target}>
-                  <td>{target}</td>
+                    <td>{TARGET_FIELD_LABELS[target] ?? "导入字段"}</td>
                   <td>
                     <select
                       data-testid={`mapping-${target}`}
@@ -385,7 +393,7 @@ function StageImportProgress({
       <div className="import-done">
         <div className="import-done__icon"><CheckIcon size={36} /></div>
         <div className="import-done__title">导入成功</div>
-        <div data-testid="batch-id" className="text-muted" style={{ marginTop: 8 }}>批次 ID：{result.batch_id}</div>
+        <div data-testid="batch-id" className="text-muted" style={{ marginTop: 8 }}>导入批次编号：{result.batch_id}</div>
         <div className="import-done__sub">批次数据已成功写入数据库</div>
         {result.idempotent ? <div className="validation-success" style={{ marginTop: 12 }}>该文件已导入过，幂等命中，未重复写入原始工单。</div> : null}
       <div className="import-done__stats">
@@ -468,9 +476,9 @@ function StageAnalysis({
   return (
     <div className="import-stage" data-testid="analysis-job">
       <div className="analysis-status-ribbon">
-        <SignalLight
+            <SignalLight
           tone={stageTone}
-          label={job?.current_stage ?? "queued"}
+          label={displayStage(job?.current_stage)}
           detail={statusText}
         />
         <StatusBadge status={job?.status ?? "queued"} variant="analysis" />

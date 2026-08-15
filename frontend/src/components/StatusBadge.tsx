@@ -40,6 +40,8 @@ const STATUS_CN_MAP: Record<string, string> = {
   closed: "已关闭",
   rejected: "已驳回",
   pending: "待处理",
+  pending_review: "待审核",
+  confirmed: "已确认",
 };
 
 interface StatusBadgeProps {
@@ -71,9 +73,9 @@ export function StatusBadge({
   variant = "analysis",
 }: StatusBadgeProps): JSX.Element {
   const tone = resolveTone(status, variant);
-  // 已知状态显示中文，未知状态显示原始值（不擅自改意义）
+  // 客户界面不暴露后端枚举原文；未知值明确标记为待同步。
   const label = status
-    ? (STATUS_CN_MAP[status.toLowerCase()] ?? status)
+    ? (STATUS_CN_MAP[status.toLowerCase()] ?? "状态待同步")
     : TONE_LABEL[tone];
   return (
     <span
