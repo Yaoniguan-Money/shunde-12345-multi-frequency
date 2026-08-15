@@ -359,3 +359,18 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 
 本轮没有重新发送 100 条政务工单到云端。数据库清理不可从数据库恢复，但桌面原始
 `顺德12345热线精选工单数据集（含重复工单）.xlsx` 未修改，可由操作者重新导入验收。
+
+## Dashboard 真实数据口径收紧（2026-08-15）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| 前端未匹配数据裁剪 | DONE | Dashboard、多频事件、工单中心、导入/研判页均只渲染后端返回且可关联的真实记录；移除静态雷达、活动、趋势、随机数、模拟工单、模拟预览和样本外兜底数字 |
+| 空数据/接口失败表现 | DONE | 后端无数据时显示明确空状态；接口失败显示错误状态和重试，不再显示“模拟数据”或固定统计 |
+| 前端回归与构建 | DONE | 新增 Dashboard 空响应/真实 cluster 回归；前端 6 files、31 tests passed；ESLint passed；`pnpm build` passed |
+| 三天高频判定 | PARTIAL | 当前后端只有跨不同 WorkOrder 的 `is_multi_frequency` cluster，没有三天窗口、增长信号或 `frequency_level` 字段；前端不自行按相似度/日期制造“高频”结论 |
+| 全量前端门禁 | BLOCKED | 当前 main 已存在与本次 Dashboard 无关的 lint/test 基线错误（EventsPage/ImportsPage/router 未使用变量、App/Imports/WorkOrders 既有测试失败）；本次没有修改这些无关文件 |
+
+高频规则必须先由后端形成可审计合同，再由前端展示。建议合同至少提供
+`frequency_level`、`frequency_window_days`、`occurrence_count`、
+`distinct_work_order_count`、`growth_signal` 和 `similarity_evidence`；在规则明确前，
+不能用一个前端相似度阈值替代后端判定。

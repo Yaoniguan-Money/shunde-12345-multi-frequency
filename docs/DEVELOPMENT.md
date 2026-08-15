@@ -272,3 +272,15 @@ uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candi
 ```
 
 artifact 与 summary 写入 `data/runtime/quality/`（已 gitignore），包括原始工单、分段、结构化事件、地名解析、embedding、pgvector 候选和完整 trace；`gold_set`、precision、recall、F1 保持 `null`。原计划 500–1000 条，本轮因本地推理耗时按操作者指示停止在 300 条；summary 必须标明实际成功/失败数。正式质量验收仍需人工 Gold Set；Demo Core 的 SameEvent 结果是可审核候选，不是 Gold Label。
+
+## 前端数据渲染与高频口径
+
+前端页面只能渲染后端 API 返回且带有可关联 ID 的记录。没有对应字段的统计、趋势、活动、
+等级或状态必须显示为空/未提供，不得使用静态示例、随机数、固定比例或 `||` 兜底数字冒充真实数据。
+Dashboard、多频事件、工单中心和导入/研判页都适用此规则；导入预览必须调用
+`POST /imports/preview`，研判进度/计数必须来自 `GET /analysis-jobs/{job_id}`。
+列表接口返回空数组时显示空状态；接口失败时显示失败和重试入口，不保留旧的模拟卡片。
+
+当前 `/multi-frequency-events` 的“多频”含义是后端已确认的跨不同 WorkOrder cluster，
+不是“高频”标签。三天内出现/增长的高频策略尚未进入后端领域合同；禁止在 React 中自行按
+相似度或日期做模糊判定。后端明确提供窗口、事件计数、增长信号和证据后，前端才按这些字段展示。

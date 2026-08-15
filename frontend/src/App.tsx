@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import type { JSX } from "react";
 
@@ -71,23 +71,13 @@ function SidebarStatus(): JSX.Element {
   });
 
   const aiOk = health.isSuccess;
-  const gazetteerOk = true;
-  const dbOk = health.isSuccess;
 
   return (
     <div className="app-sidebar__status">
       <div className="app-sidebar__status-title">系统状态</div>
       <div className="app-sidebar__status-item">
         <span className={`status-dot ${aiOk ? "status-dot--ok" : health.isPending ? "status-dot--loading" : "status-dot--down"}`} />
-        <span>{aiOk ? "AI服务正常" : health.isPending ? "AI连接中…" : "AI服务异常"}</span>
-      </div>
-      <div className="app-sidebar__status-item">
-        <span className={`status-dot ${gazetteerOk ? "status-dot--ok" : "status-dot--down"}`} />
-        <span>地名服务正常</span>
-      </div>
-      <div className="app-sidebar__status-item">
-        <span className={`status-dot ${dbOk ? "status-dot--ok" : health.isPending ? "status-dot--loading" : "status-dot--down"}`} />
-        <span>{dbOk ? "数据库连接正常" : "数据库连接中…"}</span>
+        <span>{aiOk ? "后端在线" : health.isPending ? "后端连接中…" : "后端未连接"}</span>
       </div>
     </div>
   );
@@ -95,7 +85,6 @@ function SidebarStatus(): JSX.Element {
 
 function TopBar(): JSX.Element {
   const [now, setNow] = useState(new Date());
-  const location = useLocation();
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60_000);
@@ -108,19 +97,8 @@ function TopBar(): JSX.Element {
     window.location.reload();
   };
 
-  const pageTitles: Record<string, string> = {
-    "/": "研判总览",
-    "/events": "多频事件",
-    "/work-orders": "工单中心",
-    "/imports": "数据导入与AI研判",
-  };
-  const currentTitle = pageTitles[location.pathname] ?? "";
-
   return (
     <header className="app-topbar">
-      <div style={{ fontSize: 15, fontWeight: 600, color: "var(--color-text-secondary)" }}>
-        {currentTitle}
-      </div>
       <div className="app-topbar__spacer" />
       <div className="app-topbar__actions">
         <span className="app-topbar__date">

@@ -2,6 +2,16 @@
 
 TRAE appends entries; do not rewrite history.
 
+## 2026-08-15 — Frontend backend-only rendering
+
+- 改动目标：修复前端展示与后端记录无法匹配的问题；没有后端字段的内容不再显示。
+- 修改文件：`frontend/src/App.tsx`、`frontend/src/pages/DashboardPage.tsx`、`frontend/src/pages/EventsPage.tsx`、`frontend/src/pages/WorkOrdersPage.tsx`、`frontend/src/pages/ImportsPage.tsx`、`frontend/src/styles.css`、`frontend/src/pages/DashboardPage.test.tsx`。
+- API 变更：无。页面只消费既有目录、导入预览、导入、分析任务和复核合同。
+- 行为：移除静态雷达/活动/趋势/随机数/固定兜底统计、模拟工单、模拟导入历史、假预览行和模拟匹配边；空数组显示空状态，接口失败显示错误和重试；多频/工单/批次/任务必须带真实后端 ID。
+- 高频边界：当前后端没有三天窗口、增长信号或 `frequency_level`，前端不自行设置模糊相似度阈值。后端合同明确后再接入。
+- 本地验证：`pnpm test --run`（6 files、31 passed）、`pnpm lint`（passed）、`pnpm build`（passed）。
+- 已知边界：当前后端仍没有三天窗口、增长信号或 `frequency_level`，前端不自行设置模糊相似度阈值判定高频。
+
 ## 2026-08-15 — Removed member restore contract
 
 - 改动目标：修复成员移出多频事件后因 active 详情不再包含该事件而无法恢复的问题。
