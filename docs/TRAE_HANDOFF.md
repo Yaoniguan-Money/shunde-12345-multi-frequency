@@ -44,7 +44,7 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 
 - 默认模型运行时：Ollama `http://127.0.0.1:11434`；结构化抽取使用 `qwen2.5:3b`，向量使用 `nomic-embed-text`（768 维）。生产 local adapter 拒绝云端 URL，不做隐式云回退。
 - Provider 模式由 `SHUNDE_AI_PROVIDER_MODE=local|remote|hybrid` 显式选择，默认 `local`。remote 使用通用 OpenAI-compatible adapter，API key 只来自环境变量；hybrid 的 `AUTO`/`LOCAL` 走本地，只有显式 `REMOTE` route 才走远端。AI trace 包含 `provider / model_id / model_config_hash / schema_version / pipeline_version`。
-- 远端验证命令：`uv run python scripts/remote_provider_smoke.py`。该命令只发送合成 JSON，不发送政府工单；未配置 key 时状态为 `BLOCKED`。
+- 远端验证命令：`uv run python scripts/remote_provider_smoke.py`。该命令只发送合成 JSON，不发送政府工单；未配置 key 时状态为 `BLOCKED`。2026-08-15 已用 Qwen `qwen-plus` 实际通过 health 与结构化 JSON，provider trace 为 `remote-openai-compatible`。
 - `uv run python scripts/run_understanding.py --limit N --chunk-size K`：从真实导入批次 checkpoint 继续执行“规则分段 → 批量结构化抽取 → 批量地名解析 → event/mention/segment 持久化 → embedding 写入”。省略 `--limit` 才会继续到全量，当前只实测了前 11 条，不要在演示环境无意触发全量。
 - `uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text`：运行 pgvector candidate retrieval 性能测试；没有业务 Gold Set 时 `quality` 必须保持 `null`。
 - 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id` 等 trace 字段。

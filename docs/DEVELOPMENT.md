@@ -106,7 +106,7 @@ $env:SHUNDE_AI_REMOTE_API_KEY = Read-Host 'DASHSCOPE API key'
 uv run python scripts/remote_provider_smoke.py
 ```
 
-该 smoke 只发送合成 JSON 提示词，不发送真实工单。代码也支持其他 OpenAI-compatible 服务；本阶段没有把任何商业厂商写进业务 handler。没有 API key 时必须记录 `BLOCKED`，不能用 mock 输出冒充成功。
+该 smoke 只发送合成 JSON 提示词，不发送真实工单。2026-08-15 已用 Qwen `qwen-plus` 真实通过 health 与结构化 JSON；代码也支持其他 OpenAI-compatible 服务，本阶段没有把任何商业厂商写进业务 handler。没有 API key 时必须记录 `BLOCKED`，不能用 mock 输出冒充成功。
 
 ## AI quality review artifact
 

@@ -88,8 +88,8 @@
 | 项目 | 状态 | 实测事实与影响 |
 |---|---|---|
 | Local provider | DONE | `OpenAICompatibleLLMProvider` 保留公网 URL 拒绝；Ollama `qwen2.5:3b` 实测返回结构化 JSON；`nomic-embed-text` native `/api/embed` 保持可用；local 调用失败不会云回退 |
-| Remote provider architecture | DONE | 通用 OpenAI-compatible LLM/embedding adapters、`AI_PROVIDER_MODE=local|remote|hybrid`、显式 route policy、API key `SecretStr`、provider trace 与 migration `8b9c0d1e2f3a` 已落地；4 个 contract/routing tests 通过 |
-| Remote real integration | BLOCKED | 当前进程没有 Qwen/DeepSeek API key；已选择 Qwen 官方 OpenAI-compatible 示例（`qwen-plus`），需操作者在本机环境设置 `SHUNDE_AI_REMOTE_API_KEY` 后运行 `scripts/remote_provider_smoke.py`。不能把 MockTransport contract test 当云端成功 |
+| Remote provider architecture | DONE | 通用 OpenAI-compatible LLM/embedding adapters、`AI_PROVIDER_MODE=local|remote|hybrid`、显式 route policy、API key `SecretStr`、provider trace 与 migration `8b9c0d1e2f3a` 已落地；6 个 contract/routing tests 通过 |
+| Remote real integration | DONE | 2026-08-15 09:51（Asia/Shanghai）显式配置 Qwen DashScope 后，`scripts/remote_provider_smoke.py` 真实通过：health=`qwen-plus`、structured_keys=`["ok"]`、provider=`remote-openai-compatible`；只发送合成 JSON，不发送政府工单，API key 未写入日志/仓库 |
 | Quality sample selector | DONE | 从真实 batch `95e6e941-fe47-4952-abb2-3ba5ed5615eb` 确定性抽样逻辑已实测 500 条，6 个 strata（recurrence/multi-event/mixed history-reply/alias/identifier/general）分布可审计 |
 | Quality review execution | PARTIAL | `scripts/quality_review.py` 可输出 raw→segmentation→events→entity resolution→embedding→pgvector candidates→trace；本轮本地 300 条运行因耗时按操作者指示停止，保留的旧 partial artifact 含模型截断错误，不能当质量结论；已修复通用 JSON wrapper 解包、简洁摘要提示和输出上限，需重新运行才生成有效 artifact |
 | Event Schema for SameEventMatcher | PARTIAL / NOT READY | 当前字段足够做候选检索（summary/location/mention links），但缺少稳定时间区间、主体/问题 facet、事件级证据 span 与冲突字段；本轮不擅自改核心 schema，先做 Gold Set 与 schema v2 评审，再实现 matcher |
@@ -153,7 +153,7 @@ provider contract/routing tests              PASS — 6 passed；公网 local UR
 Ollama qwen2.5:3b structured smoke           PASS — RTX 3080 Laptop 16 GiB，真实 JSON 返回
 quality sample selector (500)                PASS — 6 strata，500 个真实 work_order_id
 quality review run                           PARTIAL — 按操作者指示停止本地 300 条运行；未把 partial artifact 当质量指标
-remote_provider_smoke.py                     BLOCKED — 未配置显式 Qwen/DeepSeek API key，未向公网发送工单
+remote_provider_smoke.py                     PASS — Qwen `qwen-plus` health 与结构化 JSON 真实通过；只发送合成 JSON，API key 未记录
 ```
 
 ## Known blockers / decisions needed later
