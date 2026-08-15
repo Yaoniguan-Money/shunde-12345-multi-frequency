@@ -1,5 +1,6 @@
 """SQLAlchemy read repository for the demo catalog API."""
 
+from datetime import date
 from typing import Any, cast
 from uuid import UUID
 
@@ -20,6 +21,8 @@ from backend.app.domain.catalog import (
     RemovedClusterMember,
     WorkOrderDetail,
     WorkOrderSummary,
+    is_high_frequency_work_order_count,
+    rolling_window_max_distinct_work_orders,
 )
 from backend.app.domain.ports.catalog import CatalogRepository
 from backend.app.domain.title_tags import TITLE_TAG_WHITELIST, parse_title_tags
@@ -216,9 +219,16 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             counts = await self._cluster_member_counts(
                 session, tuple(cluster.id for cluster in clusters)
             )
+            frequency_records = await self._cluster_frequency_records(
+                session, tuple(cluster.id for cluster in clusters)
+            )
             return (
                 tuple(
-                    self._cluster_summary(cluster, counts.get(cluster.id, (0, 0)))
+                    self._cluster_summary(
+                        cluster,
+                        counts.get(cluster.id, (0, 0)),
+                        frequency_records.get(cluster.id, ()),
+                    )
                     for cluster in clusters
                 ),
                 total,
@@ -272,8 +282,15 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             correction_rows = await self._correction_rows(session, cluster.id)
             human_corrections = tuple(self._human_correction_view(row) for row in correction_rows)
             removed_members = await self._removed_members(session, correction_rows)
+            frequency_records = tuple(
+                (work_order.id, event.occurrence_date) for _, event, work_order in member_rows
+            )
             return ClusterDetail(
-                summary=self._cluster_summary(cluster, (work_order_count, len(members))),
+                summary=self._cluster_summary(
+                    cluster,
+                    (work_order_count, len(members)),
+                    frequency_records,
+                ),
                 members=members,
                 work_orders=grouped_work_orders,
                 edges=edges,
@@ -545,6 +562,30 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         ).all()
         return {row[0]: (int(row[1]), int(row[2])) for row in rows}
 
+    async def _cluster_frequency_records(
+        self, session: AsyncSession, ids: tuple[UUID, ...]
+    ) -> dict[UUID, tuple[tuple[UUID, date | None], ...]]:
+        if not ids:
+            return {}
+        rows = (
+            await session.execute(
+                select(
+                    EventClusterMember.event_cluster_id,
+                    EventInstance.work_order_id,
+                    EventInstance.occurrence_date,
+                )
+                .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+                .where(
+                    EventClusterMember.event_cluster_id.in_(ids),
+                    EventInstance.pipeline_version == self._pipeline_version,
+                )
+            )
+        ).all()
+        records: dict[UUID, list[tuple[UUID, date | None]]] = {}
+        for cluster_id, work_order_id, occurrence_date in rows:
+            records.setdefault(cluster_id, []).append((work_order_id, occurrence_date))
+        return {cluster_id: tuple(values) for cluster_id, values in records.items()}
+
     async def _cluster_edges(
         self,
         session: AsyncSession,
@@ -577,8 +618,13 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         )
 
     @staticmethod
-    def _cluster_summary(cluster: EventCluster, counts: tuple[int, int]) -> ClusterSummary:
+    def _cluster_summary(
+        cluster: EventCluster,
+        counts: tuple[int, int],
+        frequency_records: tuple[tuple[UUID, date | None], ...] = (),
+    ) -> ClusterSummary:
         work_order_count, event_count = counts
+        frequency_work_order_count = rolling_window_max_distinct_work_orders(frequency_records)
         return ClusterSummary(
             cluster_id=cluster.id,
             name=cluster.name,
@@ -592,6 +638,8 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             trace=_trace(cluster),
             review_status=cluster.review_status,
             is_multi_frequency=work_order_count >= 2,
+            is_high_frequency=is_high_frequency_work_order_count(frequency_work_order_count),
+            frequency_work_order_count=frequency_work_order_count,
         )
 
     async def _analysis_states(

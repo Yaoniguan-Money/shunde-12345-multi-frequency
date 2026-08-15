@@ -28,7 +28,7 @@ export function TraceTag({ trace, compact = false }: TraceTagProps): JSX.Element
   }
   // full 模式收纳到"技术追踪"可折叠区域，不抢主业务信息中心
   return (
-    <details className="trace-tag trace-tag--foldable" title="AI 派生数据技术追踪信息">
+    <details className="trace-tag trace-tag--foldable" title="智能研判内部追踪信息">
       <summary className="trace-tag__summary">技术追踪</summary>
       <div className="trace-tag__body">
         <span className="trace-tag__field">

@@ -17,9 +17,14 @@ from backend.app.domain.ports.repositories import (
     WorkOrderRepository,
 )
 from backend.app.domain.ports.review import EventReviewRepository
+from backend.app.domain.ports.taxonomy import (
+    ClassificationValidator,
+    TaxonomyRepository,
+)
 
 __all__ = [
     "CandidateRetriever",
+    "ClassificationValidator",
     "ClusterConsistencyChecker",
     "EmbeddingProvider",
     "EventRepository",
@@ -33,6 +38,7 @@ __all__ = [
     "ImportBatchRepository",
     "RerankerProvider",
     "SameEventMatcher",
+    "TaxonomyRepository",
     "WorkOrderSegmenter",
     "WorkOrderRepository",
     "TabularReader",

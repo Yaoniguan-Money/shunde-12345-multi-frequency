@@ -13,7 +13,7 @@
 
 凡需要安装依赖、下载镜像或拉取模型，优先使用供应商正规镜像源/镜像代理，并把来源、版本和校验结果写入 `docs/CURRENT_STATE.md`。当前 Python 包默认使用清华 PyPI 镜像（`pyproject.toml` 的 `tool.uv.index`）；PostgreSQL pgvector 默认使用 DaoCloud 的 Docker Hub 正规镜像代理，可用 `SHUNDE_POSTGRES_IMAGE` 显式覆盖。
 
-不得使用来历不明的破解包、未知模型权重或云端替代实现。镜像不可用时记录失败原因，再询问是否切换官方源；不把下载缓存、模型权重、真实政府数据提交到 Git。
+不得使用来历不明的破解包、未知模型权重或云端替代实现。开发机镜像不可用时记录失败原因，再询问是否切换官方源；CI 无法人工确认，因此会先尝试锁定的正规镜像，连接失败后用同一 `uv.lock` 通过官方 PyPI 只读兜底，不改变版本或依赖来源声明。不把下载缓存、模型权重、真实政府数据提交到 Git。
 
 ## Phase 2 实际导入
 
@@ -256,7 +256,7 @@ POST /multi-frequency-events/{cluster_id}/corrections
 }
 ```
 
-后端只允许恢复确实被移出的事件；active member 重复 `confirm_member` 或从未被移出的事件返回 HTTP 409。每次移除/恢复均追加 `HumanCorrection` 与 `AuditLog`，原始工单和 AI 事件正文不变。前端必须在“已移出事件”区域显式让操作员编辑 ID（默认 `demo-operator`）和恢复理由，二次确认后提交，并在成功后重新读取详情。
+后端只允许恢复确实被移出的事件；active member 重复 `confirm_member` 或从未被移出的事件返回 HTTP 409。每次移除/恢复均追加 `HumanCorrection` 与 `AuditLog`，原始工单和 AI 事件正文不变。前端必须在“已移出事件”区域显式让操作员编辑编号（默认显示“演示操作员”）和恢复理由，二次确认后提交，并在成功后重新读取详情。
 
 ## AI quality review artifact
 
@@ -272,3 +272,33 @@ uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candi
 ```
 
 artifact 与 summary 写入 `data/runtime/quality/`（已 gitignore），包括原始工单、分段、结构化事件、地名解析、embedding、pgvector 候选和完整 trace；`gold_set`、precision、recall、F1 保持 `null`。原计划 500–1000 条，本轮因本地推理耗时按操作者指示停止在 300 条；summary 必须标明实际成功/失败数。正式质量验收仍需人工 Gold Set；Demo Core 的 SameEvent 结果是可审核候选，不是 Gold Label。
+
+## 前端数据渲染与高频口径
+
+前端页面只能渲染后端 API 返回且带有可关联 ID 的记录。没有对应字段的统计、趋势、活动、
+等级或状态必须显示为空/未提供，不得使用静态示例、随机数、固定比例或 `||` 兜底数字冒充真实数据。
+Dashboard、多频事件、工单中心和导入/研判页都适用此规则；导入预览必须调用
+`POST /imports/preview`，研判进度/计数必须来自 `GET /analysis-jobs/{job_id}`。
+列表接口返回空数组时显示空状态；接口失败时显示失败和重试入口，不保留旧的模拟卡片。
+
+状态灯是视觉映射，不是新增业务判断：红/黄/绿只允许映射后端已有的健康状态、
+`handling_status`、`review_status`、`analysis_state`、`is_high_frequency` 和分析任务阶段。
+分页页面的状态数量必须标注“当前页/当前已加载”，不能从当前页推断全量分布；没有后端字段就不显示。
+
+当前 `/multi-frequency-events` 的“多频”含义是后端已确认的跨不同 WorkOrder cluster，
+“高频”是其独立的后端投影：任意滚动 3 个日历日窗口内至少 3 条不同真实 WorkOrder，且每条
+工单对应的 EventInstance 有可解析 `occurrence_date`。同一工单的多个 EventInstance 只计一条，
+缺日期记录不参与判定。响应提供 `is_high_frequency`、`frequency_window_days`（固定为 3）和
+`frequency_work_order_count`；React 只能展示这些字段，禁止自行按相似度、事件条数或日期重新计算。
+
+## 客户界面字段边界
+
+客户默认视图必须使用中文业务词汇，不直接显示 `cluster_id`、`work_order_id`、事件实例 UUID、
+provider/model/schema/pipeline、原始 evidence JSON 或内部枚举值。详情页只展示可读的事件摘要、
+结构化判断依据、工单号、处理记录和纠错结果；原始扩展字段、源行号和内部技术追踪不得进入客户
+页面，确需排障时使用后端合同和日志。后端字段仍完整保留，审计和纠错请求继续使用原始 ID。未知事件类型显示“其他问题”，
+未知状态显示“状态待同步”，不得把英文枚举直接暴露给客户。
+
+多频详情采用渐进式信息结构：结论与三项概况优先，关联工单按“市民诉求原文 / 智能研判结果”分栏；
+归属调整和新增办理记录默认收起。状态灯只能映射真实后端状态，不能自行推断。Evidence 未知键统一显示
+“其他判断依据”，技术型值不得原样输出；当前已显式映射问题一致、地点一致、时间条件相符和矛盾项。

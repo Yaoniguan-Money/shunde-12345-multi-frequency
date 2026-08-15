@@ -1,38 +1,75 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import gsap from "gsap";
-import { useGSAP } from "@gsap/react";
+import { Link } from "react-router-dom";
 import type { JSX } from "react";
 
 import { listWorkOrders } from "../api/catalog";
-import { EmptyState } from "../components/EmptyState";
-import { ErrorState } from "../components/ErrorState";
+import type { WorkOrderAnalysisState, WorkOrderListItem } from "../types/api";
 import { Pagination } from "../components/Pagination";
-import { SearchInput } from "../components/SearchInput";
-import { Skeleton } from "../components/Skeleton";
-
-gsap.registerPlugin(useGSAP);
+import { ErrorState } from "../components/ErrorState";
+import { EmptyState } from "../components/EmptyState";
+import { SignalLight } from "../components/SignalLight";
+import type { SignalTone } from "../components/signalState";
 
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 350;
 
 function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("zh-CN");
-  } catch {
-    return iso;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "未提供" : date.toLocaleString("zh-CN");
+}
+
+function getStateBadge(state: WorkOrderAnalysisState | undefined): { label: string; cls: string } {
+  switch (state) {
+    case "analyzed":
+      return { label: "已分析", cls: "badge badge--success" };
+    case "analyzed_no_event":
+      return { label: "无事件", cls: "badge badge--info" };
+    case "failed":
+      return { label: "失败", cls: "badge badge--danger" };
+    default:
+      return { label: "未处理", cls: "badge badge--neutral" };
   }
 }
 
+function analysisSignal(state: WorkOrderAnalysisState | undefined): { tone: SignalTone; label: string } {
+  switch (state) {
+    case "analyzed":
+      return { tone: "green", label: "已分析" };
+    case "analyzed_no_event":
+      return { tone: "blue", label: "无事件" };
+    case "failed":
+      return { tone: "red", label: "分析失败" };
+    default:
+      return { tone: "amber", label: "未处理" };
+  }
+}
+
+function getTagVariant(tag: string): string {
+  if (tag.includes("噪音")) return "tag--info";
+  if (tag.includes("占道")) return "tag--warning";
+  if (tag.includes("违建") || tag.includes("搭建")) return "tag--danger";
+  if (tag.includes("环境") || tag.includes("环卫")) return "tag--success";
+  return "tag--neutral";
+}
+
+function normalizeItem(item: WorkOrderListItem): WorkOrderListItem {
+  const raw = item as WorkOrderListItem & { title_tags?: string[]; analysis_state?: WorkOrderAnalysisState };
+  return {
+    ...item,
+    title_tags: Array.isArray(raw.title_tags) ? raw.title_tags : [],
+    analysis_state: raw.analysis_state ?? "unprocessed",
+    is_urgent: raw.is_urgent === true,
+  };
+}
+
 export function WorkOrdersPage(): JSX.Element {
-  const navigate = useNavigate();
-  const containerRef = useRef<HTMLElement>(null);
   const [offset, setOffset] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [urgentFilter, setUrgentFilter] = useState("all");
 
-  // 全局搜索 debounce：与 /events 的“当前页筛选”不同，此处会触发后端全量检索。
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedQuery(searchInput.trim());
@@ -42,151 +79,117 @@ export function WorkOrdersPage(): JSX.Element {
   }, [searchInput]);
 
   const query = useQuery({
-    queryKey: [
-      "work-orders",
-      { offset, limit: PAGE_SIZE, query: debouncedQuery },
-    ],
-    queryFn: ({ signal }) =>
-      listWorkOrders({
-        offset,
-        limit: PAGE_SIZE,
-        query: debouncedQuery || undefined,
-        signal,
-      }),
+    queryKey: ["work-orders", { offset, limit: PAGE_SIZE, query: debouncedQuery, stateFilter }],
+    queryFn: ({ signal }) => listWorkOrders({
+      offset,
+      limit: PAGE_SIZE,
+      query: debouncedQuery || undefined,
+      analysisState: stateFilter === "all" ? undefined : stateFilter === "no_event" ? "analyzed_no_event" : stateFilter,
+      signal,
+    }),
     placeholderData: (prev) => prev,
   });
 
-  useGSAP(
-    () => {
-      gsap.matchMedia().add("(prefers-reduced-motion: no-preference)", () => {
-        gsap.from(".work-order-card", {
-          opacity: 0,
-          y: 12,
-          duration: 0.3,
-          stagger: 0.04,
-          ease: "power1.out",
-        });
-      });
-    },
-    { scope: containerRef, dependencies: [query.data?.items] },
-  );
-
+  const items = (query.data?.items ?? []).map(normalizeItem).filter((item) => {
+    if (urgentFilter === "urgent" && !item.is_urgent) return false;
+    return true;
+  });
   const total = query.data?.total ?? 0;
-  const items = query.data?.items ?? [];
-  const isFetching = query.isFetching;
+  const stateCounts = items.reduce<Record<string, number>>((counts, item) => {
+    const key = item.analysis_state ?? "unprocessed";
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
 
   return (
-    <section ref={containerRef}>
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">WORK ORDERS</p>
-          <h1 className="page-header__title">工单中心</h1>
-          <p className="page-header__subtitle">
-            原始 12345 工单浏览与检索。点击工单查看 AI 派生事件理解。
-          </p>
-        </div>
+    <section>
+      <header className="detail-header" style={{ marginBottom: 20 }}>
+        <p className="eyebrow">工单数据</p>
+        <h1 className="detail-header__title">工单中心</h1>
       </header>
 
-      <div className="toolbar">
-        <div className="toolbar__group">
-          <label className="toolbar__label" htmlFor="work-orders-search">
-            全局搜索
-          </label>
-          <SearchInput
-            value={searchInput}
-            onChange={setSearchInput}
-            placeholder="按工单编号/标题等全局搜索（后端全量检索，非当前页筛选）"
-            maxLength={128}
-          />
+      <div className="work-order-signal-strip">
+        <div className="work-order-signal-strip__title">
+          <span className="eyebrow">当前页状态</span>
+          <strong>工单研判状态灯</strong>
+          <span>当前页 {items.length} 条，不对全量状态做估算</span>
         </div>
-        <span className="toolbar__hint">
-          全局搜索（后端全量匹配），非当前页筛选
-          {debouncedQuery ? ` · 当前关键词：“${debouncedQuery}”` : ""}
-          {isFetching ? " · 加载中…" : ""}
-        </span>
+        <div className="work-order-signal-strip__items">
+          <SignalLight tone="green" label="已分析" value={stateCounts.analyzed ?? 0} compact />
+          <SignalLight tone="amber" label="未处理" value={stateCounts.unprocessed ?? 0} compact />
+          <SignalLight tone="blue" label="无事件" value={stateCounts.analyzed_no_event ?? 0} compact />
+          <SignalLight tone="red" label="失败" value={stateCounts.failed ?? 0} compact />
+        </div>
+      </div>
+
+      <div className="filter-bar">
+        <div className="filter-bar__left">
+          <div className="search-input">
+            <input
+              type="search"
+              className="search-input__field"
+              placeholder="全局搜索工单号、标题关键词..."
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+          </div>
+          <select className="form-select" value={stateFilter} onChange={(event) => { setStateFilter(event.target.value); setOffset(0); }}>
+            <option value="all">全部分析状态</option>
+            <option value="unprocessed">未处理</option>
+            <option value="analyzed">已分析</option>
+            <option value="no_event">无事件</option>
+            <option value="failed">失败</option>
+          </select>
+          <select className="form-select" value={urgentFilter} onChange={(event) => setUrgentFilter(event.target.value)}>
+            <option value="all">全部紧急状态</option>
+            <option value="urgent">仅紧急（当前页）</option>
+          </select>
+        </div>
+        <span className="filter-bar__count">后端共 <strong>{total}</strong> 条</span>
       </div>
 
       {query.isPending ? (
-        <Skeleton variant="list" count={6} />
+        <div className="loading-state" role="status">正在读取后端工单...</div>
       ) : query.isError ? (
         <ErrorState error={query.error} onRetry={() => query.refetch()} />
-      ) : total === 0 ? (
-        <EmptyState
-          title={debouncedQuery ? "未匹配到工单" : "暂无工单"}
-          description={
-            debouncedQuery
-              ? `后端按关键词 “${debouncedQuery}” 全量检索后未返回任何工单。可调整关键词后重试。`
-              : "后端尚未导入任何工单。请通过“数据导入与 AI 研判”流程导入后再返回查看。"
-          }
-          action={
-            debouncedQuery ? (
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => setSearchInput("")}
-              >
-                清空搜索
-              </button>
-            ) : undefined
-          }
-        />
+      ) : items.length === 0 ? (
+        <EmptyState title="暂无工单" description="后端没有返回与当前条件匹配的工单。" />
       ) : (
-        <div className="cluster-list">
-          {items.map((item) => (
-            <button
-              key={item.work_order_id}
-              type="button"
-              className="cluster-card work-order-card"
-              onClick={() => navigate(`/work-orders/${item.work_order_id}`)}
-            >
-              <div className="cluster-card__header">
-                <h3 className="cluster-card__name">
-                  {item.raw_title ??
-                    item.external_work_order_number ??
-                    `工单 #${item.source_row_number}`}
-                </h3>
-                <span className="uuid-mono">#{item.source_row_number}</span>
-              </div>
-              <div className="cluster-card__meta">
-                <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">外部工单号</span>
-                  <span className="cluster-card__meta-value">
-                    {item.external_work_order_number ?? "—"}
-                  </span>
-                </span>
-                <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">AI 事件</span>
-                  <span className="cluster-card__meta-value">
-                    {item.event_count}
-                  </span>
-                </span>
-                <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">关联多频事件</span>
-                  <span className="cluster-card__meta-value">
-                    {item.cluster_count}
-                  </span>
-                </span>
-                <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">入库时间</span>
-                  <span className="cluster-card__meta-value">
-                    {formatTime(item.created_at)}
-                  </span>
-                </span>
-              </div>
-              <div className="cluster-card__footer">
-                <span className="cluster-card__footer-link">查看工单详情 →</span>
-              </div>
-            </button>
-          ))}
+        <div style={{ overflow: "hidden", borderRadius: "var(--radius-lg)" }}>
+          <table className="data-table">
+            <thead>
+              <tr><th>工单号</th><th>工单标题</th><th>类型标签</th><th>分析状态</th><th>事件数</th><th>紧急</th><th>接收时间</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const number = item.external_work_order_number ?? `第${item.source_row_number}行`;
+                const title = item.raw_title?.trim() || "未提供标题";
+                const badge = getStateBadge(item.analysis_state);
+                const signal = analysisSignal(item.analysis_state);
+                return (
+                  <tr key={item.work_order_id}>
+                    <td><Link to={`/work-orders/${item.work_order_id}`} className="data-table__wo-link">{number}</Link></td>
+                    <td><span className="data-table__title-text">{title.length > 40 ? `${title.slice(0, 40)}...` : title}</span></td>
+                    <td><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{item.title_tags.length > 0 ? item.title_tags.slice(0, 2).map((tag) => <span key={tag} className={`tag ${getTagVariant(tag)}`}>{tag}</span>) : <span className="text-muted">未提供</span>}</div></td>
+                    <td>
+                      <span className="table-status-cell">
+                        <span className={`traffic-light traffic-light--${signal.tone}`} aria-label={signal.label} />
+                        <span className={badge.cls}>{badge.label}</span>
+                      </span>
+                    </td>
+                    <td>{item.event_count}</td>
+                    <td>{item.is_urgent ? <span className="tag tag--danger">紧急</span> : <span className="text-muted">—</span>}</td>
+                    <td className="text-muted">{formatTime(item.created_at)}</td>
+                    <td><Link to={`/work-orders/${item.work_order_id}`} className="table-action-link">详情 →</Link></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      <Pagination
-        offset={offset}
-        limit={PAGE_SIZE}
-        total={total}
-        onPageChange={setOffset}
-      />
+      {!query.isPending && !query.isError && items.length > 0 ? <Pagination offset={offset} limit={PAGE_SIZE} total={total} onPageChange={setOffset} /> : null}
     </section>
   );
 }

@@ -90,7 +90,7 @@ test("renders work order detail with multiple AI events", async () => {
   expect(
     (await screen.findAllByText("商业噪声投诉")).length,
   ).toBeGreaterThan(0);
-  // 两个 AI 事件都渲染
+  // 两项智能研判结果都渲染
   expect(screen.getByText("商业噪声投诉要求关停音响")).toBeInTheDocument();
   expect(screen.getByText("要求再次核实处理")).toBeInTheDocument();
   // 原始工单区字段
@@ -98,10 +98,10 @@ test("renders work order detail with multiple AI events", async () => {
   expect(
     screen.getByText("市民反映新桂北路29号116号铺夜间营业噪声扰民严重。"),
   ).toBeInTheDocument();
-  // 原始 raw_fields 三个 key 都渲染
-  expect(screen.getByText("source")).toBeInTheDocument();
-  expect(screen.getByText("channel")).toBeInTheDocument();
-  expect(screen.getByText("contact")).toBeInTheDocument();
+  // 内部原始字段不直接暴露给非技术用户
+  expect(screen.queryByText("source")).not.toBeInTheDocument();
+  expect(screen.queryByText("channel")).not.toBeInTheDocument();
+  expect(screen.queryByText("contact")).not.toBeInTheDocument();
   // 实体 chip
   expect(screen.getAllByText("新桂北路29号116号铺").length).toBeGreaterThan(0);
   // 入库时间标签（不能误称“投诉发生时间”）
@@ -180,5 +180,5 @@ test("shows empty state when events are empty (unidentified)", async () => {
   expect(
     (await screen.findAllByText("占道经营")).length,
   ).toBeGreaterThan(0);
-  expect(screen.getByText("未识别 / 暂无 AI 事件")).toBeInTheDocument();
+  expect(screen.getByText("暂未识别到事项")).toBeInTheDocument();
 });

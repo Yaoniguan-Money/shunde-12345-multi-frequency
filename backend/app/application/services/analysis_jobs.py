@@ -1,4 +1,7 @@
-"""Single-process background analysis jobs exposed to the Demo HTTP API."""
+"""Single-process background analysis jobs exposed to the HTTP API.
+
+WP2: 研判范围等于导入批次全部成功工单；不再接受 max_work_orders 或 selection_mode。
+"""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -6,10 +9,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.app.application.services.analysis import (
-    DEMO_MAX_WORK_ORDERS,
-    DemoAnalysisOrchestrator,
-)
+from backend.app.application.services.analysis import DemoAnalysisOrchestrator
 from backend.app.config import Settings
 from backend.app.domain.analysis_jobs import (
     AnalysisJobState,
@@ -24,7 +24,7 @@ OrchestratorFactory = Callable[[], Awaitable[DemoAnalysisOrchestrator]]
 
 
 class AnalysisJobService:
-    """Queue bounded jobs and keep their durable state in the existing analysis tables."""
+    """Queue full-batch jobs and keep their durable state in the analysis tables."""
 
     def __init__(
         self,
@@ -48,34 +48,27 @@ class AnalysisJobService:
         self._tasks: dict[UUID, asyncio.Task[None]] = {}
 
     async def submit(
-        self, batch_id: UUID, max_work_orders: int, selection_mode: str = "sequential"
+        self,
+        batch_id: UUID,
+        provider_profile_id: str | None = None,
     ) -> AnalysisJobView:
         if self._settings.ai_provider_mode is not ProviderMode.REMOTE:
             raise ValueError(
                 "analysis jobs require explicit SHUNDE_AI_PROVIDER_MODE=remote; no local fallback"
             )
-        if max_work_orders < 1 or max_work_orders > DEMO_MAX_WORK_ORDERS:
-            raise ValueError(f"max_work_orders must be between 1 and {DEMO_MAX_WORK_ORDERS}")
-        if selection_mode not in {"sequential", "recurrence_candidates"}:
-            raise ValueError("selection_mode must be sequential or recurrence_candidates")
         batch = await self._repository.get_batch_info(batch_id)
         if batch is None:
             raise LookupError(f"import batch not found: {batch_id}")
         if batch.status not in {"completed", "partial"}:
             raise ValueError(f"import batch is not ready for analysis: {batch.status}")
-        sources = await self._repository.select_work_orders(
-            batch_id, max_work_orders, selection_mode
-        )
+        sources = await self._repository.select_work_orders(batch_id)
         if not sources:
             raise ValueError("import batch contains no successful work orders")
         plan = build_provider_plan(self._settings)
         remote_llm = plan.remote_llm
         if remote_llm is None:
             raise ValueError("remote LLM provider is not configured")
-        idempotency_key = (
-            f"demo-analysis:{batch_id}:{selection_mode}:{max_work_orders}:"
-            f"{self._settings.analysis_pipeline_version}"
-        )
+        idempotency_key = f"analysis:{batch_id}:{self._settings.analysis_pipeline_version}"
         state = await self._repository.create_or_requeue(
             idempotency_key=idempotency_key,
             pipeline_version=self._settings.analysis_pipeline_version,
@@ -84,22 +77,14 @@ class AnalysisJobService:
             provider=remote_llm.provider,
             model_config_hash=remote_llm.config_hash(),
             total_rows=batch.total_rows,
-            selected_rows=len(sources),
-            selection_mode=selection_mode,
+            target_work_order_count=len(sources),
             batch_id=batch_id,
-            max_work_orders=max_work_orders,
         )
         view = await self._repository.get_job_view(state.job_id)
         if view is None:
             raise LookupError(f"analysis job not found after creation: {state.job_id}")
         if view.status != "completed":
-            self._schedule(
-                state,
-                batch_id,
-                max_work_orders,
-                selection_mode,
-                idempotency_key,
-            )
+            self._schedule(state, batch_id, idempotency_key)
         return view
 
     async def resume_incomplete(self) -> int:
@@ -116,8 +101,6 @@ class AnalysisJobService:
                     item.embeddings_written,
                 ),
                 item.batch_id,
-                item.max_work_orders,
-                item.selection_mode,
                 item.idempotency_key,
             )
         return len(resumable)
@@ -143,28 +126,18 @@ class AnalysisJobService:
         self,
         state: AnalysisJobState,
         batch_id: UUID,
-        max_work_orders: int,
-        selection_mode: str,
         idempotency_key: str,
     ) -> None:
         if state.job_id in self._tasks:
             return
         self._tasks[state.job_id] = asyncio.create_task(
-            self._execute(
-                state,
-                batch_id,
-                max_work_orders,
-                selection_mode,
-                idempotency_key,
-            )
+            self._execute(state, batch_id, idempotency_key)
         )
 
     async def _execute(
         self,
         state: AnalysisJobState,
         batch_id: UUID,
-        max_work_orders: int,
-        selection_mode: str,
         idempotency_key: str,
     ) -> None:
         job_id = state.job_id
@@ -174,9 +147,7 @@ class AnalysisJobService:
             orchestrator = await self._orchestrator_factory()
             execution = await orchestrator.run_import_batch(
                 batch_id,
-                max_work_orders,
                 idempotency_key=idempotency_key,
-                selection_mode=selection_mode,
                 analysis_state=state,
             )
             await self._repository.finish(

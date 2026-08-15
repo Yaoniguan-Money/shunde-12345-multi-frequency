@@ -11,16 +11,19 @@ from backend.app.api.entities import router as entities_router
 from backend.app.api.health import router as health_router
 from backend.app.api.imports import router as imports_router
 from backend.app.api.review import router as review_router
+from backend.app.api.taxonomy import router as taxonomy_router
 from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
+from backend.app.application.services.taxonomy import TaxonomyService
 from backend.app.config import get_settings
 from backend.app.infrastructure.attachments import LocalAttachmentStore
 from backend.app.infrastructure.db.catalog import SQLAlchemyCatalogRepository
 from backend.app.infrastructure.db.imports import SQLAlchemyImportRepository
 from backend.app.infrastructure.db.review import SQLAlchemyEventReviewRepository
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
+from backend.app.infrastructure.db.taxonomy import SQLAlchemyTaxonomyRepository
 from backend.app.infrastructure.export import SQLAlchemyCSVExporter
 from backend.app.infrastructure.health import DependencyHealthProbe
 from backend.app.infrastructure.imports import PolarsTabularReader, SourceStager
@@ -44,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     analysis_job_service = AnalysisJobService(settings, session_factory)
     app.state.analysis_job_service = analysis_job_service
     app.state.review_service = EventReviewService(SQLAlchemyEventReviewRepository(session_factory))
+    app.state.taxonomy_service = TaxonomyService(SQLAlchemyTaxonomyRepository(session_factory))
     app.state.exporter = SQLAlchemyCSVExporter(session_factory)
     app.state.attachment_store = LocalAttachmentStore(
         settings.runtime_dir / "attachments", settings.attachment_max_bytes
@@ -91,6 +95,7 @@ def create_app() -> FastAPI:
     application.include_router(entities_router)
     application.include_router(review_router)
     application.include_router(catalog_router)
+    application.include_router(taxonomy_router)
     return application
 
 

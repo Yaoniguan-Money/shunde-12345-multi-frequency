@@ -5,8 +5,9 @@ and cluster projections.  The API may expose raw content on an explicit detail
 request, but derived fields always retain their own pipeline/model trace.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from backend.app.domain.types import VersionTrace
@@ -14,6 +15,49 @@ from backend.app.domain.types import VersionTrace
 
 def _empty_object_dict() -> dict[str, object]:
     return {}
+
+
+HIGH_FREQUENCY_WINDOW_DAYS = 3
+HIGH_FREQUENCY_MIN_WORK_ORDERS = 3
+
+
+def rolling_window_max_distinct_work_orders(
+    records: Iterable[tuple[UUID, date | None]],
+    *,
+    window_days: int = HIGH_FREQUENCY_WINDOW_DAYS,
+) -> int:
+    """Return the largest dated-work-order count in any calendar window.
+
+    A work order is counted once per window even when the model extracted more
+    than one event from it.  Undated events are intentionally excluded: they
+    cannot provide evidence for a time-window frequency claim.
+    """
+
+    if window_days < 1:
+        raise ValueError("window_days must be at least 1")
+    dated = tuple(
+        (work_order_id, occurrence_date)
+        for work_order_id, occurrence_date in records
+        if occurrence_date
+    )
+    if not dated:
+        return 0
+    dates = sorted({occurrence_date for _, occurrence_date in dated if occurrence_date})
+    window_span = timedelta(days=window_days - 1)
+    return max(
+        len(
+            {
+                work_order_id
+                for work_order_id, occurrence_date in dated
+                if start_date <= occurrence_date <= start_date + window_span
+            }
+        )
+        for start_date in dates
+    )
+
+
+def is_high_frequency_work_order_count(count: int) -> bool:
+    return count >= HIGH_FREQUENCY_MIN_WORK_ORDERS
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +195,9 @@ class ClusterSummary:
     trace: VersionTrace | None = None
     review_status: str = "pending_review"
     is_multi_frequency: bool = True
+    is_high_frequency: bool = False
+    frequency_window_days: int = HIGH_FREQUENCY_WINDOW_DAYS
+    frequency_work_order_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

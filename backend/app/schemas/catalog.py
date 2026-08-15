@@ -115,6 +115,9 @@ class ClusterSummaryResponse(BaseModel):
     trace: TraceResponse | None
     review_status: ReviewStatus
     is_multi_frequency: bool
+    is_high_frequency: bool = False
+    frequency_window_days: int = Field(default=3, ge=1)
+    frequency_work_order_count: int = Field(default=0, ge=0)
 
 
 class RemovedMemberResponse(BaseModel):

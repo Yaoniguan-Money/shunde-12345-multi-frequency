@@ -2,6 +2,53 @@
 
 TRAE appends entries; do not rewrite history.
 
+## 2026-08-15 — 非技术用户详情页重构
+
+- 多频事件详情改为业务概览、关联工单、关联判断、处理记录、人工纠错的卡片式层级；原文与智能研判结果分区显示。
+- 状态增加由真实后端值驱动的绿/橙/红信号点；归属调整和新增办理记录默认收起，减少首屏操作噪声。
+- 客户页移除源行号、原始扩展字段、UUID、模型追踪和英文内部值；`complete_link_guard`、SameEvent evidence 键及旧 `demo-operator` 均使用中文业务表达。
+- 工单详情同步使用同一套中文详情样式和字段边界；API、数据库、原始工单与审计记录均未改变。
+- 验证：前端 33 tests、lint、build 通过；真实本地 cluster 页面可见文本扫描未发现约定禁用技术术语。
+
+## 2026-08-15 — 客户界面中文化与技术字段收敛
+
+- 多频事件详情、工单详情、判断依据卡和导入研判状态统一使用中文业务标签。
+- 默认隐藏 UUID、原始 evidence JSON、模型/供应商追踪和内部枚举；扩展原始字段仅在“工作人员查看”折叠区保留。
+- 未知事件类型和状态分别显示“其他问题”“状态待同步”，不伪造后端含义；API、数据库、原始工单和审计记录不变。
+- 验证：前端 32 tests、lint、build 通过。
+
+## 2026-08-15 — Frontend traffic-light status layer
+
+- 改动目标：参考政务看板的红/黄/绿信号灯风格，提升状态识别和多频事件浏览效率，同时保持后端真实数据约束。
+- 修改文件：`frontend/src/components/SignalLight.tsx`、`frontend/src/components/signalState.ts`、
+  `frontend/src/App.tsx`、`frontend/src/pages/DashboardPage.tsx`、`frontend/src/pages/EventsPage.tsx`、
+  `frontend/src/pages/WorkOrdersPage.tsx`、`frontend/src/pages/ImportsPage.tsx`、`frontend/src/styles.css`。
+- 数据口径：系统灯来自 health/dependencies；事件灯来自 `handling_status`、`review_status` 和
+  `is_high_frequency`；工单灯来自 `analysis_state`；研判灯来自 `AnalysisJob.status/current_stage`。
+  状态统计限定当前页/当前加载数据，不冒充全量。
+- 兼容修复：多频卡片“查看详情”链接不再因窄宽度被逐字竖排。
+- 验证：前端 32 tests、lint、build 通过；无 API、数据库或原始数据改动。
+
+## 2026-08-15 — Backend high-frequency window contract
+
+- 改动目标：落实“ 三天内三条及以上 ”的高频口径，避免前端用模糊相似度或本地日期推断。
+- API 变更：`ClusterSummaryResponse` / `ClusterDetailResponse.summary` 新增 `is_high_frequency`、
+  `frequency_window_days`、`frequency_work_order_count`。
+- 判定：active cluster 任意滚动 3 个日历日窗口内至少 3 条不同真实 WorkOrder；同工单多个
+  EventInstance 只计一条，缺少 `occurrence_date` 的记录不计入。没有满足条件时返回 false，不制造高频标签。
+- 前端：多频事件卡片仅在 `is_high_frequency=true` 时展示“高频 · 3天内N条工单”；不重新计算。
+- 验证：新增 rolling-window domain tests 和 EventsPage contract test；无数据库迁移。
+
+## 2026-08-15 — Frontend backend-only rendering
+
+- 改动目标：修复前端展示与后端记录无法匹配的问题；没有后端字段的内容不再显示。
+- 修改文件：`frontend/src/App.tsx`、`frontend/src/pages/DashboardPage.tsx`、`frontend/src/pages/EventsPage.tsx`、`frontend/src/pages/WorkOrdersPage.tsx`、`frontend/src/pages/ImportsPage.tsx`、`frontend/src/styles.css`、`frontend/src/pages/DashboardPage.test.tsx`。
+- API 变更：无。页面只消费既有目录、导入预览、导入、分析任务和复核合同。
+- 行为：移除静态雷达/活动/趋势/随机数/固定兜底统计、模拟工单、模拟导入历史、假预览行和模拟匹配边；空数组显示空状态，接口失败显示错误和重试；多频/工单/批次/任务必须带真实后端 ID。
+- 高频边界（历史）：当时后端没有三天窗口；后续已接入顶部条目定义的后端合同。
+- 本地验证：`pnpm test --run`（6 files、31 passed）、`pnpm lint`（passed）、`pnpm build`（passed）。
+- 历史边界：该时点后端尚未提供三天窗口；已由本文件顶部的“Backend high-frequency window contract”条目 supersede。
+
 ## 2026-08-15 — Removed member restore contract
 
 - 改动目标：修复成员移出多频事件后因 active 详情不再包含该事件而无法恢复的问题。

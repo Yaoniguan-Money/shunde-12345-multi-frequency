@@ -12,7 +12,6 @@ import { ErrorState } from "../components/ErrorState";
 import { Pagination } from "../components/Pagination";
 import { Skeleton } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
-import { TraceTag } from "../components/TraceTag";
 import {
   formatConfidence,
   summarizeEvidence,
@@ -94,10 +93,10 @@ export function EventsListPage(): JSX.Element {
     <section ref={containerRef}>
       <header className="page-header">
         <div>
-          <p className="eyebrow">MULTI-FREQUENCY EVENTS</p>
+          <p className="eyebrow">多频事件</p>
           <h1 className="page-header__title">多频事件</h1>
           <p className="page-header__subtitle">
-            AI 研判聚合后的民生事件簇。点击卡片查看事件详情与判断依据。
+            智能研判聚合后的民生事件。点击卡片查看事件详情与判断依据。
           </p>
         </div>
       </header>
@@ -143,7 +142,7 @@ export function EventsListPage(): JSX.Element {
       ) : total === 0 ? (
         <EmptyState
           title="暂无多频事件"
-          description="后端尚未产生任何多频事件簇。请通过“数据导入与 AI 研判”流程触发研判后再返回查看。"
+          description="后端尚未产生任何多频事件。请通过“数据导入与智能研判”流程触发研判后再返回查看。"
         />
       ) : processedItems.length === 0 ? (
         <EmptyState
@@ -186,7 +185,7 @@ export function EventsListPage(): JSX.Element {
                   </span>
                 </span>
                 <span className="cluster-card__meta-item">
-                  <span className="cluster-card__meta-key">AI 事件</span>
+                  <span className="cluster-card__meta-key">研判事项</span>
                   <span className="cluster-card__meta-value">{cluster.event_count}</span>
                 </span>
                 <span className="cluster-card__meta-item">
@@ -208,12 +207,11 @@ export function EventsListPage(): JSX.Element {
               </div>
               <div className="cluster-card__evidence">
                 <span className="eyebrow" style={{ display: "block", marginBottom: 4 }}>
-                  AI 判断依据摘要
+                  智能判断摘要
                 </span>
                 {summarizeEvidence(cluster.evidence)}
               </div>
               <div className="cluster-card__footer">
-                <TraceTag trace={cluster.trace} compact />
                 <span className="cluster-card__footer-link">查看详情 →</span>
               </div>
             </button>

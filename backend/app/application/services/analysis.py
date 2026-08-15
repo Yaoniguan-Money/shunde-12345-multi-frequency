@@ -35,8 +35,6 @@ from backend.app.infrastructure.knowledge.snapshot import (
     RuntimeSnapshotStore,
 )
 
-DEMO_MAX_WORK_ORDERS = 300
-
 
 @dataclass(frozen=True, slots=True)
 class AnalysisExecution:
@@ -124,22 +122,17 @@ class DemoAnalysisOrchestrator:
     async def run_import_batch(
         self,
         batch_id: UUID,
-        max_work_orders: int,
         *,
         idempotency_key: str,
         analysis_state: AnalysisJobState,
         candidate_limit: int = 10,
-        selection_mode: str = "sequential",
     ) -> AnalysisExecution:
-        _validate_max_work_orders(max_work_orders)
         batch = await self._understanding_repository.get_batch_info(batch_id)
         if batch is None:
             raise LookupError(f"import batch not found: {batch_id}")
         if batch.status not in {"completed", "partial"}:
             raise ValueError(f"import batch is not ready for analysis: {batch.status}")
-        sources = await self._understanding_repository.select_work_orders(
-            batch_id, max_work_orders, selection_mode
-        )
+        sources = await self._understanding_repository.select_work_orders(batch_id)
         if not sources:
             raise ValueError("import batch contains no successful work orders")
         pipeline = self._build_indexing_pipeline()
@@ -369,8 +362,3 @@ async def _build_gazetteer(
     if not health.available:
         raise RuntimeError("gazetteer live service is unavailable")
     return RuntimeEntityResolver(snapshot, remote), snapshot_id
-
-
-def _validate_max_work_orders(value: int) -> None:
-    if value < 1 or value > DEMO_MAX_WORK_ORDERS:
-        raise ValueError(f"max_work_orders must be between 1 and {DEMO_MAX_WORK_ORDERS}")

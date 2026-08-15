@@ -4,17 +4,31 @@ from uuid import UUID
 
 from backend.app.domain.analysis import (
     EventEvidence,
+    EventFact,
+    EvidenceSpan,
     ExtractedEvent,
     ExtractedMention,
+    MentionRole,
     SegmentType,
     StructuredUnderstanding,
     TextSegment,
 )
 from backend.app.domain.ports.analysis import LLMProvider, WorkOrderSegmenter
 from backend.app.domain.ports.gazetteer import MentionResolver
+from backend.app.domain.taxonomy import (
+    ClassificationDecision,
+    ClassificationOutcome,
+    TaxonomyTree,
+)
 from backend.app.domain.types import LLMRequest, VersionTrace
+from backend.app.infrastructure.taxonomy.classifier import (
+    classify_by_model,
+    classify_by_source_code,
+)
+from backend.app.infrastructure.taxonomy.validator import TaxonomyClassificationValidator
 from backend.app.schemas.ai import (
     EventEvidenceItem,
+    EvidenceSpanItem,
     UnderstandingTrace,
     WorkOrderUnderstanding,
 )
@@ -26,6 +40,8 @@ class UnderstandingResult:
     segments: tuple[TextSegment, ...]
     understanding: StructuredUnderstanding
     trace: VersionTrace
+    facts: tuple[EventFact, ...] = ()
+    classifications: tuple[ClassificationOutcome, ...] = ()
 
 
 class WorkOrderUnderstandingService:
@@ -37,13 +53,16 @@ class WorkOrderUnderstandingService:
         llm_provider: LLMProvider,
         *,
         gazetteer: MentionResolver | None = None,
-        pipeline_version: str = "understanding.v2",
-        schema_version: str = "understanding.v2",
+        taxonomy_tree: TaxonomyTree | None = None,
+        pipeline_version: str = "understanding.v3",
+        schema_version: str = "understanding.v3",
         knowledge_snapshot_id: UUID | None = None,
     ) -> None:
         self._segmenter = segmenter
         self._llm = llm_provider
         self._gazetteer = gazetteer
+        self._taxonomy_tree = taxonomy_tree
+        self._validator = TaxonomyClassificationValidator()
         self._pipeline_version = pipeline_version
         self._schema_version = schema_version
         self._knowledge_snapshot_id = knowledge_snapshot_id

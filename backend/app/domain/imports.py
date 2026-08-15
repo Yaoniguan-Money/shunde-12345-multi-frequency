@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -57,6 +58,11 @@ class ImportRow:
     content: str
     raw_fields: dict[str, ImportScalar]
     raw_sha256: str
+    reported_at: datetime | None = None
+    reported_at_source: str | None = None
+    reported_at_parser_version: str | None = None
+    source_tags: tuple[str, ...] = ()
+    raw_payload_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

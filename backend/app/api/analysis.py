@@ -1,4 +1,7 @@
-"""HTTP endpoints for bounded, asynchronous Demo AI analysis."""
+"""HTTP endpoints for full-batch asynchronous AI analysis.
+
+WP2: 删除 max_work_orders 和 selection_mode；研判范围等于导入批次全部成功工单。
+"""
 
 from typing import cast
 from uuid import UUID
@@ -12,7 +15,6 @@ from backend.app.schemas.analysis import (
     AnalysisJobResponse,
     AnalysisJobStage,
     AnalysisJobStatus,
-    AnalysisSelectionMode,
 )
 from backend.app.schemas.catalog import TraceResponse
 
@@ -29,9 +31,7 @@ async def create_analysis_job(
     service: AnalysisJobServiceDependency,
 ) -> AnalysisJobResponse:
     try:
-        view = await service.submit(
-            request.import_batch_id, request.max_work_orders, request.selection_mode
-        )
+        view = await service.submit(request.import_batch_id, request.provider_profile_id)
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except ValueError as error:
@@ -57,9 +57,10 @@ def _response(view: AnalysisJobView) -> AnalysisJobResponse:
         status=_status(view.status),
         current_stage=_stage(view.current_stage),
         total_rows=view.total_rows,
-        selected_rows=view.selected_rows,
-        processed_rows=view.processed_rows,
-        event_count=view.event_count,
+        target_work_order_count=view.target_work_order_count,
+        processed_work_order_count=view.processed_work_order_count,
+        failed_work_order_count=view.failed_work_order_count,
+        produced_event_instance_count=view.produced_event_instance_count,
         match_edge_count=view.match_edge_count,
         cluster_count=view.cluster_count,
         started_at=view.started_at,
@@ -77,22 +78,29 @@ def _response(view: AnalysisJobView) -> AnalysisJobResponse:
             if trace is not None
             else None
         ),
-        selection_mode=cast(AnalysisSelectionMode, view.selection_mode),
+        selected_rows=view.selected_rows,
+        processed_rows=view.processed_rows,
+        event_count=view.event_count,
     )
 
 
 def _status(value: str) -> AnalysisJobStatus:
-    if value in {"queued", "running", "completed", "failed"}:
+    if value in {"queued", "running", "completed", "completed_with_failures", "failed"}:
         return cast(AnalysisJobStatus, value)
     return "failed"
 
 
 def _stage(value: str) -> AnalysisJobStage:
-    aliases = {"segment": "understanding", "embed": "embedding"}
+    aliases = {
+        "segment": "understanding",
+        "embed": "embedding",
+        "classify": "classification",
+    }
     normalized = aliases.get(value, value)
     if normalized in {
         "queued",
         "understanding",
+        "classification",
         "embedding",
         "retrieval",
         "matching",

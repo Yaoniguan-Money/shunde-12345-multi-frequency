@@ -23,7 +23,8 @@ from backend.app.infrastructure.db.session import create_engine, create_session_
 
 
 @pytest.mark.asyncio
-async def test_recurrence_candidates_scan_full_batch_but_remain_bounded() -> None:
+async def test_select_work_orders_returns_full_batch() -> None:
+    """WP2: select_work_orders 返回导入批次全部成功工单，不再按 limit/selection_mode 截断。"""
     engine = create_engine(get_settings())
     sessions = create_session_factory(engine)
     repository = SQLAlchemyUnderstandingRepository(sessions)
@@ -39,9 +40,9 @@ async def test_recurrence_candidates_scan_full_batch_but_remain_bounded() -> Non
                     _work_order(batch_id, 4, "普通建议", "建议增加设施"),
                 )
             )
-        selected = await repository.select_work_orders(batch_id, 2, "recurrence_candidates")
-        assert len(selected) == 2
-        assert {item.source_row_number for item in selected} == {2, 3}
+        selected = await repository.select_work_orders(batch_id)
+        assert len(selected) == 4
+        assert {item.source_row_number for item in selected} == {1, 2, 3, 4}
     finally:
         async with sessions() as session, session.begin():
             await session.execute(delete(ImportBatch).where(ImportBatch.id == batch_id))

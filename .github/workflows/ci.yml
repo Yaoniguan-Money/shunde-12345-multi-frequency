@@ -30,7 +30,17 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: git ls-files --error-unmatch backend/app/infrastructure/db/models/base.py
-      - run: uv sync --locked
+      - name: Validate lockfile
+        run: uv lock --check
+      - name: Sync Python dependencies (mirror, then official fallback)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if uv sync --locked; then
+            exit 0
+          fi
+          echo "Configured mirror was unavailable; retrying the locked dependency set from PyPI."
+          uv sync --frozen --default-index https://pypi.org/simple
       - run: uv run alembic upgrade head
       - run: uv run ruff check .
       - run: uv run ruff format --check .

@@ -37,7 +37,7 @@ test("renders the workbench shell with sidebar nav and health indicator", async 
   // 侧边导航三项
   expect(screen.getByText("多频事件")).toBeInTheDocument();
   expect(screen.getByText("工单中心")).toBeInTheDocument();
-  expect(screen.getByText("数据导入与AI研判")).toBeInTheDocument();
+  expect(screen.getByText("数据导入与智能研判")).toBeInTheDocument();
   // 嵌套路由 outlet 渲染
   expect(screen.getByText("EVENTS_PAGE_STUB")).toBeInTheDocument();
   // 健康指示器在后端 alive 时显示“后端在线”

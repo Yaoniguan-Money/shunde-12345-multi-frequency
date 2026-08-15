@@ -31,6 +31,29 @@ class EventInstance(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
     occurrence_date: Mapped[date | None] = mapped_column(Date, index=True)
     evidence: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
 
+    # V3 fields (understanding.v3)
+    classification_node_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    classification_source: Mapped[str | None] = mapped_column(String(32))
+    classification_confidence: Mapped[float | None] = mapped_column(Float)
+    classification_ambiguity: Mapped[str | None] = mapped_column(String(32))
+    current_problem: Mapped[str | None] = mapped_column(Text)
+    current_request: Mapped[str | None] = mapped_column(Text)
+    history_context: Mapped[str | None] = mapped_column(Text)
+    previous_work_order_references: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    focal_object_mentions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    responsible_party_mentions: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    location_mentions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    occurrence_interval_start: Mapped[date | None] = mapped_column(Date)
+    occurrence_interval_end: Mapped[date | None] = mapped_column(Date)
+    evidence_spans: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    unknown_fields: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+
 
 class WorkOrderEmbedding(UUIDPrimaryKeyMixin, AITraceMixin, TimestampMixin, Base):
     __tablename__ = "work_order_embeddings"

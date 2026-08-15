@@ -1,14 +1,9 @@
 import { apiRequest } from "./client";
-import type {
-  AnalysisJobResponse,
-  AnalysisSelectionMode,
-  UUID,
-} from "../types/api";
+import type { AnalysisJobResponse, UUID } from "../types/api";
 
 export interface AnalysisJobCreate {
   import_batch_id: UUID;
-  max_work_orders: number;
-  selection_mode?: AnalysisSelectionMode;
+  provider_profile_id?: string;
 }
 
 /** POST /analysis-jobs (202) */

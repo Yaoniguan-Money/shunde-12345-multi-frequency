@@ -5,7 +5,9 @@ type BadgeTone =
   | "running"
   | "completed"
   | "failed"
-  | "handling"
+  | "unhandled"
+  | "investigating"
+  | "resolved"
   | "neutral";
 
 const TONE_LABEL: Record<BadgeTone, string> = {
@@ -13,7 +15,9 @@ const TONE_LABEL: Record<BadgeTone, string> = {
   running: "研判中",
   completed: "已完成",
   failed: "失败",
-  handling: "处理状态",
+  unhandled: "未处理",
+  investigating: "处理中",
+  resolved: "已办结",
   neutral: "未知",
 };
 
@@ -40,6 +44,8 @@ const STATUS_CN_MAP: Record<string, string> = {
   closed: "已关闭",
   rejected: "已驳回",
   pending: "待处理",
+  pending_review: "待审核",
+  confirmed: "已确认",
 };
 
 interface StatusBadgeProps {
@@ -55,7 +61,12 @@ function resolveTone(
 ): BadgeTone {
   if (!status) return "neutral";
   const value = status.toLowerCase();
-  if (variant === "handling") return "handling";
+  if (variant === "handling") {
+    if (value === "unhandled") return "unhandled";
+    if (value === "investigating") return "investigating";
+    if (value === "resolved" || value === "closed") return "resolved";
+    return "neutral";
+  }
   if (variant === "neutral") return "neutral";
   // analysis variant：按已知枚举匹配，未知值回落 neutral
   if (value === "queued") return "queued";
@@ -63,6 +74,8 @@ function resolveTone(
   if (value === "completed" || value === "complete" || value === "done")
     return "completed";
   if (value === "failed" || value === "error") return "failed";
+  if (value === "active") return "completed";
+  if (value === "inactive") return "failed";
   return "neutral";
 }
 
@@ -71,9 +84,9 @@ export function StatusBadge({
   variant = "analysis",
 }: StatusBadgeProps): JSX.Element {
   const tone = resolveTone(status, variant);
-  // 已知状态显示中文，未知状态显示原始值（不擅自改意义）
+  // 客户界面不暴露后端枚举原文；未知值明确标记为待同步。
   const label = status
-    ? (STATUS_CN_MAP[status.toLowerCase()] ?? status)
+    ? (STATUS_CN_MAP[status.toLowerCase()] ?? "状态待同步")
     : TONE_LABEL[tone];
   return (
     <span
@@ -87,6 +100,7 @@ export function StatusBadge({
             : "状态"
       }
     >
+      <span className="badge__dot" aria-hidden />
       {label}
     </span>
   );

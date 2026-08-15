@@ -90,16 +90,21 @@ export interface MatchEdgeResponse {
 
 export type ClusterStatus = string;
 export type HandlingStatus = string;
-export type AnalysisJobStatus = "queued" | "running" | "completed" | "failed";
+export type AnalysisJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "completed_with_failures"
+  | "failed";
 export type AnalysisJobStage =
   | "queued"
   | "understanding"
+  | "classification"
   | "embedding"
   | "retrieval"
   | "matching"
   | "clustering"
   | "completed";
-export type AnalysisSelectionMode = "sequential" | "recurrence_candidates";
 export type ReviewStatus = "pending_review" | "confirmed" | "rejected";
 
 export interface ClusterSummaryResponse {
@@ -115,6 +120,10 @@ export interface ClusterSummaryResponse {
   trace: TraceResponse | null;
   review_status: ReviewStatus;
   is_multi_frequency: boolean;
+  /** Backend-calculated high-frequency projection; clients must not recompute it. */
+  is_high_frequency: boolean;
+  frequency_window_days: number;
+  frequency_work_order_count: number;
 }
 
 export interface ClusterDetailResponse {
@@ -169,16 +178,20 @@ export interface AnalysisJobResponse {
   status: AnalysisJobStatus;
   current_stage: AnalysisJobStage;
   total_rows: number;
-  selected_rows: number;
-  processed_rows: number;
-  event_count: number;
+  target_work_order_count: number;
+  processed_work_order_count: number;
+  failed_work_order_count: number;
+  produced_event_instance_count: number;
   match_edge_count: number;
   cluster_count: number;
   started_at: ISODateString | null;
   finished_at: ISODateString | null;
   error: string | null;
   trace: TraceResponse | null;
-  selection_mode: AnalysisSelectionMode;
+  // 旧字段兼容
+  selected_rows: number;
+  processed_rows: number;
+  event_count: number;
 }
 
 export interface AttachmentResponse {
