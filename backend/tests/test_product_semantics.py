@@ -157,6 +157,19 @@ async def test_catalog_current_pipeline_analysis_state_cluster_undo_and_dedup() 
         assert inactive is not None
         assert inactive.summary.is_multi_frequency is False
         assert inactive.human_corrections[-1].correction_type == "remove_member"
+        assert len(inactive.removed_members) == 1
+        assert inactive.removed_members[0].event is not None
+        assert inactive.removed_members[0].event.event.event_id == event_ids[2]
+        assert inactive.removed_members[0].can_restore is True
+
+        with pytest.raises(ValueError, match="already a member"):
+            await review.add_correction(
+                cluster_id,
+                correction_type="confirm_member",
+                event_instance_id=event_ids[1],
+                actor_id="reviewer",
+                reason="重复恢复不应被接受",
+            )
 
         await review.add_correction(
             cluster_id,
@@ -165,6 +178,28 @@ async def test_catalog_current_pipeline_analysis_state_cluster_undo_and_dedup() 
             actor_id="reviewer",
             reason="撤销误移除",
         )
+        restored = await catalog.get_cluster(cluster_id)
+        assert restored is not None
+        assert restored.removed_members == ()
+        assert [item.correction_type for item in restored.human_corrections[-2:]] == [
+            "remove_member",
+            "confirm_member",
+        ]
+        async with sessions() as session:
+            correction_audits = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(AuditLog)
+                    .where(
+                        AuditLog.target_id == str(cluster_id),
+                        AuditLog.action.in_(
+                            ["event_cluster.remove_member", "event_cluster.confirm_member"]
+                        ),
+                    )
+                )
+                or 0
+            )
+        assert correction_audits == 2
         listed, total = await catalog.list_clusters(offset=0, limit=20)
         assert cluster_id in {item.cluster_id for item in listed}
 

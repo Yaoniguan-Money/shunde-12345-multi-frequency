@@ -63,6 +63,7 @@ function detailPayload(overrides: Partial<{
   eventsByWorkOrder: Record<string, ReturnType<typeof event>[]>;
   handlingHistory: unknown[];
   humanCorrections: unknown[];
+  removedMembers: unknown[];
   workOrderCount: number;
   eventCount: number;
 }> = {}) {
@@ -102,6 +103,7 @@ function detailPayload(overrides: Partial<{
     edges: [],
     handling_history: overrides.handlingHistory ?? [],
     human_corrections: overrides.humanCorrections ?? [],
+    removed_members: overrides.removedMembers ?? [],
   };
 }
 
@@ -433,8 +435,9 @@ test("existing handling history renders in timeline", async () => {
   expect(screen.getAllByText("investigating").length).toBeGreaterThan(0);
 });
 
-test("removed events show confirm button instead of remove button", async () => {
+test("removed events render in a separate restore section", async () => {
   stubMatchMedia();
+  const removedEvent = event("event-a1", "work-order-a", "商业噪声投诉", 0);
   const corrections = [
     {
       correction_id: "corr-1",
@@ -448,14 +451,121 @@ test("removed events show confirm button instead of remove button", async () => 
       created_at: "2026-08-15T01:00:00Z",
     },
   ];
-  renderPage(async () => jsonOk(detailPayload({ humanCorrections: corrections })));
+  renderPage(async () =>
+    jsonOk(
+      detailPayload({
+        humanCorrections: corrections,
+        removedMembers: [
+          {
+            event: removedEvent,
+            event_instance_id: "event-a1",
+            work_order: workOrder("work-order-a", 1, 1),
+            raw_title: "商业噪声",
+            raw_content: "原始正文-work-order-a",
+            correction_id: "corr-1",
+            actor_id: "op-1",
+            reason: "误判",
+            removed_at: "2026-08-15T01:00:00Z",
+            can_restore: true,
+          },
+        ],
+        eventsByWorkOrder: {
+          "work-order-a": [
+            event("event-a2", "work-order-a", "要求再次关停音响", 1),
+          ],
+          "work-order-b": [
+            event("event-b1", "work-order-b", "再次反映商业噪声", 0),
+          ],
+        },
+        eventCount: 2,
+      }),
+    ),
+  );
 
   expect(await screen.findByText("同一地点商业噪声")).toBeInTheDocument();
-  // event-a1 应该显示"恢复归属"按钮，其余两个还是"移出该多频事件"
-  expect(screen.getByText("恢复归属")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: /已移出事件/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "恢复归属" })).toBeInTheDocument();
   expect(screen.getAllByText("移出该多频事件")).toHaveLength(2);
   // 纠错历史里 reason "误判" 出现在 "理由：误判" span 中
-  expect(screen.getByText(/误判/)).toBeInTheDocument();
+  expect(screen.getAllByText(/误判/).length).toBeGreaterThan(0);
+});
+
+test("restoring removed event sends explicit actor and reason", async () => {
+  stubMatchMedia();
+  const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  let postedCorrectionBody: unknown = null;
+  let getCallCount = 0;
+  const removedEvent = event("event-a1", "work-order-a", "商业噪声投诉", 0);
+  const removedMember = {
+    event: removedEvent,
+    event_instance_id: "event-a1",
+    work_order: workOrder("work-order-a", 1, 1),
+    raw_title: "商业噪声",
+    raw_content: "原始正文-work-order-a",
+    correction_id: "corr-1",
+    actor_id: "op-1",
+    reason: "误判",
+    removed_at: "2026-08-15T01:00:00Z",
+    can_restore: true,
+  };
+  renderPage(async (input, init) => {
+    const url = new URL(String(input));
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (url.pathname.endsWith("/corrections") && method === "POST") {
+      postedCorrectionBody = JSON.parse(String(init?.body));
+      return jsonOk({ correction_id: "corr-2" }, 201);
+    }
+    getCallCount += 1;
+    if (getCallCount === 1) {
+      return jsonOk(
+        detailPayload({
+          removedMembers: [removedMember],
+          eventsByWorkOrder: {
+            "work-order-a": [
+              event("event-a2", "work-order-a", "要求再次关停音响", 1),
+            ],
+            "work-order-b": [
+              event("event-b1", "work-order-b", "再次反映商业噪声", 0),
+            ],
+          },
+          eventCount: 2,
+        }),
+      );
+    }
+    return jsonOk(
+      detailPayload({
+        eventsByWorkOrder: {
+          "work-order-a": [
+            event("event-a1", "work-order-a", "商业噪声投诉", 0),
+            event("event-a2", "work-order-a", "要求再次关停音响", 1),
+          ],
+          "work-order-b": [
+            event("event-b1", "work-order-b", "再次反映商业噪声", 0),
+          ],
+        },
+      }),
+    );
+  });
+
+  expect(await screen.findByText("同一地点商业噪声")).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText("demo-operator"), {
+    target: { value: "reviewer-2" },
+  });
+  fireEvent.change(screen.getByPlaceholderText("例如：误判，恢复归属"), {
+    target: { value: "确认属于同一现实事件" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "恢复归属" }));
+
+  await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
+  await waitFor(() => {
+    expect(postedCorrectionBody).toEqual({
+      correction_type: "confirm_member",
+      event_instance_id: "event-a1",
+      actor_id: "reviewer-2",
+      reason: "确认属于同一现实事件",
+    });
+  });
+  await waitFor(() => expect(screen.getAllByText("移出该多频事件")).toHaveLength(3));
 });
 
 // 防止 React act 警告：所有 fireEvent 都包裹在 act 中（testing-library 已默认）

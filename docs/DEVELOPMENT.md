@@ -242,6 +242,22 @@ GET  /multi-frequency-events/export.csv?cluster_id={cluster_id}
 
 写 API 使用既有 `EventHandlingRecord`、`HumanCorrection`、`AuditLog`，不修改 `work_orders.raw_*`。处理记录是追加历史并同步当前 `handling_status`；纠错改变的是派生 cluster membership，事实与审计记录不会被下一次 AI run 删除。当前只开放安全的成员移除/确认，不假装提供 merge/split。CSV 为 UTF-8 BOM，便于 Excel 直接打开；未解析主体/地点保持为空或明确未知，不得补造。
 
+移出成员恢复合同：`GET /multi-frequency-events/{cluster_id}` 额外返回 `removed_members[]`。它由该 cluster 的 `HumanCorrection` 历史实时投影：某事件最新纠错为 `remove_member` 且没有后续 `confirm_member` 时进入该数组；恢复后从数组回到 `work_orders[].events`。每项包含 `event_instance_id`、可解析时的 `event`/`work_order`/原始标题正文/AI trace、移出纠错的 `correction_id`、`actor_id`、`reason`、`removed_at` 和 `can_restore`。事件或工单无法解析时仍保留 ID 与纠错元数据，但 `can_restore=false`。
+
+恢复继续调用既有接口，不新增撤回表或专用 endpoint：
+
+```json
+POST /multi-frequency-events/{cluster_id}/corrections
+{
+  "correction_type": "confirm_member",
+  "event_instance_id": "<removed event id>",
+  "actor_id": "<operator id>",
+  "reason": "<required restore reason>"
+}
+```
+
+后端只允许恢复确实被移出的事件；active member 重复 `confirm_member` 或从未被移出的事件返回 HTTP 409。每次移除/恢复均追加 `HumanCorrection` 与 `AuditLog`，原始工单和 AI 事件正文不变。前端必须在“已移出事件”区域显式让操作员编辑 ID（默认 `demo-operator`）和恢复理由，二次确认后提交，并在成功后重新读取详情。
+
 ## AI quality review artifact
 
 先用真实导入批次做确定性弱标签分层抽样，不把模型输出当 Gold Label：

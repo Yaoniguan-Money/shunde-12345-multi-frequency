@@ -17,6 +17,7 @@ from backend.app.domain.catalog import (
     HandlingRecordView,
     HumanCorrectionView,
     MatchEdgeView,
+    RemovedClusterMember,
     WorkOrderDetail,
     WorkOrderSummary,
 )
@@ -268,7 +269,9 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             run_ids = tuple(row[0].analysis_run_id for row in member_rows)
             edges = await self._cluster_edges(session, member_ids, run_ids)
             handling_history = await self._handling_history(session, cluster.id)
-            human_corrections = await self._human_corrections(session, cluster.id)
+            correction_rows = await self._correction_rows(session, cluster.id)
+            human_corrections = tuple(self._human_correction_view(row) for row in correction_rows)
+            removed_members = await self._removed_members(session, correction_rows)
             return ClusterDetail(
                 summary=self._cluster_summary(cluster, (work_order_count, len(members))),
                 members=members,
@@ -276,6 +279,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                 edges=edges,
                 handling_history=handling_history,
                 human_corrections=human_corrections,
+                removed_members=removed_members,
             )
 
     @staticmethod
@@ -307,9 +311,9 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
         )
 
     @staticmethod
-    async def _human_corrections(
+    async def _correction_rows(
         session: AsyncSession, cluster_id: UUID
-    ) -> tuple[HumanCorrectionView, ...]:
+    ) -> tuple[HumanCorrection, ...]:
         rows = (
             await session.scalars(
                 select(HumanCorrection)
@@ -317,19 +321,80 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                 .order_by(HumanCorrection.created_at)
             )
         ).all()
-        return tuple(
-            HumanCorrectionView(
-                correction_id=row.id,
-                cluster_id=row.event_cluster_id,
-                work_order_id=row.work_order_id,
-                correction_type=row.correction_type,
-                actor_id=row.actor_id,
-                reason=row.reason,
-                payload=row.payload,
-                supersedes_correction_id=row.supersedes_correction_id,
-                created_at=row.created_at,
+        return tuple(rows)
+
+    async def _removed_members(
+        self, session: AsyncSession, corrections: tuple[HumanCorrection, ...]
+    ) -> tuple[RemovedClusterMember, ...]:
+        latest_by_event: dict[UUID, HumanCorrection] = {}
+        for correction in corrections:
+            raw_event_id = (correction.payload or {}).get("event_instance_id")
+            try:
+                event_id = UUID(str(raw_event_id))
+            except (TypeError, ValueError):
+                continue
+            latest_by_event[event_id] = correction
+
+        removed: list[RemovedClusterMember] = []
+        for event_id, correction in latest_by_event.items():
+            if correction.correction_type != "remove_member":
+                continue
+            event = await session.get(EventInstance, event_id)
+            if event is None or event.pipeline_version != self._pipeline_version:
+                removed.append(
+                    RemovedClusterMember(
+                        event=None,
+                        event_instance_id=event_id,
+                        correction_id=correction.id,
+                        actor_id=correction.actor_id,
+                        reason=correction.reason,
+                        removed_at=correction.created_at,
+                        can_restore=False,
+                    )
+                )
+                continue
+            work_order = await session.get(WorkOrder, event.work_order_id)
+            if work_order is None:
+                removed.append(
+                    RemovedClusterMember(
+                        event=None,
+                        event_instance_id=event_id,
+                        correction_id=correction.id,
+                        actor_id=correction.actor_id,
+                        reason=correction.reason,
+                        removed_at=correction.created_at,
+                        can_restore=False,
+                    )
+                )
+                continue
+            summary = (await self._summaries(session, (work_order,)))[0]
+            entity_map = await self._entity_map(session, (event,))
+            detail = self._event_detail(event, work_order, summary, entity_map)
+            removed.append(
+                RemovedClusterMember(
+                    event=detail,
+                    event_instance_id=event_id,
+                    correction_id=correction.id,
+                    actor_id=correction.actor_id,
+                    reason=correction.reason,
+                    removed_at=correction.created_at,
+                    can_restore=True,
+                )
             )
-            for row in rows
+        return tuple(removed)
+
+    @staticmethod
+    def _human_correction_view(row: HumanCorrection) -> HumanCorrectionView:
+        return HumanCorrectionView(
+            correction_id=row.id,
+            cluster_id=row.event_cluster_id,
+            work_order_id=row.work_order_id,
+            correction_type=row.correction_type,
+            actor_id=row.actor_id,
+            reason=row.reason,
+            payload=row.payload,
+            supersedes_correction_id=row.supersedes_correction_id,
+            created_at=row.created_at,
         )
 
     async def _summaries(

@@ -127,6 +127,20 @@ matching/clustering 尚未结束也不得显示“研判完成”。只有后端
 
 多频详情还包含 `same_event` edge、`same_entity/same_location/same_issue/time_compatible/contradictions`、cluster `handling_status` 和 trace，以及 `handling_history`、`human_corrections`。处理记录写入 `handling_status`、说明、结果和附件引用；纠错当前支持 `remove_member` / `confirm_member`，两者均写入 HumanCorrection 与 AuditLog，原始工单不变。CSV 至少包含 cluster、工单编号、标题、事件摘要、主体/地点、AI 依据、处理状态和处理结果。不要把 `confidence` 或 embedding 分数单独渲染成事实结论。
 
+移出成员恢复：`GET /multi-frequency-events/{cluster_id}` 现在额外返回 `removed_members[]`。该数组不是软删除表，而是按纠错历史投影的最新状态；最新为 `remove_member` 且没有后续 `confirm_member` 的事件显示在这里，active `work_orders[].events` 不再重复显示。每项包含 `event_instance_id`、`event`（含原 AI trace）/`work_order`（可解析时）、`raw_title`、`raw_content`、`correction_id`、`actor_id`、`reason`、`removed_at`、`can_restore`。即使事件无法解析，也保留 ID 和纠错记录并将 `can_restore=false`。恢复仍使用：
+
+```text
+POST /multi-frequency-events/{cluster_id}/corrections
+{
+  "correction_type": "confirm_member",
+  "event_instance_id": "<removed event id>",
+  "actor_id": "<editable operator id>",
+  "reason": "<editable restore reason>"
+}
+```
+
+详情页必须提供独立“已移出事件”区，操作员 ID 默认 `demo-operator` 但可编辑，恢复理由必填可编辑，点击恢复需二次确认；请求期间禁用按钮，成功后重新读取详情并刷新多频列表缓存。active member 重复恢复或未曾移出的事件由后端返回 409，不应伪装成功。
+
 # TRAE 可以改
 
 - React 页面布局、组件、动效、图标、信息层级

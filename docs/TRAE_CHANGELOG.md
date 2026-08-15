@@ -2,6 +2,14 @@
 
 TRAE appends entries; do not rewrite history.
 
+## 2026-08-15 — Removed member restore contract
+
+- 改动目标：修复成员移出多频事件后因 active 详情不再包含该事件而无法恢复的问题。
+- API 变更：`GET /multi-frequency-events/{cluster_id}` 增加 `removed_members[]`，返回事件/工单、原始内容、AI trace、`event_instance_id`、纠错元数据与 `can_restore`；无法解析的事件保留 ID 但不可恢复。
+- 纠错语义：保留既有 `POST /multi-frequency-events/{cluster_id}/corrections`；`confirm_member` 只允许恢复此前确实 `remove_member` 的事件，active member 重复恢复返回 409。所有操作继续写 `HumanCorrection` 与 `AuditLog`。
+- 前端交互：详情页独立展示“已移出事件”，显式填写操作员 ID（默认 `demo-operator`）和恢复理由，二次确认后恢复并重新读取详情。
+- 验证：后端 `48 passed`；前端 `29 passed`、lint/build 通过；`scripts/check.ps1` 全部通过。
+
 ## 2026-08-15 — Demo Core read contracts
 
 - 改动目标：为真实 cloud-first Demo Core 提供只读工单、事件和多频事件列表/详情接口。

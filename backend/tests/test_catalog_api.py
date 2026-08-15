@@ -13,6 +13,7 @@ from backend.app.domain.catalog import (
     EntityReference,
     EventDetail,
     MatchEdgeView,
+    RemovedClusterMember,
     WorkOrderDetail,
     WorkOrderSummary,
 )
@@ -94,6 +95,15 @@ class _CatalogFixture:
                 raw_content="再次反映新桂北路29号116号铺商业噪音",
             ),
         )
+        self.removed_member = RemovedClusterMember(
+            event=self.members[0],
+            event_instance_id=self.event_id,
+            correction_id=uuid4(),
+            actor_id="reviewer",
+            reason="误判",
+            removed_at=datetime.now(UTC),
+            can_restore=True,
+        )
         self.cluster = ClusterSummary(
             cluster_id=self.cluster_id,
             name="同一地点商业噪音",
@@ -155,6 +165,7 @@ class _CatalogFixture:
                     trace=self.trace,
                 ),
             ),
+            removed_members=(self.removed_member,),
         )
 
 
@@ -185,3 +196,5 @@ async def test_catalog_api_exposes_trace_evidence_and_pagination() -> None:
     assert len(cluster.json()["work_orders"]) == 2
     assert sorted(len(item["events"]) for item in cluster.json()["work_orders"]) == [1, 2]
     assert cluster.json()["edges"][0]["evidence"]["same_issue"] is True
+    assert cluster.json()["removed_members"][0]["event_instance_id"] == str(fixture.event_id)
+    assert cluster.json()["removed_members"][0]["can_restore"] is True

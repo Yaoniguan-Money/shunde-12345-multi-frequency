@@ -302,6 +302,16 @@ scripts/check.ps1                            PASS — backend 36 tests; frontend
 
 本轮没有运行 100 条云端 AI；只运行了 100 条确定性候选选择 smoke。没有 Dashboard UI、全量推理、Gold Set、模型比较或新基础设施。
 
+## Removed member restore closure（2026-08-15）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| `removed_members` detail projection | DONE | `GET /multi-frequency-events/{cluster_id}` 按最新 HumanCorrection 状态返回已移出事件；保留 event/work-order/raw/AI trace、event_instance_id 与 correction metadata；不可解析事件明确 `can_restore=false` |
+| Restore validation | DONE | 既有 `confirm_member` 只接受此前确实 `remove_member` 的事件；active member 重复恢复和未移出事件返回 409；不新增表、不改 raw work order |
+| Frontend restore UX | DONE | 详情页新增“已移出事件”区，操作员 ID 默认 `demo-operator` 可编辑，恢复理由必填可编辑，二次确认、提交期间禁用、成功后 refetch detail/invalidate cluster list |
+| Regression coverage | DONE | 后端移除→详情投影→恢复/重复恢复回归；API `removed_members` contract；前端独立区域、显式 actor/reason、恢复 POST body 与 refetch 回归 |
+| Validation | DONE | `uv run pytest -q` 48 passed；`pnpm lint`、`pnpm test --run` 29 passed、`pnpm build`、`scripts/check.ps1` 全部通过 |
+
 ## Demo 研判吞吐修复（2026-08-15）
 
 | 项目 | 状态 | 真实结果 |

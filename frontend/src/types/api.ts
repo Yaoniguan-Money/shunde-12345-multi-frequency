@@ -124,6 +124,7 @@ export interface ClusterDetailResponse {
   edges: MatchEdgeResponse[];
   handling_history: HandlingRecordResponse[];
   human_corrections: HumanCorrectionResponse[];
+  removed_members: RemovedMemberResponse[];
 }
 
 export interface HandlingRecordResponse {
@@ -148,6 +149,19 @@ export interface HumanCorrectionResponse {
   payload: Record<string, unknown>;
   supersedes_correction_id: UUID | null;
   created_at: ISODateString;
+}
+
+export interface RemovedMemberResponse {
+  event: EventResponse | null;
+  event_instance_id: UUID;
+  work_order: WorkOrderSummaryResponse | null;
+  raw_title: string | null;
+  raw_content: string | null;
+  correction_id: UUID;
+  actor_id: string;
+  reason: string | null;
+  removed_at: ISODateString;
+  can_restore: boolean;
 }
 
 export interface AnalysisJobResponse {

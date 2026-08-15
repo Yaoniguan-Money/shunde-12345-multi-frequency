@@ -117,6 +117,17 @@ class HumanCorrectionView:
 
 
 @dataclass(frozen=True, slots=True)
+class RemovedClusterMember:
+    event: EventDetail | None
+    event_instance_id: UUID
+    correction_id: UUID
+    actor_id: str
+    reason: str | None
+    removed_at: datetime
+    can_restore: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterReviewView:
     cluster_id: UUID
     previous_status: str
@@ -150,3 +161,4 @@ class ClusterDetail:
     edges: tuple[MatchEdgeView, ...]
     handling_history: tuple[HandlingRecordView, ...] = ()
     human_corrections: tuple[HumanCorrectionView, ...] = ()
+    removed_members: tuple[RemovedClusterMember, ...] = ()

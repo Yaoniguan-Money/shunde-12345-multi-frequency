@@ -117,6 +117,19 @@ class ClusterSummaryResponse(BaseModel):
     is_multi_frequency: bool
 
 
+class RemovedMemberResponse(BaseModel):
+    event: EventResponse | None
+    event_instance_id: UUID
+    work_order: WorkOrderSummaryResponse | None
+    raw_title: str | None
+    raw_content: str | None
+    correction_id: UUID
+    actor_id: str
+    reason: str | None
+    removed_at: datetime
+    can_restore: bool
+
+
 class ClusterReviewCreate(BaseModel):
     review_status: ReviewStatus
     actor_id: str = Field(min_length=1, max_length=255)
@@ -146,6 +159,9 @@ class ClusterDetailResponse(BaseModel):
     edges: list[MatchEdgeResponse]
     handling_history: list["HandlingRecordResponse"]
     human_corrections: list["HumanCorrectionResponse"]
+    removed_members: list[RemovedMemberResponse] = Field(
+        default_factory=lambda: list[RemovedMemberResponse]()
+    )
 
 
 class HandlingRecordCreate(BaseModel):

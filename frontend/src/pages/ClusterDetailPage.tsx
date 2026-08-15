@@ -22,6 +22,7 @@ import type {
   EventResponse,
   HandlingRecordResponse,
   HumanCorrectionResponse,
+  RemovedMemberResponse,
   WorkOrderDetailResponse,
 } from "../types/api";
 import { EdgeCard } from "../components/EdgeCard";
@@ -222,6 +223,127 @@ function EventUnderstanding({
         </div>
       </div>
     </section>
+  );
+}
+
+function RemovedMemberCard({
+  item,
+  actorId,
+  reason,
+  onActorChange,
+  onReasonChange,
+  onRestore,
+  isRestoring,
+}: {
+  item: RemovedMemberResponse;
+  actorId: string;
+  reason: string;
+  onActorChange: (value: string) => void;
+  onReasonChange: (value: string) => void;
+  onRestore: () => void;
+  isRestoring: boolean;
+}): JSX.Element {
+  const event = item.event;
+  const workOrder = item.work_order;
+  return (
+    <article className="member-card member-card--removed">
+      <header className="member-card__header">
+        <h4 className="member-card__title">
+          {item.raw_title ?? workOrder?.raw_title ?? "已移出事件"}
+        </h4>
+        <span className="uuid-mono">
+          {workOrder?.external_work_order_number ?? event?.event_id ?? item.event_instance_id}
+        </span>
+      </header>
+      <div className="member-card__body">
+        <div className="member-card__region member-card__region--raw">
+          <div className="member-card__region-label member-card__region-label--raw">
+            已移出事件
+          </div>
+          <div className="member-card__field">
+            <span className="member-card__field-key">事件摘要</span>
+            <span className="member-card__field-value">
+              {event?.normalized_summary ?? "原事件不可解析"}
+            </span>
+          </div>
+          <div className="member-card__field">
+            <span className="member-card__field-key">地点信号</span>
+            <span className="member-card__field-value">
+              {event?.location_signals?.join("、") || "—"}
+            </span>
+          </div>
+          <div className="member-card__field">
+            <span className="member-card__field-key">移出记录</span>
+            <span className="member-card__field-value">
+              {item.actor_id} · {new Date(item.removed_at).toLocaleString("zh-CN")}
+              {item.reason ? ` · ${item.reason}` : ""}
+            </span>
+          </div>
+          {item.raw_content ? (
+            <div className="member-card__field">
+              <span className="member-card__field-key">原始内容</span>
+              <span className="member-card__field-value">
+                <LongText text={item.raw_content} maxChars={320} />
+              </span>
+            </div>
+          ) : null}
+          <div className="member-card__field">
+            <TraceTag trace={event?.trace ?? null} compact />
+          </div>
+        </div>
+        <div className="member-card__region member-card__region--ai">
+          <div className="member-card__region-label member-card__region-label--ai">
+            恢复归属
+          </div>
+          {!item.can_restore || !event ? (
+            <p className="text-muted" style={{ margin: 0 }}>
+              原事件不可解析，保留纠错记录但无法恢复归属。
+            </p>
+          ) : (
+            <div className="action-form">
+              <div className="action-form__field">
+                <label className="action-form__label" htmlFor={`restore-actor-${event.event_id}`}>
+                  操作员 ID
+                </label>
+                <input
+                  id={`restore-actor-${event.event_id}`}
+                  type="text"
+                  className="action-form__input"
+                  value={actorId}
+                  onChange={(e) => onActorChange(e.target.value)}
+                  disabled={isRestoring}
+                  placeholder="demo-operator"
+                />
+              </div>
+              <div className="action-form__field">
+                <label className="action-form__label" htmlFor={`restore-reason-${event.event_id}`}>
+                  恢复理由
+                </label>
+                <input
+                  id={`restore-reason-${event.event_id}`}
+                  type="text"
+                  className="action-form__input"
+                  value={reason}
+                  onChange={(e) => onReasonChange(e.target.value)}
+                  disabled={isRestoring}
+                  placeholder="例如：误判，恢复归属"
+                />
+              </div>
+              <div className="action-form__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small"
+                  onClick={onRestore}
+                  disabled={isRestoring || !actorId.trim() || !reason.trim()}
+                >
+                  {isRestoring ? "提交中…" : "恢复归属"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -599,6 +721,7 @@ export function ClusterDetailPage(): JSX.Element {
   const { push: pushToast } = useToast();
   const containerRef = useRef<HTMLElement>(null);
   const [actorByEvent, setActorByEvent] = useState<Record<string, string>>({});
+  const [reasonByEvent, setReasonByEvent] = useState<Record<string, string>>({});
   const [removingEventId, setRemovingEventId] = useState<string | null>(null);
   const [confirmingEventId, setConfirmingEventId] = useState<string | null>(null);
 
@@ -756,6 +879,7 @@ export function ClusterDetailPage(): JSX.Element {
     edges,
     handling_history: handlingHistory,
     human_corrections: humanCorrections,
+    removed_members: removedMembers = [],
   } = data;
 
   function handleRemoveEvent(eventInstanceId: string): void {
@@ -798,6 +922,40 @@ export function ClusterDetailPage(): JSX.Element {
 
   function handleActorChange(eventInstanceId: string, value: string): void {
     setActorByEvent((prev) => ({ ...prev, [eventInstanceId]: value }));
+  }
+
+  function handleReasonChange(eventInstanceId: string, value: string): void {
+    setReasonByEvent((prev) => ({ ...prev, [eventInstanceId]: value }));
+  }
+
+  function handleRestoreRemovedMember(item: RemovedMemberResponse): void {
+    const eventInstanceId = item.event?.event_id;
+    if (!eventInstanceId || !item.can_restore) {
+      pushToast("原事件不可解析，无法恢复归属", "error");
+      return;
+    }
+    const actor = (actorByEvent[eventInstanceId] ?? DEFAULT_ACTOR_ID).trim();
+    const reason = (reasonByEvent[eventInstanceId] ?? "").trim();
+    if (!actor) {
+      pushToast("请填写操作员 ID", "error");
+      return;
+    }
+    if (!reason) {
+      pushToast("请填写恢复理由", "error");
+      return;
+    }
+    const confirmed = window.confirm(
+      `确认将 AI 事件（${eventInstanceId}）重新归属此多频事件？`,
+    );
+    if (!confirmed) return;
+    correctionMutation.mutate({
+      body: {
+        correction_type: "confirm_member",
+        event_instance_id: eventInstanceId,
+        actor_id: actor,
+        reason,
+      },
+    });
   }
 
   return (
@@ -906,6 +1064,36 @@ export function ClusterDetailPage(): JSX.Element {
 
       <div className="detail-section">
         <h2 className="detail-section__title">
+          已移出事件
+          <span className="detail-section__count">（{removedMembers.length} 条）</span>
+        </h2>
+        {removedMembers.length === 0 ? (
+          <EmptyState title="暂无已移出事件" description="移出成员会保留在这里，可在确认后恢复归属。" />
+        ) : (
+          removedMembers.map((item) => {
+            const eventId = item.event?.event_id ?? "";
+            return (
+              <RemovedMemberCard
+                key={item.correction_id}
+                item={item}
+                actorId={item.event ? actorByEvent[item.event.event_id] ?? DEFAULT_ACTOR_ID : DEFAULT_ACTOR_ID}
+                reason={item.event ? reasonByEvent[item.event.event_id] ?? "" : ""}
+                onActorChange={(value) => {
+                  if (item.event) handleActorChange(item.event.event_id, value);
+                }}
+                onReasonChange={(value) => {
+                  if (item.event) handleReasonChange(item.event.event_id, value);
+                }}
+                onRestore={() => handleRestoreRemovedMember(item)}
+                isRestoring={confirmingEventId === eventId}
+              />
+            );
+          })
+        )}
+      </div>
+
+      <div className="detail-section">
+        <h2 className="detail-section__title">
           处理记录
           <span className="detail-section__count">
             （{handlingHistory.length} 条历史）
@@ -936,4 +1124,3 @@ export function ClusterDetailPage(): JSX.Element {
     </section>
   );
 }
-

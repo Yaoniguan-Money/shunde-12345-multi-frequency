@@ -13,6 +13,7 @@ from backend.app.domain.catalog import (
     EventDetail,
     HandlingRecordView,
     HumanCorrectionView,
+    RemovedClusterMember,
     WorkOrderDetail,
     WorkOrderSummary,
 )
@@ -30,6 +31,7 @@ from backend.app.schemas.catalog import (
     HandlingRecordResponse,
     HumanCorrectionResponse,
     MatchEdgeResponse,
+    RemovedMemberResponse,
     ReviewStatus,
     TraceResponse,
     WorkOrderDetailResponse,
@@ -250,6 +252,23 @@ def _cluster_detail(detail: ClusterDetail) -> ClusterDetailResponse:
         ],
         handling_history=[_handling_record(item) for item in detail.handling_history],
         human_corrections=[_correction(item) for item in detail.human_corrections],
+        removed_members=[_removed_member(item) for item in detail.removed_members],
+    )
+
+
+def _removed_member(item: RemovedClusterMember) -> RemovedMemberResponse:
+    event = item.event
+    return RemovedMemberResponse(
+        event=_event(event.event) if event else None,
+        event_instance_id=item.event_instance_id,
+        work_order=_work_order_summary(event.work_order) if event else None,
+        raw_title=event.raw_title if event else None,
+        raw_content=event.raw_content if event else None,
+        correction_id=item.correction_id,
+        actor_id=item.actor_id,
+        reason=item.reason,
+        removed_at=item.removed_at,
+        can_restore=item.can_restore,
     )
 
 

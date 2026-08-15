@@ -121,7 +121,24 @@ class SQLAlchemyEventReviewRepository(EventReviewRepository):
                     if len(members) <= 1:
                         raise ValueError("cannot remove the last member from a cluster")
                     await session.delete(member)
-                elif member is None:
+                elif member is not None:
+                    raise ValueError("event is already a member of this cluster")
+                else:
+                    corrections = (
+                        await session.scalars(
+                            select(HumanCorrection)
+                            .where(HumanCorrection.event_cluster_id == cluster.id)
+                            .order_by(HumanCorrection.created_at)
+                        )
+                    ).all()
+                    removed_before = False
+                    for correction in corrections:
+                        payload_event_id = (correction.payload or {}).get("event_instance_id")
+                        if str(payload_event_id) != str(event.id):
+                            continue
+                        removed_before = correction.correction_type == "remove_member"
+                    if not removed_before:
+                        raise ValueError("event has not been removed from this cluster")
                     if not members:
                         raise ValueError("cluster has no analysis membership to confirm against")
                     session.add(
