@@ -446,6 +446,32 @@ async def test_remote_same_event_rejects_events_from_the_same_work_order() -> No
         await RemoteSameEventMatcher(Events(), LLM()).match(left.event_id, right.event_id)
 
 
+@pytest.mark.asyncio
+async def test_remote_same_event_provider_failure_is_ambiguous_without_positive_edge() -> None:
+    entity = EntityId(uuid4())
+    left = _event(
+        event_id=EventInstanceId(uuid4()), entity=entity, summary="A", location="同一地点"
+    )
+    right = _event(
+        event_id=EventInstanceId(uuid4()), entity=entity, summary="B", location="同一地点"
+    )
+
+    class Events:
+        async def get_for_matching(self, event_id):
+            return {left.event_id: left, right.event_id: right}[event_id]
+
+    class LLM:
+        async def generate_batch(self, _requests):
+            raise RuntimeError("structured inference failed")
+
+    decision = await RemoteSameEventMatcher(Events(), LLM()).match(left.event_id, right.event_id)
+
+    assert decision.same_event is False
+    assert decision.decision_status == "ambiguous"
+    assert decision.confidence == 0.0
+    assert decision.evidence.contradictions == ("provider_structured_output_failed",)
+
+
 def test_cluster_builder_rejects_contradictory_transitive_merge() -> None:
     entity = EntityId(uuid4())
     a = _event(event_id=EventInstanceId(uuid4()), entity=entity, location="同一地点", summary="A")

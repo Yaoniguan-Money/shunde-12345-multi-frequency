@@ -178,10 +178,7 @@ class OpenAICompatibleChatAdapter:
                         message_data.get("content"), request.output_schema
                     )
                 except (OpenAICompatibleUnavailable, ValueError, TypeError):
-                    if (
-                        choice_data.get("finish_reason") == "length"
-                        and attempt < _MAX_TRANSIENT_RETRIES
-                    ):
+                    if attempt < _MAX_TRANSIENT_RETRIES:
                         payload["max_tokens"] = _LENGTH_RETRY_MAX_OUTPUT_TOKENS
                         continue
                     raise

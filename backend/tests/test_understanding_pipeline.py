@@ -222,3 +222,20 @@ async def test_understanding_preserves_distinct_issues_inside_one_work_order() -
         "commercial_noise",
         "fire_safety_fault",
     ]
+
+
+def test_understanding_discards_non_string_object_mentions() -> None:
+    understanding = WorkOrderUnderstanding.model_validate(
+        {
+            "events": [
+                {
+                    "normalized_summary": "测试事项",
+                    "focal_object_mentions": [1, "项目A"],
+                    "location_mentions": [0, "地点B"],
+                }
+            ]
+        }
+    )
+
+    assert understanding.events[0].focal_object_mentions == ["项目A"]
+    assert understanding.events[0].location_mentions == ["地点B"]

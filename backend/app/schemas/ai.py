@@ -1,9 +1,9 @@
 from datetime import date
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def _empty_strings() -> list[str]:
@@ -113,6 +113,24 @@ class ExtractedEvent(BaseModel):
     evidence: list[EventEvidenceItem] = Field(default_factory=_empty_evidence)
     # V3 分类输出
     classification: ClassificationOutput | None = None
+
+    @field_validator(
+        "previous_work_order_references",
+        "focal_object_mentions",
+        "responsible_party_mentions",
+        "location_mentions",
+        "unknown_fields",
+        "location_signals",
+        "time_signals",
+        mode="before",
+    )
+    @classmethod
+    def discard_non_string_mentions(cls, value: object) -> object:
+        """Drop malformed numeric/object mentions instead of fabricating entities."""
+        if not isinstance(value, list):
+            return []
+        items = cast(list[object], value)
+        return [item.strip() for item in items if isinstance(item, str) and item.strip()]
 
 
 class UnderstandingTrace(BaseModel):

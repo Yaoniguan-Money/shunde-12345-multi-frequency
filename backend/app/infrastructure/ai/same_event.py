@@ -11,6 +11,7 @@ from backend.app.domain.types import (
     ProviderRoute,
     SameEventDecision,
     SameEventEvidence,
+    VersionTrace,
 )
 from backend.app.schemas.ai import SameEventResponse
 
@@ -50,8 +51,32 @@ class RemoteSameEventMatcher(SameEventMatcher):
             pipeline_version=self._pipeline_version,
             route=self._route,
         )
-        result = (await self._llm.generate_batch((request,)))[0]
-        parsed = SameEventResponse.model_validate(result.structured_output)
+        try:
+            result = (await self._llm.generate_batch((request,)))[0]
+            parsed = SameEventResponse.model_validate(result.structured_output)
+        except (RuntimeError, TypeError, ValueError):
+            # A malformed/failed judge response is explicitly ambiguous. It must
+            # not create a positive edge or abort the whole bounded graph run.
+            return SameEventDecision(
+                same_event=False,
+                confidence=0.0,
+                evidence=SameEventEvidence(
+                    same_entity=None,
+                    same_location=None,
+                    same_issue=None,
+                    time_compatible=None,
+                    contradictions=("provider_structured_output_failed",),
+                ),
+                trace=VersionTrace(
+                    model_id="unknown",
+                    model_config_hash="structured-output-failed",
+                    schema_version=self._schema_version,
+                    knowledge_snapshot_id=None,
+                    pipeline_version=self._pipeline_version,
+                    provider="remote-openai-compatible",
+                ),
+                decision_status="ambiguous",
+            )
         evidence = SameEventEvidence(
             same_entity=parsed.evidence.same_entity,
             same_location=parsed.evidence.same_location,

@@ -12,13 +12,13 @@
 |---|---|---|
 | WP0 冻结术语、ADR 和接口 | DONE | PRODUCT_SCOPE / ARCHITECTURE / DECISIONS / TRAE_HANDOFF 已对齐锁定决策；ADR-010/012/015/018 标记 superseded，新增 ADR-019 至 ADR-026；字段、枚举、时间、高频、Same Event 定义全部评审通过 |
 | WP1 附录 A 目录与迁移 | DONE | domain/taxonomy.py、ports/taxonomy.py、infrastructure/taxonomy/loader.py+resolver.py、infrastructure/db/taxonomy.py、db/models/taxonomy.py、schemas/taxonomy.py、api/taxonomy.py、application/services/taxonomy.py、scripts/seed_taxonomy.py、alembic b1c2d3e4f5a6 迁移；真实 DB 种子化成功：14/99/515/514/090499两条/13空/关键代码校验通过；16 个 taxonomy 测试 + 52 个既有测试全部通过（68 passed） |
-| WP2 领域数据、Reported At 与 AnalysisScope | PARTIAL | 代码、迁移和单元回归已完成：全批次成功工单冻结为不可变 Scope；V3 EventInstance/ComplaintSegment 字段持久化；reported_at 三优先级解析；原始字段不改写。仍缺真实隔离库 100 条 → 103 事项验收证据。 |
-| WP3 理解、事项拆分与标准分类 | PARTIAL | `understanding.v3` schema、current/history/reply/request 分段、EventFact/分类结果和 evidence span 已接通持久化；taxonomy validator 可返回 resolved/ambiguous/unresolved。来源代码全量回放和 89/90 Gold Set 尚未实跑。 |
-| WP4 Reality Object、候选、Same Event 与高频 | PARTIAL | embedding 仅作 bounded recall；候选召回路线/版本、SameEvent 结构化状态和硬锚点门槛已接入，reported_at 三日频次投影已改用 WorkOrder。角色化对象全量 Gold Set、组级一致性和真实五条美涂士回放尚未完成。 |
-| WP5 Provider 按任务选择与性能 | PARTIAL | Provider Profile API、合成验证链路、持久化 registry、任务 Profile/Execution Policy snapshot、local/cloud 固定路由已接入；新增 `cloud-deepseek`（DeepSeek V4 Flash LLM + 本地 Ollama Embedding）并完成真实五阶段合成验证。DeepSeek 当前余额不足，已把任务并发持久化为 2，等待可用余额继续。 |
+| WP2 领域数据、Reported At 与 AnalysisScope | PARTIAL | 代码、迁移和单元回归已完成：全批次成功工单冻结为不可变 Scope；V3 EventInstance/ComplaintSegment 字段持久化；reported_at 三优先级解析；原始字段不改写。真实任务已冻结并消费 100 张工单，但本次结果为 102 个事项，尚未满足计划中的 103 事项 Gold Set 门槛。 |
+| WP3 理解、事项拆分与标准分类 | PARTIAL | `understanding.v3` schema、current/history/reply/request 分段、EventFact/分类结果和 evidence span 已接通持久化；taxonomy validator 可返回 resolved/ambiguous/unresolved。真实 DeepSeek 回放已完成 100/100 理解，89/90 专项与 103 事项 Gold Set 仍需复核。 |
+| WP4 Reality Object、候选、Same Event 与高频 | PARTIAL | embedding 仅作 bounded recall；候选召回路线/版本、SameEvent 结构化状态和硬锚点门槛已接入，reported_at 三日频次投影已改用 WorkOrder。真实回放已产出 582 条匹配边和 1 个 cluster；五条美涂士、三个“美的”和高频窗口 Gold Set 尚未签收。 |
+| WP5 Provider 按任务选择与性能 | PARTIAL | Provider Profile API、合成验证链路、持久化 registry、任务 Profile/Execution Policy snapshot、local/cloud 固定路由已接入；`cloud-deepseek` 使用 DeepSeek V4 Flash LLM + 本地 Ollama Embedding，并在并发 2 下完成真实 100 条链路。三次性能基准仍未记录。 |
 | WP6 API、统计和分类筛选 | PARTIAL | 新增 `/work-orders/overview`、`/work-orders/facets`，数据库聚合区分全量工单/事项/分页；taxonomy tree 和 V3 详情证据已可读。统一 ScopeFilter 的完整分类/频次/来源筛选仍需补齐。 |
 | WP7 前端对齐 | PARTIAL | Provider 卡、验证门槛、全批次提示、锁定任务轮询、真实失败展示、V3 详情字段和高频提示已接入；前端门禁 33/33。完整 taxonomy 级联、多频详情证据/纠正历史的演讲稿主流程仍需 Playwright 实跑。 |
-| WP8 真实回放、评测与交付 | BLOCKED | DeepSeek 真实回放已完成 100/100 理解、0 failed、102 事项，并在 SameEvent 阶段因账户并发/余额限制先后返回 429/402；Gold Set、三次性能和 Playwright 完整闭环无法在当前余额下宣称完成。 |
+| WP8 真实回放、评测与交付 | PARTIAL | DeepSeek 真实任务已完成：100/100 工单、0 failed、102 事项、582 匹配边、1 个 cluster；本地 Ollama embedding 未切云端，前后端存活检查通过。Gold Set、三次性能、Playwright 主流程和最终交付门禁仍未全部完成。 |
 
 ### 2026-08-18 implementation checkpoint
 
@@ -28,7 +28,7 @@
 uv run ruff check .                 PASS
 uv run ruff format --check .        PASS — 192 files formatted
 uv run pyright backend              PASS — 0 errors, 0 warnings
-uv run pytest -q                    PASS — 92 passed
+uv run pytest -q                    PASS — 94 passed
 pnpm --dir frontend lint            PASS
 pnpm --dir frontend test --run     PASS — 33 passed
 pnpm --dir frontend build          PASS
@@ -52,6 +52,14 @@ uv run alembic -c backend/alembic.ini heads  PASS — d3e4f5a6b7c8
 - `POST /ai/provider-profiles/cloud-deepseek/validate` 于 2026-08-18 18:14（Asia/Shanghai）五阶段全部通过：health、structured_understanding、embedding、same_event_structured、taxonomy_validation。
 - 新建任务 `9d519456-7e6f-4592-bcaa-28656291e390` 曾因 DeepSeek 结构化输出上限失败；修正后任务 `ef659d81-4f53-4c7e-bb06-339e879e1e03` 固定同一批次、100 张成功工单、`understanding.v3`、DeepSeek Profile 和独立执行策略，真实完成 `100/100`、`0 failed`、`102` 事项，随后在 SameEvent 调用 107 条边后因 `429 Too many requests ... remaining balance` 失败。
 - 将用户环境中的 `SHUNDE_MODEL_CONCURRENCY` 调整为 `2` 后重新验证，DeepSeek 返回 `402 Insufficient Balance`；因此没有继续发送真实工单请求，也没有切换到本地模型冒充 DeepSeek 结果。
+
+### 2026-08-18 DeepSeek 充值后真实回放完成
+
+- 使用同一冻结 Scope、`cloud-deepseek` Profile、`understanding.v3` 和并发 2 重新恢复任务；没有更换 Provider，也没有缩减目标工单集合。
+- 任务 `5e2ef79c-a936-4351-8c99-cee20a1d8cfc` 最终状态为 `completed`：100/100 工单、0 failed、102 个 EventInstance、582 条 SameEvent 匹配边、1 个 EventCluster。
+- 期间遇到的非字符串 mention 与 Provider 结构化输出异常已分别落为 schema 清洗和 `ambiguous`（不建正向边）；对应回归测试已补齐，不能把异常判断伪装成正向匹配。
+- 实时检查：`GET /health/live` 返回 `alive`，`GET /health/ready` 返回 `ready`，`GET /work-orders/overview` 返回 100 张工单、102 个事项、0 个失败。
+- 该结果是当前真实运行证据，不把计划目标 103 个事项或 Gold Set 通过状态伪报为已达成。
 
 ### WP0 已落地的口径冻结
 
@@ -145,7 +153,7 @@ uv run pytest -q                             PASS — 89 passed (14 reported_at 
 - 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 提交：`8954e18`（已推送 `origin/main`）。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；本轮提交 `ebeb3d8` 已推送并设置跟踪 `origin/frontend-redesign`。用户未提交的辅助目录/脚本仍保留在工作区。
-- 本轮 V3/Provider/Flash 切换提交：`ebeb3d8`（已推送 `origin/frontend-redesign`）；后续未提交的 DeepSeek 接入改动尚待本地门禁、提交和远程交接；当前可验证 Profile 为 `cloud-deepseek`，真实回放被账户余额阻塞。
+- 本轮 V3/Provider/Flash 切换提交：`ebeb3d8`（已推送 `origin/frontend-redesign`）；DeepSeek 真实回放和异常容错修正已完成本地运行验证，最新修正尚待本地全量门禁、提交和远程交接；用户未提交辅助目录/数据文件仍不纳入提交。
 - 本轮 cloud-first Demo Core commit：`8e9e5fc`；文档 checkpoint：`79f48b7`，均已推送 `origin/main`。
 - Final Codex hard-install closure commit：`7595dd2`（bounded analysis job HTTP contract），已推送 `origin/main`。
 - 本轮移出成员恢复提交：`eb309ed`（`fix: make removed event memberships restorable`），已推送 `origin/main`。

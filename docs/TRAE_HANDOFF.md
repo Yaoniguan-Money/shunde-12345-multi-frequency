@@ -46,13 +46,19 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - 本地路径必须真实执行 LLM、Embedding、结构化输出和最小端到端研判；只做 `/health`、模型列表或单次 ping 不算完成。
 - 云端 Provider 与本地 Provider 均通过 registry 选择；当前可用 `cloud-qwen` 和 `cloud-deepseek`。DeepSeek Profile 使用 `deepseek-v4-flash` LLM + 本地 Ollama `nomic-embed-text` Embedding，两个路由独立冻结；领域层不出现厂商分支，任一 provider 失败都明确可见且无 fallback。
 - Provider 模式 API：`GET /ai/provider-profiles` 返回本地和云端可选 Profile（脱敏，不返回 API Key / Base URL）；`POST /ai/provider-profiles/{profile_id}/validate` 真实执行有界完整链路验证（LLM 结构化 EventFact、DB44 分类节点约束、Embedding 维度、SameEvent 结构化判断、最小导入夹具到聚类投影），不使用政府原文。前端只传 `profile_id`。
-- 当前 DeepSeek 真实回放因账户余额阻塞：执行策略已降为 2 并发，等待 Provider 余额恢复后重新验证 `cloud-deepseek`，再恢复固定 Scope 的任务；不要在余额不足时改传本地 Profile 或把失败显示为完成。
+- DeepSeek 余额恢复后已完成真实回放：任务 `5e2ef79c-a936-4351-8c99-cee20a1d8cfc` 为 `completed`，100/100 工单、0 failed、102 事项、582 匹配边、1 cluster；执行策略为并发 2，Embedding 仍为本机 Ollama，不存在 fallback。该结果未伪报计划目标 103 事项，Gold Set/性能/Playwright 门禁仍按 `CURRENT_STATE.md` 标为未完成。
 - `understanding.v3` 替代 `understanding.v2` 成为 active projection；旧 v1/v2 数据保留审计可达。v3 文本分段固定为 `current_complaint / current_request / history_context / department_reply`，每个分段保留原文起止区间和分段依据；EventFact[] 只从 `current_complaint + current_request` 创建。
 - 标准分类完整对齐 DB44/T 2479—2024 附录 A：14 一级、99 二级、515 三级；来源代码确定性映射，无代码时 AI 只能选 `classification_node_id`，不能生成自由文本类型。`090499` 两条不同父路径保留。Taxonomy API：`GET /taxonomies/active`、`GET /taxonomies/{version}/tree`。
 - 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`（v3）、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id / classification_node_id / classification_source` 等 trace 字段。
 - **锁定语义：多频按 distinct WorkOrder 计算，不按 EventInstance 数计算。** 一张工单可以有多个真实 AI 事件，但不能自己构成多频；同工单事件不进入跨工单 retrieval / SameEvent / cluster。100 张工单可产生 103 个事项，这是一对多合法结果。
 - 高频规则：同一事件在任意连续 3 个自然日内达到 3 张及以上不同工单即 `high_frequency`；窗口使用 `reported_at`（受理时间），不使用 `occurrence_date` / `imported_at` / 历史回复日期。状态只有 `high_frequency / not_reached / insufficient_date_evidence`，禁止 `low_frequency`。
 - 质量 review 脚本仅作为审计候选生成器，不能显示为 Gold Label，也不能显示 Recall/Precision/F1；无业务确认 Gold Set 前不报告质量指标。
+
+## 当前操作者运行态（2026-08-18）
+
+- Frontend：`http://127.0.0.1:5173/`
+- Backend：`http://127.0.0.1:18080/`（本次任务为隔离端口；`/health/live` 与 `/health/ready` 均通过）
+- Overview 实测：100 张工单、102 个事项、0 个失败；前端 API 已指向 `18080`。
 
 ## Demo Core 云端路径与 API
 

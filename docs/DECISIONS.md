@@ -198,10 +198,22 @@ Status: accepted
 - Embeddings persist bounded recall evidence only. SameEvent decisions require structured evidence and hard-anchor checks; ambiguous decisions are not positive edges.
 - Catalog overview/facets are database projections. Page size is not a business total.
 
-Evidence at this checkpoint: backend 92 tests, frontend 33 tests, Ruff/Pyright/frontend build all pass. Real 100-work-order replay reached 100/100 understanding with 102 persisted events, but SameEvent stopped on provider balance limits; Gold Set evidence remains pending and is not implied by this ADR.
+Historical evidence at this checkpoint: backend 92 tests, frontend 33 tests, Ruff/Pyright/frontend build all pass. The first real replay reached 100/100 understanding with 102 persisted events but stopped on provider balance limits. The later resumed run is recorded below; Gold Set evidence remains pending and is not implied by this ADR.
 
 ## ADR-028 — Provider Profile 支持独立 LLM/Embedding 部署路由（2026-08-18）
 
 Status: accepted
 
 Provider Profile 可以显式声明 LLM 与 Embedding 的部署类型。`cloud-deepseek` 使用 DeepSeek V4 Flash 完成结构化理解、分类和 SameEvent，使用本机 Ollama Embedding 完成向量召回；任务创建时同时冻结两个路由及脱敏配置快照。该组合不允许隐式 fallback，任一阶段失败都只归属于所选路由并使任务可观测失败。DeepSeek V4 Flash 的通用结构化输出上限为 8192，遇到 `finish_reason=length` 时最多重试到 16384；该参数属于 OpenAI-compatible adapter 的兼容策略，不改变领域 schema。账户余额限制时执行策略降到 2 并发，但仍必须由 Provider 验证门禁放行。
+
+## ADR-029 — Provider 结构化失败的安全降级（2026-08-18）
+
+Status: accepted
+
+理解/分类的结构化输出解析失败必须按既有重试策略重试；SameEvent 单条判断在重试耗尽后返回显式 `ambiguous`，带有 `provider_structured_output_failed` 证据，不创建正向边，也不终止整个有界匹配图。该行为保留 Provider 失败的可观测性，同时满足“不把不确定判断当成同事件”的安全约束。真实 DeepSeek 回放中该路径已被触发并完成整批任务；对应后端回归测试覆盖无正向边的结果。
+
+## ADR-030 — DeepSeek 充值后真实回放证据（2026-08-18）
+
+Status: accepted
+
+任务 `5e2ef79c-a936-4351-8c99-cee20a1d8cfc` 使用冻结 Scope 和 `cloud-deepseek` 完成 `100/100` 工单、`0` failed、`102` EventInstance、`582` 匹配边、`1` cluster。Embedding 仍使用本地 Ollama；`/health/live`、`/health/ready` 和 `/work-orders/overview` 实测通过。计划中的 103 事项、Gold Set、三次性能和 Playwright 交付门禁未因该运行结果而自动标记完成。
