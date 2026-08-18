@@ -130,12 +130,13 @@ uv run pytest -q                             PASS — 89 passed (14 reported_at 
 
 ## Git
 
-- Branch：`main`
+- Branch：`frontend-redesign`
 - 基线 checkpoint：`c28398513bb476f2f42b199089ee13ae19618b4f`
 - Hard-install checkpoint：`75ea7e7`（Phase 0–3 已推送）
 - 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 提交：`8954e18`（已推送 `origin/main`）。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
-- Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；`main` 已推送并设置跟踪 `origin/main`。本轮提交完成后再次 push。
+- Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；本轮提交 `ebeb3d8` 已推送并设置跟踪 `origin/frontend-redesign`。用户未提交的辅助目录/脚本仍保留在工作区。
+- 本轮 V3/Provider/Flash 切换提交：`ebeb3d8`（已推送 `origin/frontend-redesign`）；当前云端 Profile 为 `qwen-flash`，验证被账户 `overdue-payment` 阻塞。
 - 本轮 cloud-first Demo Core commit：`8e9e5fc`；文档 checkpoint：`79f48b7`，均已推送 `origin/main`。
 - Final Codex hard-install closure commit：`7595dd2`（bounded analysis job HTTP contract），已推送 `origin/main`。
 - 本轮移出成员恢复提交：`eb309ed`（`fix: make removed event memberships restorable`），已推送 `origin/main`。
