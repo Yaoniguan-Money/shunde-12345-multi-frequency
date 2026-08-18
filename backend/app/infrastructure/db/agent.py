@@ -357,11 +357,13 @@ class AgentRepository:
             await session.refresh(preview)
             return preview, snapshot
 
-    async def execute_preview(self, preview_id: UUID, actor_id: str) -> tuple[str, int, str | None]:
+    async def execute_preview(
+        self, workset_id: UUID, preview_id: UUID, actor_id: str
+    ) -> tuple[str, int, str | None]:
         async with self._session_factory() as session:
             async with session.begin():
                 preview = await session.get(AgentActionPreview, preview_id, with_for_update=True)
-                if preview is None:
+                if preview is None or preview.workset_id != workset_id:
                     raise LookupError("action preview not found")
                 if preview.executed_at is not None:
                     raise ValueError("action preview was already executed")

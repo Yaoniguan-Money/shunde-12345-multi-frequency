@@ -68,7 +68,7 @@ async def execute_workset_action(
 ) -> BatchActionExecuteResponse:
     try:
         action_type, count, csv_content = await service.execute_action(
-            request.preview_id, request.actor_id
+            workset_id, request.preview_id, request.actor_id
         )
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

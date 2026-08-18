@@ -11,6 +11,18 @@ def _service() -> AgentOrchestrator:
     return AgentOrchestrator(cast(AgentRepository, object()), Settings(), None, None)
 
 
+def test_existing_deepseek_environment_aliases_configure_the_agent() -> None:
+    settings = Settings(
+        SHUNDE_AI_DEEPSEEK_BASE_URL="https://deepseek.example.test",
+        SHUNDE_AI_DEEPSEEK_API_KEY="test-key",
+        SHUNDE_AI_DEEPSEEK_LLM_MODEL_ID="deepseek-chat",
+    )
+
+    assert settings.agent_deepseek_base_url is not None
+    assert settings.agent_deepseek_api_key is not None
+    assert settings.agent_deepseek_model_id == "deepseek-chat"
+
+
 def test_engineering_payment_query_is_compiled_to_controlled_dsl() -> None:
     plan = _service()._rules_plan(  # noqa: SLF001 - validates the controlled planner boundary.
         AgentQueryRequest(query="最近一个月有哪些工程款投诉？")

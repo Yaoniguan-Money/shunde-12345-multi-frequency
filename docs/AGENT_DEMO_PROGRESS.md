@@ -11,6 +11,7 @@
 - `/agent/query` 返回真实工单、检索依据、V2 多频簇链接、可核查统计与“群众投诉不等于行政认定”提示。
 - Workset 已落库，含原始问题、DSL 快照、工单/簇 ID、创建人和审计；不是浏览器内存状态。
 - 批量操作为 Preview → Confirm → Execute → `AuditLog`，对 WorkOrder 追加独立不可变 `WorkOrderHandlingRecord`，不改原文和 V2 研判结果；CSV 导出同样需要确认。
+- 执行预览必须属于 URL 指定的 Workset，不能使用另一个 Workset 的 preview ID 跨范围执行。
 - 动态看板只按当前查询/Workset 范围的真实工单统计问题、地点、处理状态和关联多频簇。
 - `/assistant` 已成为一级业务页面，支持上下文追问、工单/多频事件详情跳转、工作集、批量确认与临时看板。
 
@@ -26,13 +27,14 @@ V2 GET /health/ready                         PASS
 V2 GET /work-orders?limit=3                 PASS — 真实工单
 V2 GET /multi-frequency-events?limit=3      PASS — 含金域滨江 V2 簇
 POST /agent/query                            PASS — 真实工程款相关工单和 V2 证据
+DeepSeek Agent Planner                       PASS — `planner_mode=llm`、3 条真实工单；复用用户级 `SHUNDE_AI_DEEPSEEK_*` 配置
 POST /worksets                               PASS — 真实创建 5 条工作集
 POST /worksets/{id}/actions/preview          PASS
 POST /worksets/{id}/actions/execute          PASS — 5 条、AuditLog action
 POST /agent/dashboard                        PASS — 按工作集真实统计
 浏览器 /assistant 主场景                     PASS
 uv run pytest -q test_agent_query_planner + test_event_graph
-                                               PASS — 12 passed
+                                               PASS — 13 passed
 pnpm --dir frontend lint && build            PASS
 pnpm --dir frontend test --run               PASS — 7 files / 33 tests
 uv run ruff check .                          PASS
@@ -45,5 +47,5 @@ Agent AuditLog                                PASS — 1 条 batch action 审计
 
 ## 尚未完成 / 运行说明
 
-- 本轮机器未检测到可用的 `DEEPSEEK_*` 或 `SHUNDE_AGENT_DEEPSEEK_*` 配置，因此 Query Planner 的 smoke 诚实返回 `planner_mode=rules`；受控规则 DSL 仍可运行。设置现有 DeepSeek OpenAI-compatible base URL/key/model 后，Agent 会优先调用 DeepSeek 做规划，V2 embedding 仍使用原有配置，不会被替换。
+- Agent 同时兼容 `SHUNDE_AGENT_DEEPSEEK_*`、现有用户级 `SHUNDE_AI_DEEPSEEK_*` 和通用 `DEEPSEEK_*` 配置。2026-08-19 已以现有用户级配置完成真实 DeepSeek 结构化规划 smoke；短暂不可用时会记录不含工单原文和密钥的结构化告警，并明确回退 `planner_mode=rules`。V2 embedding 仍使用原有配置，不会被替换。
 - Demo 启动时需要将后端数据库定向到隔离副本：`$env:SHUNDE_DATABASE_URL='postgresql+asyncpg://shunde:shunde@127.0.0.1:5432/shunde_agent_demo_v2'`，然后运行 `uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8080`；前端使用 `VITE_API_BASE_URL=http://127.0.0.1:8080 pnpm --dir frontend dev`。

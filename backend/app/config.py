@@ -36,15 +36,27 @@ class Settings(BaseSettings):
     # embeddings stay on their independently configured, frozen provider.
     agent_deepseek_base_url: AnyHttpUrl | None = Field(
         default=None,
-        validation_alias=AliasChoices("SHUNDE_AGENT_DEEPSEEK_BASE_URL", "DEEPSEEK_BASE_URL"),
+        validation_alias=AliasChoices(
+            "SHUNDE_AGENT_DEEPSEEK_BASE_URL",
+            "SHUNDE_AI_DEEPSEEK_BASE_URL",
+            "DEEPSEEK_BASE_URL",
+        ),
     )
     agent_deepseek_api_key: SecretStr | None = Field(
         default=None,
-        validation_alias=AliasChoices("SHUNDE_AGENT_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
+        validation_alias=AliasChoices(
+            "SHUNDE_AGENT_DEEPSEEK_API_KEY",
+            "SHUNDE_AI_DEEPSEEK_API_KEY",
+            "DEEPSEEK_API_KEY",
+        ),
     )
     agent_deepseek_model_id: str = Field(
         default="deepseek-chat",
-        validation_alias=AliasChoices("SHUNDE_AGENT_DEEPSEEK_MODEL", "DEEPSEEK_MODEL"),
+        validation_alias=AliasChoices(
+            "SHUNDE_AGENT_DEEPSEEK_MODEL",
+            "SHUNDE_AI_DEEPSEEK_LLM_MODEL_ID",
+            "DEEPSEEK_MODEL",
+        ),
     )
     ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0

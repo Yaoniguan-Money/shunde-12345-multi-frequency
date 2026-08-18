@@ -1,5 +1,6 @@
 """Application orchestration for the evidence-first intelligent assessment Agent."""
 
+import logging
 import re
 from collections import Counter
 from collections.abc import Iterable
@@ -28,6 +29,8 @@ from backend.app.schemas.agent import (
     WorksetCreateRequest,
     WorksetResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AgentCommandError(ValueError):
@@ -168,8 +171,10 @@ class AgentOrchestrator:
             message=_preview_message(payload.action_type, count, payload.new_status),
         )
 
-    async def execute_action(self, preview_id: UUID, actor_id: str) -> tuple[str, int, str | None]:
-        return await self._repository.execute_preview(preview_id, actor_id)
+    async def execute_action(
+        self, workset_id: UUID, preview_id: UUID, actor_id: str
+    ) -> tuple[str, int, str | None]:
+        return await self._repository.execute_preview(workset_id, preview_id, actor_id)
 
     async def dashboard(
         self, *, title: str, work_order_ids: tuple[UUID, ...], cluster_ids: tuple[UUID, ...]
@@ -252,7 +257,15 @@ class AgentOrchestrator:
             )
             candidate = _merge_llm_plan(rules_plan, result[0].structured_output)
             return candidate, "llm"
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "Agent planner fell back to controlled rules",
+                extra={
+                    "planner_provider": "deepseek",
+                    "error_type": type(error).__name__,
+                    "pipeline_version": "agent-demo-v2",
+                },
+            )
             return rules_plan, "rules"
 
     async def _semantic_vector(self, query: str) -> tuple[list[float] | None, str | None]:
@@ -271,7 +284,14 @@ class AgentOrchestrator:
                 )
             )
             return list(result[0].vector), result[0].model_id
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "Agent semantic retrieval is unavailable; continuing with structured evidence",
+                extra={
+                    "error_type": type(error).__name__,
+                    "pipeline_version": "agent-demo-v2",
+                },
+            )
             return None, None
 
 
