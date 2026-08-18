@@ -23,6 +23,7 @@ data/raw/
 *.xlsx
 *.xls
 *.csv
+!docs/presentation-alignment-plan/reference/db44t2479-2024-appendix-a.csv
 *.parquet
 *.db
 *.sqlite*
