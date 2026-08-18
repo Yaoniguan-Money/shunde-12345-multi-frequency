@@ -10,11 +10,13 @@ from backend.app.api.catalog import router as catalog_router
 from backend.app.api.entities import router as entities_router
 from backend.app.api.health import router as health_router
 from backend.app.api.imports import router as imports_router
+from backend.app.api.provider_profiles import router as provider_profiles_router
 from backend.app.api.review import router as review_router
 from backend.app.api.taxonomy import router as taxonomy_router
 from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
+from backend.app.application.services.provider_profiles import ProviderProfileService
 from backend.app.application.services.review import EventReviewService
 from backend.app.application.services.taxonomy import TaxonomyService
 from backend.app.config import get_settings
@@ -40,14 +42,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)
-    catalog_repository = SQLAlchemyCatalogRepository(
-        session_factory, settings.analysis_pipeline_version
-    )
+    catalog_repository = SQLAlchemyCatalogRepository(session_factory, "understanding.v3")
     app.state.catalog_service = CatalogService(catalog_repository)
-    analysis_job_service = AnalysisJobService(settings, session_factory)
-    app.state.analysis_job_service = analysis_job_service
     app.state.review_service = EventReviewService(SQLAlchemyEventReviewRepository(session_factory))
-    app.state.taxonomy_service = TaxonomyService(SQLAlchemyTaxonomyRepository(session_factory))
+    taxonomy_repository = SQLAlchemyTaxonomyRepository(session_factory)
+    app.state.taxonomy_service = TaxonomyService(taxonomy_repository)
+    active_taxonomy = await taxonomy_repository.get_active_version()
+    taxonomy_tree = (
+        await taxonomy_repository.get_tree(active_taxonomy.version_id)
+        if active_taxonomy is not None
+        else None
+    )
+    provider_profile_service = ProviderProfileService(settings, taxonomy_tree, session_factory)
+    await provider_profile_service.ensure_defaults()
+    app.state.provider_profile_service = provider_profile_service
+    analysis_job_service = AnalysisJobService(
+        settings, session_factory, provider_profiles=provider_profile_service
+    )
+    app.state.analysis_job_service = analysis_job_service
     app.state.exporter = SQLAlchemyCSVExporter(session_factory)
     app.state.attachment_store = LocalAttachmentStore(
         settings.runtime_dir / "attachments", settings.attachment_max_bytes
@@ -96,6 +108,7 @@ def create_app() -> FastAPI:
     application.include_router(review_router)
     application.include_router(catalog_router)
     application.include_router(taxonomy_router)
+    application.include_router(provider_profiles_router)
     return application
 
 

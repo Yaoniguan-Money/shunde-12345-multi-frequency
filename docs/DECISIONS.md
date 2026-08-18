@@ -154,7 +154,7 @@ Status: superseded by ADR-024
 # ADR-019: 全批次研判，任务前 Provider Profile 选择
 Status: accepted
 
-一个导入批次成功导入 N 张工单，研判目标范围就是这 N 张；前端删除“研判数量”输入，API 删除 `max_work_orders` 与 `selection_mode`。用户在每次任务开始前选择“本地模型”或“云端模型”，任务创建时持久化 Provider Profile 快照，任务运行中不可切换。下一次任务可重新选择，不依赖修改全局环境变量。本地路径必须真实执行 LLM、Embedding、结构化输出和最小端到端研判，不能只做 ping/health；云端当前适配千问，但领域层、任务处理器和数据模型不出现厂商分支。任一模型失败都不得静默切换或返回规则伪造结果。
+一个导入批次成功导入 N 张工单，研判目标范围就是这 N 张；前端删除“研判数量”输入，API 删除 `max_work_orders` 与 `selection_mode`。用户在每次任务开始前选择“本地模型”或“云端模型”，任务创建时持久化 Provider Profile 快照，任务运行中不可切换。下一次任务可重新选择，不依赖修改全局环境变量。本地路径必须真实执行 LLM、Embedding、结构化输出和最小端到端研判，不能只做 ping/health；云端当前适配千问，支持通过显式 `SHUNDE_AI_REMOTE_FLASH_LLM_MODEL_ID` 选择 Flash 模型，但领域层、任务处理器和数据模型不出现厂商分支。任一模型失败都不得静默切换或返回规则伪造结果。
 
 # ADR-020: ProviderProfileRegistry 与 per-job 快照
 Status: accepted
@@ -190,3 +190,12 @@ Status: accepted
 Status: accepted
 
 聚类只消费 V2 判定的有效正向边和人工确认边；pipeline、taxonomy、same-event policy 版本一致；新成员加入后不得与组内强共识冲突；成员工单数使用 `COUNT(DISTINCT work_order_id)`；一张工单中的多个事项不能把频次抬高；人工拆分/合并通过独立审计投影，不覆盖模型边。不能只用传递闭包把 A≈B、B≈C 自动推成 A≈C；组件形成后必须执行组级一致性检查。组名和“为什么关联”从组内共识生成（canonical focal object、标准分类、受理时间窗口、可选行政区域、项目别名证据），禁止取最长成员摘要作为组名。
+## ADR-027 — WP2→WP8 active pipeline and provider/task binding (2026-08-18)
+
+- `understanding.v3` is the active pipeline; v1/v2 remain read-only historical projections.
+- An analysis job freezes the successful work-order ID set, pipeline, provider profile and execution policy. Resume/retry consumes the same scope.
+- Provider profiles are explicitly validated and persisted; local/cloud failures are terminal for that route and never silently fall back.
+- Embeddings persist bounded recall evidence only. SameEvent decisions require structured evidence and hard-anchor checks; ambiguous decisions are not positive edges.
+- Catalog overview/facets are database projections. Page size is not a business total.
+
+Evidence at this checkpoint: backend 89 tests, frontend 33 tests, Ruff/Pyright/frontend build all pass. Real 100-work-order replay and Gold Set evidence remain pending and are not implied by this ADR.

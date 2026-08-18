@@ -16,11 +16,13 @@ from backend.app.application.services.understanding import WorkOrderUnderstandin
 from backend.app.config import Settings
 from backend.app.domain.analysis_jobs import AnalysisJobState, UnderstandingRecord, WorkOrderSource
 from backend.app.domain.services.segmentation import RuleBasedWorkOrderSegmenter
+from backend.app.domain.taxonomy import TaxonomyTree
 from backend.app.domain.types import (
     EmbeddingRequest,
     EventInstanceId,
     EventMatchEdgeRecord,
     ProviderMode,
+    ProviderRoute,
     WorkOrderId,
 )
 from backend.app.infrastructure.ai.factory import AIProviderBundle, build_provider_bundle
@@ -28,6 +30,7 @@ from backend.app.infrastructure.ai.same_event import RemoteSameEventMatcher
 from backend.app.infrastructure.db.analysis import SQLAlchemyUnderstandingRepository
 from backend.app.infrastructure.db.events import SQLAlchemyEventRepository
 from backend.app.infrastructure.db.retrieval import PostgresCandidateRetriever
+from backend.app.infrastructure.db.taxonomy import SQLAlchemyTaxonomyRepository
 from backend.app.infrastructure.knowledge.gazetteer import GazetteerHttpAdapter
 from backend.app.infrastructure.knowledge.resolver import RuntimeEntityResolver
 from backend.app.infrastructure.knowledge.snapshot import (
@@ -74,6 +77,7 @@ class DemoAnalysisOrchestrator:
         gazetteer: RuntimeEntityResolver,
         snapshot_id: UUID,
         provider_health: dict[str, dict[str, str]],
+        taxonomy_tree: TaxonomyTree | None = None,
     ) -> None:
         self._settings = settings
         self._session_factory = session_factory
@@ -83,6 +87,7 @@ class DemoAnalysisOrchestrator:
         self._gazetteer = gazetteer
         self._snapshot_id = snapshot_id
         self.provider_health = provider_health
+        self._taxonomy_tree = taxonomy_tree
 
     @classmethod
     async def create(
@@ -90,16 +95,29 @@ class DemoAnalysisOrchestrator:
         settings: Settings,
         session_factory: async_sessionmaker[AsyncSession],
     ) -> "DemoAnalysisOrchestrator":
-        if settings.ai_provider_mode is not ProviderMode.REMOTE:
-            raise RuntimeError(
-                "analysis jobs require explicit SHUNDE_AI_PROVIDER_MODE=remote; no local fallback"
-            )
         providers = build_provider_bundle(settings)
-        if providers.plan.remote_llm is None or providers.plan.remote_embedding is None:
-            raise RuntimeError("remote LLM and embedding endpoints must both be configured")
+        selected_llm = (
+            providers.plan.remote_llm
+            if settings.ai_provider_mode is ProviderMode.REMOTE
+            else providers.plan.local_llm
+        )
+        selected_embedding = (
+            providers.plan.remote_embedding
+            if settings.ai_provider_mode is ProviderMode.REMOTE
+            else providers.plan.local_embedding
+        )
+        if selected_llm is None or selected_embedding is None:
+            raise RuntimeError("selected LLM and embedding endpoints must both be configured")
         provider_health = await providers.health()
         understanding_repository = SQLAlchemyUnderstandingRepository(session_factory)
         gazetteer, snapshot_id = await _build_gazetteer(settings, understanding_repository)
+        taxonomy_repository = SQLAlchemyTaxonomyRepository(session_factory)
+        active_taxonomy = await taxonomy_repository.get_active_version()
+        taxonomy_tree = (
+            await taxonomy_repository.get_tree(active_taxonomy.version_id)
+            if active_taxonomy is not None
+            else None
+        )
         return cls(
             settings,
             session_factory,
@@ -109,6 +127,7 @@ class DemoAnalysisOrchestrator:
             gazetteer,
             snapshot_id,
             provider_health,
+            taxonomy_tree,
         )
 
     @property
@@ -132,14 +151,23 @@ class DemoAnalysisOrchestrator:
             raise LookupError(f"import batch not found: {batch_id}")
         if batch.status not in {"completed", "partial"}:
             raise ValueError(f"import batch is not ready for analysis: {batch.status}")
-        sources = await self._understanding_repository.select_work_orders(batch_id)
+        scope = await self._understanding_repository.get_scope(analysis_state.job_id)
+        if scope is not None:
+            sources = await self._understanding_repository.load_work_orders(
+                batch_id,
+                0,
+                scope.target_work_order_count,
+                selected_work_order_ids=scope.work_order_ids,
+            )
+        else:
+            sources = await self._understanding_repository.select_work_orders(batch_id)
         if not sources:
-            raise ValueError("import batch contains no successful work orders")
+            raise ValueError("analysis scope contains no successful work orders")
         pipeline = self._build_indexing_pipeline()
         indexing = await pipeline.run(
             batch_id,
             batch.total_rows,
-            max_rows=len(sources),
+            max_rows=None,
             selected_work_order_ids=tuple(source.work_order_id for source in sources),
             idempotency_key=idempotency_key,
             analysis_state=analysis_state,
@@ -208,6 +236,8 @@ class DemoAnalysisOrchestrator:
                 result.segments,
                 result.understanding,
                 result.trace,
+                getattr(result, "facts", ()),
+                getattr(result, "classifications", ()),
             )
             for result in results
         )
@@ -277,23 +307,32 @@ class DemoAnalysisOrchestrator:
             pipeline_version=self._settings.analysis_pipeline_version,
             schema_version=self._settings.analysis_schema_version,
             knowledge_snapshot_id=self._snapshot_id,
+            taxonomy_tree=self._taxonomy_tree,
         )
 
     def _build_indexing_pipeline(self) -> UnderstandingAndIndexingPipeline:
-        remote_llm = self._providers.plan.remote_llm
-        remote_embedding = self._providers.plan.remote_embedding
-        if remote_llm is None or remote_embedding is None:
-            raise RuntimeError("remote provider plan is incomplete")
+        selected_llm = (
+            self._providers.plan.remote_llm
+            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            else self._providers.plan.local_llm
+        )
+        selected_embedding = (
+            self._providers.plan.remote_embedding
+            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            else self._providers.plan.local_embedding
+        )
+        if selected_llm is None or selected_embedding is None:
+            raise RuntimeError("selected provider plan is incomplete")
         return UnderstandingAndIndexingPipeline(
             self._understanding_repository,
             self._build_understanding(),
             self._providers.embeddings,
             pipeline_version=self._settings.analysis_pipeline_version,
             schema_version=self._settings.analysis_schema_version,
-            model_id=remote_llm.model_id,
-            embedding_model_id=remote_embedding.model_id,
-            provider=remote_llm.provider,
-            model_config_hash=remote_llm.config_hash(),
+            model_id=selected_llm.model_id,
+            embedding_model_id=selected_embedding.model_id,
+            provider=selected_llm.provider,
+            model_config_hash=selected_llm.config_hash(),
             chunk_size=self._settings.model_concurrency,
         )
 
@@ -311,14 +350,24 @@ class DemoAnalysisOrchestrator:
             if progress is not None:
                 await progress("clustering", {"match_edge_count": 0, "cluster_count": 0})
             return EventGraphRunResult(run_id, (), ())
-        remote_embedding = self._providers.plan.remote_embedding
-        if remote_embedding is None:
-            raise RuntimeError("remote embedding provider is not configured")
+        selected_embedding = (
+            self._providers.plan.remote_embedding
+            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            else self._providers.plan.local_embedding
+        )
+        selected_route = (
+            ProviderRoute.REMOTE
+            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            else ProviderRoute.LOCAL
+        )
+        if selected_embedding is None:
+            raise RuntimeError("selected embedding provider is not configured")
         matcher = RemoteSameEventMatcher(
             self._event_repository,
             self._providers.llm,
             pipeline_version="demo-same-event.v1",
             schema_version="same-event.v1",
+            route=selected_route,
         )
         graph = EventGraphService(
             self._event_repository,
@@ -326,7 +375,7 @@ class DemoAnalysisOrchestrator:
             PostgresCandidateRetriever(
                 self._session_factory,
                 self._providers.embeddings,
-                model_id=remote_embedding.model_id,
+                model_id=selected_embedding.model_id,
             ),
             matcher,
             concurrency=self._settings.model_concurrency,

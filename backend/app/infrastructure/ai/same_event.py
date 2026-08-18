@@ -25,11 +25,13 @@ class RemoteSameEventMatcher(SameEventMatcher):
         *,
         pipeline_version: str = "same-event.v1",
         schema_version: str = "same-event.v1",
+        route: ProviderRoute = ProviderRoute.REMOTE,
     ) -> None:
         self._events = events
         self._llm = llm
         self._pipeline_version = pipeline_version
         self._schema_version = schema_version
+        self._route = route
 
     async def match(
         self, left_event_id: EventInstanceId, right_event_id: EventInstanceId
@@ -46,7 +48,7 @@ class RemoteSameEventMatcher(SameEventMatcher):
             output_schema=SameEventResponse.model_json_schema(),
             schema_version=self._schema_version,
             pipeline_version=self._pipeline_version,
-            route=ProviderRoute.REMOTE,
+            route=self._route,
         )
         result = (await self._llm.generate_batch((request,)))[0]
         parsed = SameEventResponse.model_validate(result.structured_output)
@@ -57,7 +59,13 @@ class RemoteSameEventMatcher(SameEventMatcher):
             time_compatible=parsed.evidence.time_compatible,
             contradictions=tuple(parsed.evidence.contradictions),
         )
-        decision = SameEventDecision(parsed.same_event, parsed.confidence, evidence, result.trace)
+        decision = SameEventDecision(
+            parsed.same_event,
+            parsed.confidence,
+            evidence,
+            result.trace,
+            parsed.decision_status,
+        )
         return self._apply_hard_contradictions(left, right, decision)
 
     @staticmethod
@@ -109,6 +117,27 @@ class RemoteSameEventMatcher(SameEventMatcher):
         if left_entities and right_entities and left_entities.isdisjoint(right_entities):
             same_entity = False
             contradictions.append("canonical_entity_conflict")
+        if (
+            decision.same_event
+            and not left_entities
+            and not right_entities
+            and not left.location_signals
+            and not right.location_signals
+        ):
+            contradictions.append("insufficient_hard_anchors")
+            return SameEventDecision(
+                same_event=False,
+                confidence=min(decision.confidence, 0.5),
+                evidence=SameEventEvidence(
+                    same_entity=same_entity,
+                    same_location=same_location,
+                    same_issue=decision.evidence.same_issue,
+                    time_compatible=decision.evidence.time_compatible,
+                    contradictions=tuple(dict.fromkeys(contradictions)),
+                ),
+                trace=decision.trace,
+                decision_status="ambiguous",
+            )
         unique_contradictions = tuple(dict.fromkeys(contradictions))
         if not unique_contradictions:
             return decision
@@ -123,4 +152,5 @@ class RemoteSameEventMatcher(SameEventMatcher):
                 contradictions=unique_contradictions,
             ),
             trace=decision.trace,
+            decision_status=decision.decision_status,
         )

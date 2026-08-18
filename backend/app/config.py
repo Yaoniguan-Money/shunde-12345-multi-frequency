@@ -30,16 +30,17 @@ class Settings(BaseSettings):
     ai_local_embedding_protocol: str = "ollama"
     ai_remote_base_url: AnyHttpUrl | None = None
     ai_remote_llm_model_id: str | None = None
+    ai_remote_flash_llm_model_id: str | None = None
     ai_remote_embedding_model_id: str | None = None
     ai_remote_api_key: SecretStr | None = None
     ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0
-    # 默认 8 并发：qwen-plus/dashscope 支持并发调用，单次 LLM 推断 30-60 秒，
+    # 默认 8 并发：DashScope 兼容服务支持并发调用，单次 LLM 推断 30-60 秒，
     # 串行（concurrency=1）会导致 100 张工单研判 50-100 分钟。8 并发理论 8 倍提速，
     # 不改 schema/pipeline/prompt，正确性不变。若触发 429 限流可回调到 4。
     model_concurrency: int = 8
-    analysis_pipeline_version: str = "understanding.v2"
-    analysis_schema_version: str = "understanding.v2"
+    analysis_pipeline_version: str = "understanding.v3"
+    analysis_schema_version: str = "understanding.v3"
     dependency_timeout_seconds: float = 2.0
     cors_origins: tuple[str, ...] = ("http://127.0.0.1:5173", "http://localhost:5173")
     runtime_dir: Path = Path("./data/runtime")

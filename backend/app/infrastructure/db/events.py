@@ -23,6 +23,9 @@ from backend.app.domain.types import (
     VersionTrace,
     WorkOrderId,
 )
+from backend.app.domain.types import (
+    EventCandidate as DomainEventCandidate,
+)
 from backend.app.infrastructure.db.models import (
     AnalysisJob,
     AnalysisRun,
@@ -31,6 +34,9 @@ from backend.app.infrastructure.db.models import (
     EventInstance,
     EventMatchEdge,
     WorkOrder,
+)
+from backend.app.infrastructure.db.models import (
+    EventCandidate as EventCandidateModel,
 )
 
 
@@ -177,7 +183,7 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                         analysis_run_id=run_id,
                         same_event=edge.same_event,
                         confidence=edge.confidence,
-                        evidence=_same_event_evidence_dict(edge.evidence),
+                        evidence=_same_event_evidence_dict(edge.evidence, edge.decision_status),
                         provider=edge.trace.provider,
                         model_id=edge.trace.model_id,
                         model_config_hash=edge.trace.model_config_hash,
@@ -190,6 +196,45 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                             EventMatchEdge.left_event_id,
                             EventMatchEdge.right_event_id,
                             EventMatchEdge.analysis_run_id,
+                        ]
+                    )
+                )
+
+    async def save_candidate(
+        self,
+        run_id: UUID,
+        *,
+        event_id: EventInstanceId,
+        candidate: DomainEventCandidate,
+        retrieval_rank: int,
+        pipeline_version: str,
+        schema_version: str,
+    ) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    pg_insert(EventCandidateModel)
+                    .values(
+                        query_event_id=event_id,
+                        candidate_event_id=candidate.event_id,
+                        analysis_run_id=run_id,
+                        retrieval_rank=retrieval_rank,
+                        retrieval_score=candidate.score,
+                        evidence={
+                            "route": candidate.retrieval_route,
+                            "evidence": list(candidate.evidence),
+                            "structured_anchors": candidate.structured_anchors,
+                            "retrieval_version": candidate.retrieval_version,
+                            "exclusion_reason": candidate.exclusion_reason,
+                        },
+                        schema_version=schema_version,
+                        pipeline_version=pipeline_version,
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            EventCandidateModel.query_event_id,
+                            EventCandidateModel.candidate_event_id,
+                            EventCandidateModel.analysis_run_id,
                         ]
                     )
                 )
@@ -343,13 +388,16 @@ async def _find_legacy_cluster(
     return None
 
 
-def _same_event_evidence_dict(evidence: SameEventEvidence) -> dict[str, object]:
+def _same_event_evidence_dict(
+    evidence: SameEventEvidence, decision_status: str = "resolved"
+) -> dict[str, object]:
     return {
         "same_entity": evidence.same_entity,
         "same_location": evidence.same_location,
         "same_issue": evidence.same_issue,
         "time_compatible": evidence.time_compatible,
         "contradictions": list(evidence.contradictions),
+        "decision_status": decision_status,
     }
 
 
@@ -375,6 +423,7 @@ def _edge_record(row: EventMatchEdge) -> EventMatchEdgeRecord:
             pipeline_version=row.pipeline_version,
             provider=row.provider,
         ),
+        decision_status=str(raw.get("decision_status", "resolved")),
     )
 
 

@@ -203,7 +203,7 @@ GET  /attachments/{attachment_id}
 POST /multi-frequency-events/{id}/review
 ```
 
-WorkOrder 产品投影固定使用 `SHUNDE_ANALYSIS_PIPELINE_VERSION`（当前 `understanding.v2`）。历史 event 不删除，`GET /events?pipeline_version=understanding.v1` 是显式技术访问，不应混入 WorkOrder 产品详情。`work_order_analysis_results` 是 AI 处理状态真相源，不能由 event_count 反推。
+WorkOrder 产品投影固定使用 active `understanding.v3`；旧 v1/v2 只读保留，不混入 WorkOrder 产品详情。`GET /events?pipeline_version=...` 是显式技术访问。`work_order_analysis_results` 是 AI 处理状态真相源，不能由 event_count 反推。
 
 派生数据安全修复（不写 raw WorkOrder）：
 

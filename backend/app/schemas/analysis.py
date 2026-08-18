@@ -61,3 +61,5 @@ class AnalysisJobResponse(BaseModel):
     selected_rows: int
     processed_rows: int
     event_count: int
+    provider_profile_snapshot: dict[str, object] | None = None
+    execution_policy_snapshot: dict[str, object] | None = None

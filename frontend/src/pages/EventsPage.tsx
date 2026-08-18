@@ -107,6 +107,7 @@ export function EventsPage(): JSX.Element {
       <div className="page-header__top">
         <div>
           <h1 className="page-header__title">多频事件</h1>
+          <p className="text-muted">高频状态由后端按 reported_at 的滚动三天日历窗口判定。</p>
         </div>
       </div>
 

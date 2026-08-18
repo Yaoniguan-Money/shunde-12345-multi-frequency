@@ -3,6 +3,8 @@
 from uuid import UUID
 
 from backend.app.domain.catalog import (
+    CatalogFacets,
+    CatalogOverview,
     ClusterDetail,
     ClusterSummary,
     EventDetail,
@@ -15,6 +17,24 @@ from backend.app.domain.ports.catalog import CatalogRepository
 class CatalogService:
     def __init__(self, repository: CatalogRepository) -> None:
         self._repository = repository
+
+    async def get_overview(
+        self,
+        *,
+        query: str | None,
+        analysis_state: str | None,
+        event_type: str | None,
+        title_tag: str | None,
+    ) -> CatalogOverview:
+        return await self._repository.get_overview(
+            query=query,
+            analysis_state=analysis_state,
+            event_type=event_type,
+            title_tag=title_tag,
+        )
+
+    async def get_facets(self) -> CatalogFacets:
+        return await self._repository.get_facets()
 
     async def list_work_orders(
         self,

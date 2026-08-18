@@ -14,6 +14,20 @@ import { ImportsPage } from "./ImportsPage";
 const PREVIEW_URL = /\/imports\/preview$/;
 const IMPORT_URL = /\/imports$/;
 const ANALYSIS_CREATE_URL = /\/analysis-jobs$/;
+const PROVIDER_PROFILES_URL = /\/ai\/provider-profiles$/;
+const PROVIDER_PROFILES = {
+  items: [{
+    profile_id: "cloud-qwen",
+    deployment_kind: "cloud",
+    display_name: "云端模型（千问，已适配）",
+    configured: true,
+    validation_status: "validated",
+    last_validated_at: "2026-08-18T00:00:00Z",
+    model_display_name: "qwen-plus",
+    service_description: "synthetic test provider",
+    configuration_version: "test",
+  }],
+};
 function analysisGetUrl(jobId: string): RegExp {
   return new RegExp(`/analysis-jobs/${jobId}$`);
 }
@@ -124,12 +138,6 @@ const urlMatches = (input: RequestInfo | URL, regex: RegExp): boolean => {
   return regex.test(u.pathname);
 };
 
-const hasText =
-  (text: string): ((content: string, node: Element | null) => boolean) =>
-  (_content, node) => {
-    return (node?.textContent ?? "").includes(text);
-  };
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -151,6 +159,7 @@ describe("ImportsPage - preview stage", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
+        if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
         throw new Error(`unexpected fetch: ${String(input)}`);
       });
 
@@ -208,6 +217,7 @@ describe("ImportsPage - preview stage", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
+      if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
       throw new Error(`unexpected fetch: ${String(input)}`);
     });
 
@@ -249,6 +259,7 @@ describe("ImportsPage - import stage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
         throw new Error(`unexpected fetch: ${String(input)}`);
       });
 
@@ -285,6 +296,7 @@ describe("ImportsPage - import stage", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
+      if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
       throw new Error(`unexpected fetch: ${String(input)}`);
     });
 
@@ -304,7 +316,7 @@ describe("ImportsPage - import stage", () => {
 });
 
 describe("ImportsPage - analysis stage", () => {
-  test("max_work_orders must be between 1 and 300", async () => {
+  test("uses the validated provider and always targets the full successful batch", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       if (urlMatches(input, PREVIEW_URL)) {
         return new Response(
@@ -322,6 +334,7 @@ describe("ImportsPage - analysis stage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
       throw new Error(`unexpected fetch: ${String(input)}`);
     });
 
@@ -334,30 +347,12 @@ describe("ImportsPage - analysis stage", () => {
     fireEvent.click(screen.getByTestId("execute-import-btn"));
     await screen.findByTestId("batch-id");
 
-    const maxInput = screen.getByTestId(
-      "max-work-orders",
-    ) as HTMLInputElement;
     const createBtn = screen.getByTestId(
       "create-job-btn",
     ) as HTMLButtonElement;
-
-    // 初始合法
-    expect(createBtn.disabled).toBe(false);
-
-    // 超出上限
-    fireEvent.change(maxInput, { target: { value: "301" } });
-    expect(createBtn.disabled).toBe(true);
-    expect(
-      screen.getByText(/请输入 1 - 300 之间的整数/),
-    ).toBeInTheDocument();
-
-    // 恢复合法
-    fireEvent.change(maxInput, { target: { value: "50" } });
-    expect(createBtn.disabled).toBe(false);
-
-    // 低于下限
-    fireEvent.change(maxInput, { target: { value: "0" } });
-    expect(createBtn.disabled).toBe(true);
+    await waitFor(() => expect(createBtn).not.toBeDisabled());
+    expect(screen.queryByTestId("max-work-orders")).not.toBeInTheDocument();
+    expect(screen.getByText(/本次将研判全部/)).toBeInTheDocument();
   });
 
   test("queued -> running -> completed UI with CTA to view events", async () => {
@@ -396,6 +391,7 @@ describe("ImportsPage - analysis stage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
         throw new Error(`unexpected fetch: ${String(input)}`);
       });
 
@@ -407,6 +403,7 @@ describe("ImportsPage - analysis stage", () => {
     await screen.findByTestId("mapping-content");
     fireEvent.click(screen.getByTestId("execute-import-btn"));
     await screen.findByTestId("batch-id");
+    await waitFor(() => expect(screen.getByTestId("create-job-btn")).not.toBeDisabled());
     fireEvent.click(screen.getByTestId("create-job-btn"));
 
     // 创建后应显示 queued 状态徽章（StatusBadge data-testid=status-badge，中文映射"排队中"）
@@ -471,6 +468,7 @@ describe("ImportsPage - analysis stage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
         throw new Error(`unexpected fetch: ${String(input)}`);
       });
 
@@ -482,6 +480,7 @@ describe("ImportsPage - analysis stage", () => {
     await screen.findByTestId("mapping-content");
     fireEvent.click(screen.getByTestId("execute-import-btn"));
     await screen.findByTestId("batch-id");
+    await waitFor(() => expect(screen.getByTestId("create-job-btn")).not.toBeDisabled());
     fireEvent.click(screen.getByTestId("create-job-btn"));
 
     // 失败状态展示错误原文
@@ -493,7 +492,7 @@ describe("ImportsPage - analysis stage", () => {
     // 重新发起回到填表阶段
     fireEvent.click(screen.getByTestId("retry-job-btn"));
     await waitFor(() => {
-      expect(screen.getByTestId("max-work-orders")).toBeInTheDocument();
+      expect(screen.getByTestId("create-job-btn")).toBeInTheDocument();
       expect(screen.queryByTestId("analysis-job")).not.toBeInTheDocument();
     });
 
@@ -518,6 +517,7 @@ describe("ImportsPage - analysis stage", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
+      if (urlMatches(input, PROVIDER_PROFILES_URL)) return new Response(JSON.stringify(PROVIDER_PROFILES), { status: 200 });
       throw new Error(`unexpected fetch: ${String(input)}`);
     });
 
@@ -530,13 +530,9 @@ describe("ImportsPage - analysis stage", () => {
     fireEvent.click(screen.getByTestId("execute-import-btn"));
     await screen.findByTestId("batch-id");
 
-    // 明确提示只研判 N 条，不提供全量研判按钮
-    // hint 文本被 <strong> 分割，用函数匹配器并接受多匹配（取至少一个）
-    expect(
-      screen.getAllByText(
-        hasText("本次只研判 50 条工单，不会自动处理全部数据。"),
-      ).length,
-    ).toBeGreaterThan(0);
+    // 研判目标固定为导入批次全部成功工单，不提供 max_work_orders 输入。
+    expect(screen.getByText(/本次将研判全部/)).toBeInTheDocument();
+    expect(screen.queryByTestId("max-work-orders")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /全量|全部研判|分析全部/ }),
     ).not.toBeInTheDocument();

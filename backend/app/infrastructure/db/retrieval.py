@@ -59,6 +59,12 @@ class PostgresCandidateRetriever(CandidateRetriever):
                 event_id=EventInstanceId(event_id),
                 score=max(0.0, min(1.0, 1.0 - float(raw_distance))),
                 evidence=("pgvector_cosine_distance", f"embedding_model:{self._model_id}"),
+                retrieval_route="embedding_top_k",
+                structured_anchors={
+                    "work_order_excluded": True,
+                    "embedding_model": self._model_id,
+                },
+                retrieval_version="candidate-generator.v2",
             )
             for event_id, raw_distance in rows
         )

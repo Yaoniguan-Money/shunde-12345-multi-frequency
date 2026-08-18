@@ -2,6 +2,21 @@
 
 TRAE appends entries; do not rewrite history.
 
+## 2026-08-18 — WP2→WP7 contracts and provider/task binding
+
+- 改动目标：将 `understanding.v3`、冻结 AnalysisScope、已验证 Provider Profile、V3 证据投影和数据库 overview/facets 接入真实产品合同。
+- API 变更：新增 `/ai/provider-profiles`、`/ai/provider-profiles/{profile_id}/validate`、`/work-orders/overview`、`/work-orders/facets`；分析任务响应增加 Provider Profile/Execution Policy snapshot；事件详情增加分类、当前问题/诉求、history、evidence spans、unknown 字段。
+- 前端变更：导入页选择并验证 Provider，创建任务前强制已验证；删除旧 `max_work_orders` 测试契约；高频页显示后端 reported_at 三日窗口语义。
+- 数据库：新增 `provider_profiles` Alembic migration `d3e4f5a6b7c8`；候选记录保存召回路线、结构化锚点和版本；SameEvent ambiguous 不生成正向边。
+- 验证：后端 89 tests、前端 33 tests、Ruff、format、Pyright、ESLint、Vite build 通过；尚未执行真实 100 条 WP8 回放。
+- 已知问题：完整 ScopeFilter 级联筛选、Gold Set、真实 local/cloud provider 回放和 Playwright 主流程仍待 WP8 验收，不能由本条视为完成。
+
+## 2026-08-18 — DS Flash provider switch validation
+
+- 新增 `SHUNDE_AI_REMOTE_FLASH_LLM_MODEL_ID` 显式配置；`cloud-qwen` Profile、任务快照和幂等键会绑定实际 Flash 模型，配置版本变化会使旧验证状态失效。
+- 真实合成验证使用 `qwen-flash`：health 通过，结构化推理被 DashScope 返回 HTTP 400 `overdue-payment`。这证明切换已经生效，但当前账户仍欠费，未启动新的 100 条云端回放。
+- 状态：WP8 `BLOCKED`，等待可用 DashScope 账户/额度；不使用同一账户 fallback、不用 mock 替代真实验证。
+
 ## 2026-08-15 — 非技术用户详情页重构
 
 - 多频事件详情改为业务概览、关联工单、关联判断、处理记录、人工纠错的卡片式层级；原文与智能研判结果分区显示。

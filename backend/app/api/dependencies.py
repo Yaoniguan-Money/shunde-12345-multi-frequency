@@ -6,6 +6,7 @@ from backend.app.application.handlers.health import HealthCheckHandler
 from backend.app.application.handlers.imports import ImportHandler
 from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
+from backend.app.application.services.provider_profiles import ProviderProfileService
 from backend.app.application.services.review import EventReviewService
 from backend.app.application.services.taxonomy import TaxonomyService
 from backend.app.domain.attachments import AttachmentStore
@@ -90,3 +91,12 @@ def get_taxonomy_service(request: Request) -> TaxonomyService:
 
 
 TaxonomyServiceDependency = Annotated[TaxonomyService, Depends(get_taxonomy_service)]
+
+
+def get_provider_profile_service(request: Request) -> ProviderProfileService:
+    return request.app.state.provider_profile_service
+
+
+ProviderProfileServiceDependency = Annotated[
+    ProviderProfileService, Depends(get_provider_profile_service)
+]

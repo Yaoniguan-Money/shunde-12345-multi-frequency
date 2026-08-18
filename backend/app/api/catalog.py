@@ -35,11 +35,47 @@ from backend.app.schemas.catalog import (
     ReviewStatus,
     TraceResponse,
     WorkOrderDetailResponse,
+    WorkOrderFacetsResponse,
     WorkOrderListResponse,
+    WorkOrderOverviewResponse,
     WorkOrderSummaryResponse,
 )
 
 router = APIRouter(tags=["catalog"])
+
+
+@router.get("/work-orders/overview", response_model=WorkOrderOverviewResponse)
+async def work_order_overview(
+    service: CatalogServiceDependency,
+    query: str | None = Query(default=None, min_length=1, max_length=128),
+    analysis_state: str | None = Query(default=None, max_length=32),
+    event_type: str | None = Query(default=None, max_length=128),
+    title_tag: str | None = Query(default=None, max_length=64),
+) -> WorkOrderOverviewResponse:
+    overview = await service.get_overview(
+        query=query,
+        analysis_state=analysis_state,
+        event_type=event_type,
+        title_tag=title_tag,
+    )
+    return WorkOrderOverviewResponse(
+        total_work_orders=overview.total_work_orders,
+        total_event_instances=overview.total_event_instances,
+        analysis_state_counts=overview.analysis_state_counts,
+        multi_frequency_work_order_count=overview.multi_frequency_work_order_count,
+        high_frequency_cluster_count=overview.high_frequency_cluster_count,
+    )
+
+
+@router.get("/work-orders/facets", response_model=WorkOrderFacetsResponse)
+async def work_order_facets(
+    service: CatalogServiceDependency,
+) -> WorkOrderFacetsResponse:
+    facets = await service.get_facets()
+    return WorkOrderFacetsResponse(
+        classification_nodes=facets.classification_nodes,
+        source_tags=facets.source_tags,
+    )
 
 
 @router.get("/work-orders", response_model=WorkOrderListResponse)
@@ -83,7 +119,7 @@ async def list_events(
     service: CatalogServiceDependency,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
-    pipeline_version: str | None = Query(default="understanding.v2", max_length=64),
+    pipeline_version: str | None = Query(default="understanding.v3", max_length=64),
     work_order_id: UUID | None = None,
 ) -> EventListResponse:
     items, total = await service.list_events(
@@ -186,6 +222,15 @@ def _event(event: CatalogEvent) -> EventResponse:
         evidence=list(event.evidence),
         trace=_trace(event.trace),
         occurrence_date=event.occurrence_date,
+        classification_node_id=event.classification_node_id,
+        classification_source=event.classification_source,
+        classification_confidence=event.classification_confidence,
+        classification_ambiguity=event.classification_ambiguity,
+        current_problem=event.current_problem,
+        current_request=event.current_request,
+        history_context=event.history_context,
+        evidence_spans=list(event.evidence_spans),
+        unknown_fields=list(event.unknown_fields),
     )
 
 

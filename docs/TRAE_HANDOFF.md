@@ -44,7 +44,7 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 
 - 本轮（演讲稿对齐总升级计划）锁定：任务前在 UI 选择 Provider Profile，任务创建后冻结快照，不再依赖 `SHUNDE_AI_PROVIDER_MODE` 全局环境变量切换。
 - 本地路径必须真实执行 LLM、Embedding、结构化输出和最小端到端研判；只做 `/health`、模型列表或单次 ping 不算完成。
-- 云端当前适配千问（`qwen-plus` + `qwen3.7-text-embedding` 1024 维），但领域层不出现厂商分支；任一 provider 失败都明确可见且无 fallback。
+- 云端当前适配千问（默认 `qwen-plus` + `qwen3.7-text-embedding` 1024 维，可用显式 `SHUNDE_AI_REMOTE_FLASH_LLM_MODEL_ID` 切到 Flash），但领域层不出现厂商分支；任一 provider 失败都明确可见且无 fallback。
 - Provider 模式 API：`GET /ai/provider-profiles` 返回本地和云端可选 Profile（脱敏，不返回 API Key / Base URL）；`POST /ai/provider-profiles/{profile_id}/validate` 真实执行有界完整链路验证（LLM 结构化 EventFact、DB44 分类节点约束、Embedding 维度、SameEvent 结构化判断、最小导入夹具到聚类投影），不使用政府原文。前端只传 `profile_id`。
 - `understanding.v3` 替代 `understanding.v2` 成为 active projection；旧 v1/v2 数据保留审计可达。v3 文本分段固定为 `current_complaint / current_request / history_context / department_reply`，每个分段保留原文起止区间和分段依据；EventFact[] 只从 `current_complaint + current_request` 创建。
 - 标准分类完整对齐 DB44/T 2479—2024 附录 A：14 一级、99 二级、515 三级；来源代码确定性映射，无代码时 AI 只能选 `classification_node_id`，不能生成自由文本类型。`090499` 两条不同父路径保留。Taxonomy API：`GET /taxonomies/active`、`GET /taxonomies/{version}/tree`。
@@ -69,6 +69,7 @@ TRAE 只调用以下 HTTP contract，不直接访问数据库或模型：
 ```text
 GET /work-orders?offset=0&limit=20&query=
 GET /work-orders/overview
+GET /work-orders/facets
 GET /work-orders/{work_order_id}
 GET /events?offset=0&limit=20&pipeline_version=understanding.v3&work_order_id=
 GET /events/{event_id}

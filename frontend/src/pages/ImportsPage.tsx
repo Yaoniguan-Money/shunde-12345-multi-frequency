@@ -13,6 +13,11 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { createAnalysisJob, getAnalysisJob } from "../api/analysis";
+import {
+  listProviderProfiles,
+  validateProviderProfile,
+  type ProviderProfile,
+} from "../api/providerProfiles";
 import { describeApiError } from "../api/client";
 import {
   executeImport,
@@ -348,11 +353,23 @@ function StageImportProgress({
   elapsed,
   error,
   onStartAnalysis,
+  profiles,
+  selectedProviderId,
+  onSelectProvider,
+  onValidateProvider,
+  validatingProviderId,
+  providerError,
 }: {
   result: ImportResponse | null;
   elapsed: number;
   error: string | null;
   onStartAnalysis: () => void;
+  profiles: ProviderProfile[];
+  selectedProviderId: string;
+  onSelectProvider: (profileId: string) => void;
+  onValidateProvider: (profileId: string) => void;
+  validatingProviderId: string | null;
+  providerError: string | null;
 }): JSX.Element {
   if (error) {
     return (
@@ -361,6 +378,9 @@ function StageImportProgress({
       </div>
     );
   }
+
+  const selectedProfile = profiles.find((profile) => profile.profile_id === selectedProviderId);
+  const providerReady = selectedProfile?.validation_status === "validated";
 
   if (!result) {
     return (
@@ -405,7 +425,27 @@ function StageImportProgress({
           </div>
       </div>
       <p className="text-muted" style={{ margin: "16px 0" }}>成功导入 <strong>{result.successful_rows}</strong> 张工单，本次将研判全部 <strong>{result.successful_rows}</strong> 张。</p>
-        <button data-testid="create-job-btn" className="btn btn--primary btn--lg" onClick={onStartAnalysis}>开始智能研判</button>
+        <div className="provider-profile-grid" aria-label="模型路径选择">
+          {profiles.map((profile) => {
+            const selected = profile.profile_id === selectedProviderId;
+            const status = profile.validation_status === "validated" ? "已验证" : profile.validation_status === "validation_failed" ? "验证失败" : profile.configured ? "待验证" : "未配置";
+            return (
+              <div key={profile.profile_id} className={`provider-profile-card${selected ? " provider-profile-card--selected" : ""}`}>
+                <button type="button" className="provider-profile-card__select" onClick={() => onSelectProvider(profile.profile_id)}>
+                  <strong>{profile.display_name}</strong>
+                  <span>{status}</span>
+                  <small>{profile.service_description}</small>
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => onValidateProvider(profile.profile_id)} disabled={validatingProviderId === profile.profile_id}>
+                  {validatingProviderId === profile.profile_id ? "验证中..." : "验证链路"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {providerError ? <div className="error-banner"><CloseIcon size={12} />Provider 信息读取失败：{providerError}</div> : null}
+        {!providerReady ? <div className="text-muted">请先验证已选择的模型路径，任务创建后路径将锁定。</div> : null}
+        <button data-testid="create-job-btn" className="btn btn--primary btn--lg" onClick={onStartAnalysis} disabled={!providerReady}>开始智能研判</button>
       </div>
     </div>
   );
@@ -587,6 +627,10 @@ export function ImportsPage(): JSX.Element {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
+  const [providerProfiles, setProviderProfiles] = useState<ProviderProfile[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState("cloud-qwen");
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [validatingProviderId, setValidatingProviderId] = useState<string | null>(null);
 
   const [currentAiStep] = useState(0);
   const [aiStepStatuses, setAiStepStatuses] = useState<AiStepStatus[]>(
@@ -615,6 +659,25 @@ export function ImportsPage(): JSX.Element {
       stopPolling();
     };
   }, []);
+
+  useEffect(() => {
+    if (step !== 3 || !importResult) return;
+    let active = true;
+    listProviderProfiles()
+      .then((response) => {
+        if (!active) return;
+        setProviderProfiles(response.items);
+        if (!response.items.some((profile) => profile.profile_id === selectedProviderId)) {
+          setSelectedProviderId(response.items[0]?.profile_id ?? "");
+        }
+      })
+      .catch((error) => {
+        if (active) setProviderError(describeApiError(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [step, importResult, selectedProviderId]);
 
   const handleFileSelected = useCallback((f: File) => {
     setFile(f);
@@ -694,6 +757,7 @@ export function ImportsPage(): JSX.Element {
     try {
       const created = await createAnalysisJob({
         import_batch_id: importResult.batch_id,
+        provider_profile_id: selectedProviderId || undefined,
       });
       setJobId(created.job_id);
       setJob(created);
@@ -712,13 +776,18 @@ export function ImportsPage(): JSX.Element {
               setAiStepStatuses(AI_STEPS.map(() => "done"));
               queryClient.invalidateQueries({ queryKey: ["clusters"] });
               pushToast("研判完成", "success");
-            } else if (data.status === "failed") {
+            } else if (data.status === "failed" || data.status === "completed_with_failures") {
               stopPolling();
-              setJobError(data.error ?? "未知错误");
-              pushToast("研判失败", "error");
+              if (data.status === "failed") {
+                setJobError(data.error ?? "未知错误");
+                pushToast("研判失败", "error");
+              } else {
+                pushToast("研判完成，但有工单失败", "info");
+              }
             }
-          } catch {
-            // keep polling
+          } catch (error) {
+            stopPolling();
+            setJobError(describeApiError(error));
           }
         }, POLL_INTERVAL_MS);
       } else if (created.status === "completed") {
@@ -731,7 +800,23 @@ export function ImportsPage(): JSX.Element {
       setJobError(describeApiError(e));
       pushToast(`创建研判失败：${describeApiError(e)}`, "error");
     }
-  }, [importResult, pushToast, queryClient]);
+  }, [importResult, pushToast, queryClient, selectedProviderId]);
+
+  const handleValidateProvider = useCallback(async (profileId: string) => {
+    setValidatingProviderId(profileId);
+    setProviderError(null);
+    try {
+      const response = await validateProviderProfile(profileId);
+      setProviderProfiles((current) => current.map((profile) => profile.profile_id === profileId ? response.profile : profile));
+      if (response.profile.validation_status !== "validated") {
+        setProviderError("Provider 验证未通过，请查看后端返回的阶段结果。");
+      }
+    } catch (error) {
+      setProviderError(describeApiError(error));
+    } finally {
+      setValidatingProviderId(null);
+    }
+  }, []);
 
   const jobIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -759,14 +844,14 @@ export function ImportsPage(): JSX.Element {
     pushToast("历史记录功能开发中", "info");
   }, [pushToast]);
 
-  const aiProgress = job && job.selected_rows > 0
-    ? Math.min(100, Math.round((job.processed_rows / job.selected_rows) * 100))
+  const aiProgress = job && job.target_work_order_count > 0
+    ? Math.min(100, Math.round((job.processed_work_order_count / job.target_work_order_count) * 100))
     : 0;
 
-  const displayProcessed = job?.processed_rows ?? 0;
-  const displayEvents = job?.event_count ?? 0;
+  const displayProcessed = job?.processed_work_order_count ?? 0;
+  const displayEvents = job?.produced_event_instance_count ?? 0;
   const displayClusters = job?.cluster_count ?? 0;
-  const displayTotal = job?.selected_rows ?? importResult?.successful_rows ?? 0;
+  const displayTotal = job?.target_work_order_count ?? importResult?.successful_rows ?? 0;
 
   const aiStatusText = useMemo(() => {
     if (job?.status === "queued") return "研判任务排队中...";
@@ -815,6 +900,12 @@ export function ImportsPage(): JSX.Element {
           elapsed={importElapsed}
           error={importError}
           onStartAnalysis={handleStartAnalysis}
+          profiles={providerProfiles}
+          selectedProviderId={selectedProviderId}
+          onSelectProvider={setSelectedProviderId}
+          onValidateProvider={handleValidateProvider}
+          validatingProviderId={validatingProviderId}
+          providerError={providerError}
         />
       ) : null}
 

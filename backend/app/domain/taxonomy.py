@@ -131,7 +131,7 @@ class CodeResolution:
 class ClassificationOutcome:
     """标准分类输出合同。"""
 
-    classification_node_id: TaxonomyNodeId
+    classification_node_id: TaxonomyNodeId | None
     candidate_node_ids: tuple[TaxonomyNodeId, ...]
     decision: ClassificationDecision
     confidence: float

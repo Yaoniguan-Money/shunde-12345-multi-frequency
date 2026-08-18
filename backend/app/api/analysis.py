@@ -81,6 +81,8 @@ def _response(view: AnalysisJobView) -> AnalysisJobResponse:
         selected_rows=view.selected_rows,
         processed_rows=view.processed_rows,
         event_count=view.event_count,
+        provider_profile_snapshot=view.provider_profile_snapshot,
+        execution_policy_snapshot=view.execution_policy_snapshot,
     )
 
 

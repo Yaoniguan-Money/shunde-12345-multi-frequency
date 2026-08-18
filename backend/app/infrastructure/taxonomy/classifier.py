@@ -25,9 +25,8 @@ from dataclasses import dataclass
 from backend.app.domain.taxonomy import (
     ClassificationDecision,
     ClassificationOutcome,
-    ClassificationSource,
-    CodeResolution,
     TaxonomyNode,
+    TaxonomyNodeId,
     TaxonomyTree,
 )
 
@@ -97,9 +96,7 @@ def classify_by_source_code(
             resolved_node=None,
         )
 
-    matching_nodes = tuple(
-        node for node in tree.nodes if node.printed_code == code
-    )
+    matching_nodes = tuple(node for node in tree.nodes if node.printed_code == code)
 
     if not matching_nodes:
         return SourceCodeClassificationResult(
@@ -138,8 +135,7 @@ def classify_by_source_code(
         narrowed = tuple(
             node
             for node in matching_nodes
-            if node.parent_node_id
-            and _node_matches_parent_code(node, tree, parent_normalized)
+            if node.parent_node_id and _node_matches_parent_code(node, tree, parent_normalized)
         )
         if len(narrowed) == 1:
             node = narrowed[0]
@@ -150,7 +146,9 @@ def classify_by_source_code(
                     decision=ClassificationDecision.RESOLVED,
                     confidence=1.0,
                     evidence_refs=(),
-                    reason=f"deterministic source_code match with parent {parent_normalized}: {code}",
+                    reason=(
+                        f"deterministic source_code match with parent {parent_normalized}: {code}"
+                    ),
                     provider_profile=None,
                     taxonomy_version=tree.version.standard_name,
                 ),
@@ -173,9 +171,7 @@ def classify_by_source_code(
     )
 
 
-def _node_matches_parent_code(
-    node: TaxonomyNode, tree: TaxonomyTree, parent_code: str
-) -> bool:
+def _node_matches_parent_code(node: TaxonomyNode, tree: TaxonomyTree, parent_code: str) -> bool:
     """Check if node's parent has the given printed_code."""
     if node.parent_node_id is None:
         return False
@@ -207,11 +203,12 @@ def classify_by_model(
     node_by_id = tree.node_by_id
 
     valid_candidates = tuple(
-        nid for nid in model_candidate_ids if nid in node_by_id
+        TaxonomyNodeId(nid) for nid in model_candidate_ids if TaxonomyNodeId(nid) in node_by_id
     )
 
-    if model_node_id and model_node_id in node_by_id:
-        node = node_by_id[model_node_id]
+    model_node = TaxonomyNodeId(model_node_id) if model_node_id else None
+    if model_node is not None and model_node in node_by_id:
+        node = node_by_id[model_node]
         return ModelClassificationResult(
             outcome=ClassificationOutcome(
                 classification_node_id=node.node_id,

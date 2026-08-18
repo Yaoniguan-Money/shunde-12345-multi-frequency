@@ -108,6 +108,24 @@ class ExtractedEvent:
     time_signals: tuple[str, ...]
     mention_indexes: tuple[int, ...]
     evidence: tuple[EventEvidence, ...] = ()
+    current_problem: str | None = None
+    current_request: str | None = None
+    history_context: str | None = None
+    previous_work_order_references: tuple[str, ...] = ()
+    focal_object_mentions: tuple[str, ...] = ()
+    responsible_party_mentions: tuple[str, ...] = ()
+    location_mentions: tuple[str, ...] = ()
+    occurrence_interval_start: date | None = None
+    occurrence_interval_end: date | None = None
+    evidence_spans: tuple[EvidenceSpan, ...] = ()
+    unknown_fields: tuple[str, ...] = ()
+    classification_node_id: str | None = None
+    classification_source: str | None = None
+    classification_confidence: float | None = None
+    classification_ambiguity: str | None = None
+    classification_candidate_node_ids: tuple[str, ...] = ()
+    classification_evidence_refs: tuple[str, ...] = ()
+    classification_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

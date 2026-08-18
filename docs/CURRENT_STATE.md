@@ -1,6 +1,6 @@
 # CURRENT_STATE.md
 
-更新日期：2026-08-16（Asia/Shanghai）
+更新日期：2026-08-18（Asia/Shanghai）
 
 状态只允许：`DONE / PARTIAL / BLOCKED / PLANNED`。本文件区分已经实测的 shipped state 与后续目标，不以骨架冒充业务功能。
 
@@ -12,13 +12,37 @@
 |---|---|---|
 | WP0 冻结术语、ADR 和接口 | DONE | PRODUCT_SCOPE / ARCHITECTURE / DECISIONS / TRAE_HANDOFF 已对齐锁定决策；ADR-010/012/015/018 标记 superseded，新增 ADR-019 至 ADR-026；字段、枚举、时间、高频、Same Event 定义全部评审通过 |
 | WP1 附录 A 目录与迁移 | DONE | domain/taxonomy.py、ports/taxonomy.py、infrastructure/taxonomy/loader.py+resolver.py、infrastructure/db/taxonomy.py、db/models/taxonomy.py、schemas/taxonomy.py、api/taxonomy.py、application/services/taxonomy.py、scripts/seed_taxonomy.py、alembic b1c2d3e4f5a6 迁移；真实 DB 种子化成功：14/99/515/514/090499两条/13空/关键代码校验通过；16 个 taxonomy 测试 + 52 个既有测试全部通过（68 passed） |
-| WP2 领域数据、Reported At 与 AnalysisScope | PARTIAL | **已完成**：删除 `max_work_orders`/`selection_mode`（后端 API+service+repo+测试+前端 API+ImportsPage+Dashboard+ClusterDetail），全批次研判，新增 `target_work_order_count`/`processed_work_order_count`/`failed_work_order_count`/`produced_event_instance_count`/`completed_with_failures` 状态/`provider_profile_id`；删除 Dashboard 质量指标板块；删除 ClusterDetailPage 附件编号输入。**WP2 新增（本轮）**：WorkOrder 新增 `reported_at`/`reported_at_source`/`reported_at_parser_version`/`imported_at`/`source_tags`/`raw_payload_hash` 6字段+Alembic迁移(c2d3e4f5a6b7)；EventInstance V3 新增16个字段（classification_node_id/classification_source/classification_confidence/classification_ambiguity/current_problem/current_request/history_context/previous_work_order_references/focal_object_mentions/responsible_party_mentions/location_mentions/occurrence_interval_start/end/evidence_spans/unknown_fields）；AnalysisScope 模型+freeze_scope/get_scope 方法实现 scope 冻结逻辑；ReportedAtResolver 领域服务（三优先级解析：字段映射→工单号→unknown）+ShundeWroNumberDateParser（工单号前6位YYMMDD解析）；ImportRow 扩展 reported_at/source_tags/raw_payload_hash 字段；SQLAlchemyImportRepository 写入新字段；WorkOrderSource 携带 reported_at/source_tags；89 个后端测试全部通过（含14个 reported_at 新增测试）。**待实施**：WP3 understanding.v3 pipeline 接入 V3 字段、AnalysisScope 在 analysis pipeline 中实际调用冻结 |
-| WP3 理解、事项拆分与标准分类 | PLANNED | 待实施：v3 分段、EventFact[]、source code 确定性分类、taxonomy-constrained 分类 |
-| WP4 Reality Object、候选、Same Event 与高频 | PLANNED | 待实施：分型 resolver、混合有界候选、SameEventJudgeV2、移除 low_frequency（后端已确认无 low_frequency） |
-| WP5 Provider 按任务选择与性能 | PLANNED | 待实施：ProviderProfileRegistry、per-job snapshot、独立 Execution Policy |
-| WP6 API、统计和分类筛选 | PLANNED | 待实施：overview/facets、taxonomy tree、100/103 数字分离 |
-| WP7 前端对齐 | PARTIAL | **已完成**：删除研判数量输入（ImportsPage）、删除质量指标板块（DashboardPage）、删除附件编号输入（ClusterDetailPage）、更新 API 类型。**待实施**：Provider 卡、完整分类级联、高频状态无低频、详情证据 |
-| WP8 真实回放、评测与交付 | PLANNED | 待实施：100 条真实导入、本地 E2E、云端千问性能、Gold Set、Playwright |
+| WP2 领域数据、Reported At 与 AnalysisScope | PARTIAL | 代码、迁移和单元回归已完成：全批次成功工单冻结为不可变 Scope；V3 EventInstance/ComplaintSegment 字段持久化；reported_at 三优先级解析；原始字段不改写。仍缺真实隔离库 100 条 → 103 事项验收证据。 |
+| WP3 理解、事项拆分与标准分类 | PARTIAL | `understanding.v3` schema、current/history/reply/request 分段、EventFact/分类结果和 evidence span 已接通持久化；taxonomy validator 可返回 resolved/ambiguous/unresolved。来源代码全量回放和 89/90 Gold Set 尚未实跑。 |
+| WP4 Reality Object、候选、Same Event 与高频 | PARTIAL | embedding 仅作 bounded recall；候选召回路线/版本、SameEvent 结构化状态和硬锚点门槛已接入，reported_at 三日频次投影已改用 WorkOrder。角色化对象全量 Gold Set、组级一致性和真实五条美涂士回放尚未完成。 |
+| WP5 Provider 按任务选择与性能 | PARTIAL | Provider Profile API、合成验证链路、持久化 registry、任务 Profile/Execution Policy snapshot、local/cloud 固定路由已接入；本地与 qwen-plus 合成链路曾真实通过，当前 qwen-flash 切换验证被 DashScope 账户欠费拒绝，100 条失败隔离回放未完成。 |
+| WP6 API、统计和分类筛选 | PARTIAL | 新增 `/work-orders/overview`、`/work-orders/facets`，数据库聚合区分全量工单/事项/分页；taxonomy tree 和 V3 详情证据已可读。统一 ScopeFilter 的完整分类/频次/来源筛选仍需补齐。 |
+| WP7 前端对齐 | PARTIAL | Provider 卡、验证门槛、全批次提示、锁定任务轮询、真实失败展示、V3 详情字段和高频提示已接入；前端门禁 33/33。完整 taxonomy 级联、多频详情证据/纠正历史的演讲稿主流程仍需 Playwright 实跑。 |
+| WP8 真实回放、评测与交付 | BLOCKED | 代码门禁已通过；qwen-flash 合成验证实际返回 DashScope `overdue-payment`，因此云端 100 条、Gold Set、三次性能和 Playwright 完整闭环尚未执行，等待可用云端账户/额度。 |
+
+### 2026-08-18 implementation checkpoint
+
+本轮实际通过：
+
+```text
+uv run ruff check .                 PASS
+uv run ruff format --check .        PASS — 192 files formatted
+uv run pyright backend              PASS — 0 errors, 0 warnings
+uv run pytest -q                    PASS — 89 passed
+pnpm --dir frontend lint            PASS
+pnpm --dir frontend test --run     PASS — 33 passed
+pnpm --dir frontend build          PASS
+uv run alembic -c backend/alembic.ini heads  PASS — d3e4f5a6b7c8
+```
+
+新增 Provider registry 迁移为 `d3e4f5a6b7c8_add_provider_profiles.py`，已在当前真实开发库执行 `alembic upgrade head`。真实 100 条重导入和 Gold Set 尚未完成；local provider 与 cloud qwen-plus 曾完成合成验证，本次切换 qwen-flash 的合成验证被账户欠费阻塞，不能由代码门禁替代真实回放。
+
+### 2026-08-18 DS Flash 切换实测
+
+- 新增显式配置 `SHUNDE_AI_REMOTE_FLASH_LLM_MODEL_ID`；设置为 `qwen-flash` 时，`cloud-qwen` Profile 的模型快照、任务幂等键和实际调用均使用 `qwen-flash`，不会复用 qwen-plus 的失败任务。
+- 隔离端口 `18082` 真实调用 `POST /ai/provider-profiles/cloud-qwen/validate`：Profile 识别为 `qwen-flash`，health 通过；结构化推理返回 HTTP 400 `overdue-payment`（账户欠费），不是模型/schema 兼容错误。
+- 因 Provider 未验证，未启动新的 100 条任务。此前 qwen-plus 的 V3 任务 `90edb603-b4e2-4298-b4af-3624c2f5c9de` 在 0/100 因同一账户欠费失败；没有产生新的 V3 事项，不能把数据库已有的旧 v2 100/103 结果当作 V3 验收证据。
+- 该阻塞属于外部账户/额度条件；恢复可用 DS 账户后，设置同一 Flash 变量、重新验证 Profile，再按固定 Scope 启动 100 条回放。
 
 ### WP0 已落地的口径冻结
 
@@ -390,7 +414,7 @@ scripts/check.ps1                            PASS — backend 36 tests; frontend
 | Imported vs analyzed | DONE | Analysis job 回传 `total_rows / selected_rows / processed_rows / selection_mode`；128,278 导入不再被表述为 128,278 AI 已研判 |
 | Recurrence selection | DONE | `sequential` 保持兼容；`recurrence_candidates` 仅用确定性复发词/编号引用路由 bounded 工单，不产生 SameEvent |
 | Real selection smoke | DONE | `--limit 100`：顺序样本 recurrence=6/reference=9；candidate 样本 recurrence=51/reference=90，实际 source rows 2–777；未调用任何模型 |
-| Current pipeline projection | DONE | 真实 DB 修复前 v1=11 events/v2=32 events；WorkOrder 产品详情和 event/cluster counts 只使用当前 `understanding.v2`，历史未删 |
+| Current pipeline projection | PARTIAL | 旧库已有 v1/v2 数据；新 Analysis Job 已在应用边界固定 `understanding.v3`，旧 v1/v2 只读保留。真实 V3 全量任务仍需完成后再将产品数据状态改为 DONE |
 | WorkOrder analysis outcome | DONE | 新增 `work_order_analysis_results`，按 run/work order/pipeline 记录 `analyzed / analyzed_no_event / failed`；无记录明确为 `unprocessed` |
 | Entity integrity | DONE | 审计发现 30/30 entity refs 无法 join，影响 26 events；迁移+修复脚本后 orphan refs=0，新写入只接受真实 CanonicalEntity ID |
 | Correction undo | DONE | 2-work-order cluster remove 1 后不出现在多频列表，direct detail 返回 `is_multi_frequency=false` 及纠错历史；confirm 后恢复列表 |

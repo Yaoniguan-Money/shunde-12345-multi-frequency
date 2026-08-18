@@ -24,6 +24,7 @@ from backend.app.infrastructure.db.models.events import (
     EventMatchEdge,
     WorkOrderEmbedding,
 )
+from backend.app.infrastructure.db.models.provider import ProviderProfile
 from backend.app.infrastructure.db.models.taxonomy import TaxonomyNode, TaxonomyVersion
 from backend.app.infrastructure.db.models.work_orders import (
     ComplaintSegment,
@@ -57,4 +58,5 @@ __all__ = [
     "TaxonomyVersion",
     "WorkOrder",
     "WorkOrderEmbedding",
+    "ProviderProfile",
 ]

@@ -55,11 +55,7 @@ class TaxonomyClassificationValidator:
                 )
 
         if outcome.decision == ClassificationDecision.AMBIGUOUS:
-            valid_candidates = tuple(
-                nid
-                for nid in outcome.candidate_node_ids
-                if nid in node_by_id
-            )
+            valid_candidates = tuple(nid for nid in outcome.candidate_node_ids if nid in node_by_id)
             if not valid_candidates:
                 return ClassificationOutcome(
                     classification_node_id=None,

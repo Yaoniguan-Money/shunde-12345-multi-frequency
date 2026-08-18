@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import cast
 from uuid import UUID
 
 from backend.app.domain.ports.analysis import CandidateRetriever, SameEventMatcher
@@ -98,6 +99,21 @@ class EventGraphService:
                 )
 
         candidate_sets = await asyncio.gather(*(retrieve(event) for event in events))
+        save_candidate = cast(
+            Callable[..., Awaitable[object]] | None,
+            getattr(self._graph, "save_candidate", None),
+        )
+        if callable(save_candidate):
+            for event, candidates in zip(events, candidate_sets, strict=True):
+                for rank, candidate in enumerate(candidates, start=1):
+                    await save_candidate(
+                        run_id,
+                        event_id=event.event_id,
+                        candidate=candidate,
+                        retrieval_rank=rank,
+                        pipeline_version=self._pipeline_version,
+                        schema_version=self._schema_version,
+                    )
         pairs: list[tuple[EventInstanceId, EventInstanceId]] = []
         for event, candidates in zip(events, candidate_sets, strict=True):
             for candidate in candidates:
@@ -213,6 +229,7 @@ def _edge(
         confidence=decision.confidence,
         evidence=decision.evidence,
         trace=decision.trace,
+        decision_status=decision.decision_status,
     )
 
 

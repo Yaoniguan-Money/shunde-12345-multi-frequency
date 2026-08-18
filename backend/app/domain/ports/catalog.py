@@ -4,6 +4,8 @@ from typing import Protocol
 from uuid import UUID
 
 from backend.app.domain.catalog import (
+    CatalogFacets,
+    CatalogOverview,
     ClusterDetail,
     ClusterSummary,
     EventDetail,
@@ -13,6 +15,17 @@ from backend.app.domain.catalog import (
 
 
 class CatalogRepository(Protocol):
+    async def get_overview(
+        self,
+        *,
+        query: str | None,
+        analysis_state: str | None,
+        event_type: str | None,
+        title_tag: str | None,
+    ) -> CatalogOverview: ...
+
+    async def get_facets(self) -> CatalogFacets: ...
+
     async def list_work_orders(
         self,
         *,

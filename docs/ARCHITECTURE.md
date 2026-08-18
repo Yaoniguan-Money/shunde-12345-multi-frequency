@@ -18,6 +18,8 @@
 
 本轮（演讲稿对齐总升级计划）的目标架构与旧 Cloud-first Demo Core 不同，旧路径只读保留。新链路 `understanding.v3` 替代 `understanding.v2` 成为 active projection；旧 v1/v2 数据保留审计可达。
 
+当前实现 checkpoint（2026-08-18）：AnalysisScope、V3 understanding 持久化、Provider Profile registry/snapshot、候选路线证据、SameEvent 状态和 overview/facets API 已落地并通过代码门禁；真实 100 条回放、Gold Set 和性能数据仍是 WP8 未执行项。
+
 ## Pipeline (V3, target)
 
 ```text

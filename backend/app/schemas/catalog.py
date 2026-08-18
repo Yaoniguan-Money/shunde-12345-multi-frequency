@@ -39,6 +39,17 @@ class EventResponse(BaseModel):
     evidence: list[dict[str, object]]
     trace: TraceResponse
     occurrence_date: date | None
+    classification_node_id: str | None = None
+    classification_source: str | None = None
+    classification_confidence: float | None = None
+    classification_ambiguity: str | None = None
+    current_problem: str | None = None
+    current_request: str | None = None
+    history_context: str | None = None
+    evidence_spans: list[dict[str, object]] = Field(
+        default_factory=lambda: list[dict[str, object]]()
+    )
+    unknown_fields: list[str] = Field(default_factory=list)
 
 
 class WorkOrderSummaryResponse(BaseModel):
@@ -66,6 +77,19 @@ class WorkOrderListResponse(BaseModel):
     offset: int
     limit: int
     total: int
+
+
+class WorkOrderOverviewResponse(BaseModel):
+    total_work_orders: int
+    total_event_instances: int
+    analysis_state_counts: dict[str, int]
+    multi_frequency_work_order_count: int
+    high_frequency_cluster_count: int
+
+
+class WorkOrderFacetsResponse(BaseModel):
+    classification_nodes: dict[str, int]
+    source_tags: dict[str, int]
 
 
 class WorkOrderDetailResponse(BaseModel):

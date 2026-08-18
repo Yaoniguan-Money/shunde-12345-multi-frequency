@@ -169,6 +169,10 @@ class EventCandidate:
     event_id: EventInstanceId
     score: float
     evidence: tuple[str, ...] = ()
+    retrieval_route: str = "embedding_top_k"
+    structured_anchors: dict[str, object] = field(default_factory=_empty_object_dict)
+    retrieval_version: str | None = None
+    exclusion_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +196,7 @@ class SameEventDecision:
     confidence: float
     evidence: SameEventEvidence
     trace: VersionTrace
+    decision_status: str = "resolved"
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +207,7 @@ class EventMatchEdgeRecord:
     confidence: float
     evidence: SameEventEvidence
     trace: VersionTrace
+    decision_status: str = "resolved"
 
 
 @dataclass(frozen=True, slots=True)

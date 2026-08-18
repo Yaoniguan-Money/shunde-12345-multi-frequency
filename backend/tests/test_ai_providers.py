@@ -5,6 +5,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from backend.app.application.services.provider_profiles import ProviderProfileService
 from backend.app.config import Settings
 from backend.app.domain.types import (
     EmbeddingRequest,
@@ -138,6 +139,27 @@ def test_remote_configuration_requires_explicit_key() -> None:
     )
     with pytest.raises(ProviderConfigurationError, match="API key"):
         build_provider_plan(settings)
+
+
+@pytest.mark.asyncio
+async def test_cloud_profile_prefers_explicit_flash_model() -> None:
+    service = ProviderProfileService(
+        Settings(
+            ai_provider_mode=ProviderMode.REMOTE,
+            ai_remote_base_url="https://remote.example.test/v1",
+            ai_remote_llm_model_id="qwen-plus",
+            ai_remote_flash_llm_model_id="qwen-flash",
+            ai_remote_embedding_model_id="embedding",
+            ai_remote_api_key=SecretStr("test-only"),
+        )
+    )
+
+    profiles = await service.list_profiles()
+    cloud = next(profile for profile in profiles if profile.profile_id == "cloud-qwen")
+
+    assert cloud.model_display_name == "qwen-flash"
+    assert "qwen-flash" in cloud.configuration_version
+    assert "test-only" not in cloud.model_dump_json()
 
 
 def test_hybrid_policy_cannot_be_silently_changed() -> None:

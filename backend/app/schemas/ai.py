@@ -1,5 +1,6 @@
 from datetime import date
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -143,5 +144,7 @@ class SameEventEvidenceResponse(BaseModel):
 
 class SameEventResponse(BaseModel):
     same_event: bool
+    decision_status: Literal["resolved", "ambiguous", "unresolved"] = "resolved"
     confidence: float = Field(ge=0, le=1)
     evidence: SameEventEvidenceResponse
+    evidence_refs: list[str] = Field(default_factory=_empty_strings)

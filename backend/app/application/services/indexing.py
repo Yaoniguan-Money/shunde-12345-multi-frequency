@@ -130,6 +130,8 @@ class UnderstandingAndIndexingPipeline:
                         result.segments,
                         result.understanding,
                         result.trace,
+                        getattr(result, "facts", ()),
+                        getattr(result, "classifications", ()),
                     )
                     for result in results
                 )

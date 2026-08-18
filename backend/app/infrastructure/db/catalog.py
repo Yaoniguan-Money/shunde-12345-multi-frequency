@@ -1,6 +1,6 @@
 """SQLAlchemy read repository for the demo catalog API."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -10,6 +10,8 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from backend.app.domain.catalog import (
     CatalogEvent,
+    CatalogFacets,
+    CatalogOverview,
     ClusterDetail,
     ClusterReference,
     ClusterSummary,
@@ -44,10 +46,113 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        pipeline_version: str = "understanding.v2",
+        pipeline_version: str = "understanding.v3",
     ) -> None:
         self._session_factory = session_factory
         self._pipeline_version = pipeline_version
+
+    async def get_overview(
+        self,
+        *,
+        query: str | None,
+        analysis_state: str | None,
+        event_type: str | None,
+        title_tag: str | None,
+    ) -> CatalogOverview:
+        async with self._session_factory() as session:
+            condition = self._work_order_condition(
+                query=query,
+                analysis_state=analysis_state,
+                event_type=event_type,
+                title_tag=title_tag,
+            )
+            total_work_orders = int(
+                await session.scalar(select(func.count()).select_from(WorkOrder).where(condition))
+                or 0
+            )
+            total_event_instances = int(
+                await session.scalar(
+                    select(func.count(EventInstance.id))
+                    .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
+                    .where(condition, EventInstance.pipeline_version == self._pipeline_version)
+                )
+                or 0
+            )
+            state_counts: dict[str, int] = {}
+            for state in ("unprocessed", "analyzed_no_event", "analyzed", "failed"):
+                state_condition = self._work_order_condition(
+                    query=query,
+                    analysis_state=state,
+                    event_type=event_type,
+                    title_tag=title_tag,
+                )
+                state_counts[state] = int(
+                    await session.scalar(
+                        select(func.count()).select_from(WorkOrder).where(state_condition)
+                    )
+                    or 0
+                )
+            valid_ids = _valid_multi_frequency_cluster_ids(self._pipeline_version)
+            multi_frequency_work_order_count = int(
+                await session.scalar(
+                    select(func.count(func.distinct(EventInstance.work_order_id)))
+                    .join(
+                        EventClusterMember,
+                        EventClusterMember.event_instance_id == EventInstance.id,
+                    )
+                    .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
+                    .where(
+                        EventClusterMember.event_cluster_id.in_(valid_ids),
+                        EventInstance.pipeline_version == self._pipeline_version,
+                        condition,
+                    )
+                )
+                or 0
+            )
+            cluster_ids = tuple(
+                (
+                    await session.scalars(
+                        select(EventCluster.id).where(EventCluster.id.in_(valid_ids))
+                    )
+                ).all()
+            )
+            frequency_records = await self._cluster_frequency_records(session, cluster_ids)
+            high_frequency_cluster_count = sum(
+                is_high_frequency_work_order_count(rolling_window_max_distinct_work_orders(records))
+                for records in frequency_records.values()
+            )
+            return CatalogOverview(
+                total_work_orders=total_work_orders,
+                total_event_instances=total_event_instances,
+                analysis_state_counts=state_counts,
+                multi_frequency_work_order_count=multi_frequency_work_order_count,
+                high_frequency_cluster_count=high_frequency_cluster_count,
+            )
+
+    async def get_facets(self) -> CatalogFacets:
+        async with self._session_factory() as session:
+            node_rows = (
+                await session.execute(
+                    select(
+                        EventInstance.classification_node_id,
+                        func.count(EventInstance.id),
+                    )
+                    .where(
+                        EventInstance.pipeline_version == self._pipeline_version,
+                        EventInstance.classification_node_id.is_not(None),
+                    )
+                    .group_by(EventInstance.classification_node_id)
+                )
+            ).all()
+            work_orders = (await session.scalars(select(WorkOrder.source_tags))).all()
+            source_tags: dict[str, int] = {}
+            for tags in work_orders:
+                for tag in tags or []:
+                    source_tags[str(tag)] = source_tags.get(str(tag), 0) + 1
+            return CatalogFacets(
+                classification_nodes={str(node): int(count) for node, count in node_rows},
+                source_tags=source_tags,
+            )
 
     async def list_work_orders(
         self,
@@ -527,6 +632,15 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             evidence=_evidence_items(event.evidence),
             trace=_trace(event),
             occurrence_date=event.occurrence_date,
+            classification_node_id=event.classification_node_id,
+            classification_source=event.classification_source,
+            classification_confidence=event.classification_confidence,
+            classification_ambiguity=event.classification_ambiguity,
+            current_problem=event.current_problem,
+            current_request=event.current_request,
+            history_context=event.history_context,
+            evidence_spans=tuple(event.evidence_spans or []),
+            unknown_fields=tuple(str(value) for value in (event.unknown_fields or [])),
         )
 
     async def _entity_map(
@@ -572,9 +686,10 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                 select(
                     EventClusterMember.event_cluster_id,
                     EventInstance.work_order_id,
-                    EventInstance.occurrence_date,
+                    WorkOrder.reported_at,
                 )
                 .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+                .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
                 .where(
                     EventClusterMember.event_cluster_id.in_(ids),
                     EventInstance.pipeline_version == self._pipeline_version,
@@ -582,8 +697,9 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             )
         ).all()
         records: dict[UUID, list[tuple[UUID, date | None]]] = {}
-        for cluster_id, work_order_id, occurrence_date in rows:
-            records.setdefault(cluster_id, []).append((work_order_id, occurrence_date))
+        for cluster_id, work_order_id, reported_at in rows:
+            reported_date = reported_at.date() if isinstance(reported_at, datetime) else None
+            records.setdefault(cluster_id, []).append((work_order_id, reported_date))
         return {cluster_id: tuple(values) for cluster_id, values in records.items()}
 
     async def _cluster_edges(

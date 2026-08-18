@@ -3,7 +3,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from backend.app.domain.analysis import StructuredUnderstanding, TextSegment
+from backend.app.domain.analysis import EventFact, StructuredUnderstanding, TextSegment
+from backend.app.domain.taxonomy import ClassificationOutcome
 from backend.app.domain.types import VersionTrace
 
 
@@ -24,6 +25,8 @@ class UnderstandingRecord:
     segments: tuple[TextSegment, ...]
     understanding: StructuredUnderstanding
     trace: VersionTrace
+    facts: tuple[EventFact, ...] = ()
+    classifications: tuple[ClassificationOutcome, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +68,8 @@ class AnalysisJobView:
     selected_rows: int = 0
     processed_rows: int = 0
     event_count: int = 0
+    provider_profile_snapshot: dict[str, object] | None = None
+    execution_policy_snapshot: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)

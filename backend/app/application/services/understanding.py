@@ -8,7 +8,6 @@ from backend.app.domain.analysis import (
     EvidenceSpan,
     ExtractedEvent,
     ExtractedMention,
-    MentionRole,
     SegmentType,
     StructuredUnderstanding,
     TextSegment,
@@ -18,13 +17,12 @@ from backend.app.domain.ports.gazetteer import MentionResolver
 from backend.app.domain.taxonomy import (
     ClassificationDecision,
     ClassificationOutcome,
+    ClassificationSource,
+    TaxonomyNodeId,
     TaxonomyTree,
 )
 from backend.app.domain.types import LLMRequest, VersionTrace
-from backend.app.infrastructure.taxonomy.classifier import (
-    classify_by_model,
-    classify_by_source_code,
-)
+from backend.app.infrastructure.taxonomy.classifier import classify_by_model
 from backend.app.infrastructure.taxonomy.validator import TaxonomyClassificationValidator
 from backend.app.schemas.ai import (
     EventEvidenceItem,
@@ -32,6 +30,7 @@ from backend.app.schemas.ai import (
     UnderstandingTrace,
     WorkOrderUnderstanding,
 )
+from backend.app.schemas.ai import ExtractedEvent as SchemaExtractedEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,37 +180,88 @@ class WorkOrderUnderstandingService:
                     for index, understanding in enumerate(understandings)
                 ]
         return tuple(
-            UnderstandingResult(
+            self._build_result(
                 items[index][0],
                 segmented[index][2],
-                self._to_domain(understandings[index], segmented[index][2]),
+                understandings[index],
                 traces[index],
             )
             for index in range(len(items))
         )
 
+    def _build_result(
+        self,
+        work_order_id: UUID,
+        segments: tuple[TextSegment, ...],
+        understanding: WorkOrderUnderstanding,
+        trace: VersionTrace,
+    ) -> UnderstandingResult:
+        domain = self._to_domain(understanding, segments, self._taxonomy_tree)
+        facts = tuple(
+            EventFact(
+                event_type=event.event_type,
+                behavior=event.behavior,
+                normalized_summary=event.normalized_summary,
+                current_problem=event.current_problem,
+                current_request=event.current_request,
+                history_context=event.history_context,
+                location_signals=event.location_signals,
+                time_signals=event.time_signals,
+                mention_indexes=event.mention_indexes,
+                evidence=event.evidence,
+                evidence_spans=event.evidence_spans,
+                unknown_fields=event.unknown_fields,
+                previous_work_order_references=event.previous_work_order_references,
+                occurrence_interval_start=event.occurrence_interval_start,
+                occurrence_interval_end=event.occurrence_interval_end,
+            )
+            for event in domain.events
+        )
+        classifications = tuple(
+            ClassificationOutcome(
+                classification_node_id=(
+                    TaxonomyNodeId(event.classification_node_id)
+                    if event.classification_node_id
+                    else None
+                ),
+                candidate_node_ids=tuple(
+                    TaxonomyNodeId(node_id) for node_id in event.classification_candidate_node_ids
+                ),
+                decision=(
+                    ClassificationDecision(event.classification_ambiguity)
+                    if event.classification_ambiguity
+                    else ClassificationDecision.UNRESOLVED
+                ),
+                confidence=event.classification_confidence or 0.0,
+                evidence_refs=event.classification_evidence_refs,
+                reason=event.classification_reason,
+                provider_profile=trace.provider,
+                taxonomy_version=(
+                    self._taxonomy_tree.version.standard_name
+                    if self._taxonomy_tree is not None
+                    else "unknown"
+                ),
+            )
+            for event in domain.events
+            if event.classification_node_id
+            or event.classification_candidate_node_ids
+            or event.classification_ambiguity
+        )
+        return UnderstandingResult(work_order_id, segments, domain, trace, facts, classifications)
+
     @staticmethod
     def _to_domain(
         understanding: WorkOrderUnderstanding,
         segments: tuple[TextSegment, ...],
+        taxonomy_tree: TaxonomyTree | None = None,
     ) -> StructuredUnderstanding:
         segments_by_ordinal = {segment.ordinal: segment for segment in segments}
         events = tuple(
-            ExtractedEvent(
-                event_type=event.event_type,
-                behavior=event.behavior,
-                normalized_summary=event.normalized_summary,
-                location_signals=tuple(event.location_signals),
-                time_signals=tuple(
-                    signal.strip()
-                    for signal in event.time_signals
-                    if signal.strip()
-                    and any(signal.strip() in segment.text for segment in segments)
-                ),
-                mention_indexes=tuple(event.mention_indexes),
-                evidence=WorkOrderUnderstandingService._validated_event_evidence(
-                    event.evidence, segments_by_ordinal
-                ),
+            WorkOrderUnderstandingService._to_event(
+                event,
+                segments_by_ordinal,
+                segments,
+                taxonomy_tree,
             )
             for event in understanding.events
         )
@@ -234,6 +284,87 @@ class WorkOrderUnderstandingService:
                 for mention in understanding.mentions
             ),
             events=WorkOrderUnderstandingService._normalize_intra_work_order_events(events),
+        )
+
+    @staticmethod
+    def _to_event(
+        event: SchemaExtractedEvent,
+        segments_by_ordinal: dict[int, TextSegment],
+        segments: tuple[TextSegment, ...],
+        taxonomy_tree: TaxonomyTree | None,
+    ) -> ExtractedEvent:
+        classification_node_id = None
+        classification_source = None
+        classification_confidence = None
+        classification_ambiguity = None
+        classification_candidate_node_ids: tuple[str, ...] = ()
+        classification_evidence_refs: tuple[str, ...] = ()
+        classification_reason = None
+        if event.classification is not None:
+            classification_node_id = event.classification.classification_node_id
+            classification_source = ClassificationSource.MODEL.value
+            classification_confidence = event.classification.confidence
+            classification_ambiguity = event.classification.decision
+            classification_candidate_node_ids = tuple(event.classification.candidate_node_ids)
+            classification_evidence_refs = tuple(event.classification.evidence_refs)
+            classification_reason = event.classification.reason
+            if taxonomy_tree is not None:
+                outcome = classify_by_model(
+                    event.classification.classification_node_id,
+                    event.classification.candidate_node_ids,
+                    event.classification.confidence,
+                    event.classification.decision,
+                    event.classification.reason,
+                    event.classification.evidence_refs,
+                    taxonomy_tree,
+                    None,
+                ).outcome
+                classification_node_id = (
+                    str(outcome.classification_node_id)
+                    if outcome.classification_node_id is not None
+                    else None
+                )
+                classification_ambiguity = outcome.decision.value
+                classification_candidate_node_ids = tuple(
+                    str(node_id) for node_id in outcome.candidate_node_ids
+                )
+                classification_confidence = outcome.confidence
+                classification_reason = outcome.reason
+        evidence_spans = WorkOrderUnderstandingService._validated_evidence_spans(
+            event.evidence_spans, segments_by_ordinal
+        )
+        return ExtractedEvent(
+            event_type=event.event_type,
+            behavior=event.behavior,
+            normalized_summary=event.normalized_summary,
+            location_signals=tuple(event.location_signals),
+            time_signals=tuple(
+                signal.strip()
+                for signal in event.time_signals
+                if signal.strip() and any(signal.strip() in segment.text for segment in segments)
+            ),
+            mention_indexes=tuple(event.mention_indexes),
+            evidence=WorkOrderUnderstandingService._validated_event_evidence(
+                event.evidence, segments_by_ordinal
+            ),
+            current_problem=event.current_problem,
+            current_request=event.current_request,
+            history_context=event.history_context,
+            previous_work_order_references=tuple(event.previous_work_order_references),
+            focal_object_mentions=tuple(event.focal_object_mentions),
+            responsible_party_mentions=tuple(event.responsible_party_mentions),
+            location_mentions=tuple(event.location_mentions),
+            occurrence_interval_start=event.occurrence_interval_start,
+            occurrence_interval_end=event.occurrence_interval_end,
+            evidence_spans=evidence_spans,
+            unknown_fields=tuple(event.unknown_fields),
+            classification_node_id=classification_node_id,
+            classification_source=classification_source,
+            classification_confidence=classification_confidence,
+            classification_ambiguity=classification_ambiguity,
+            classification_candidate_node_ids=classification_candidate_node_ids,
+            classification_evidence_refs=classification_evidence_refs,
+            classification_reason=classification_reason,
         )
 
     @staticmethod
@@ -285,6 +416,31 @@ class WorkOrderUnderstandingService:
                     quote=normalized_quote,
                     start_offset=segment.start_offset + relative_start,
                     end_offset=segment.start_offset + relative_start + len(normalized_quote),
+                )
+            )
+        return tuple(validated)
+
+    @staticmethod
+    def _validated_evidence_spans(
+        spans: Sequence[EvidenceSpanItem], segments_by_ordinal: dict[int, TextSegment]
+    ) -> tuple[EvidenceSpan, ...]:
+        validated: list[EvidenceSpan] = []
+        for item in spans:
+            segment = segments_by_ordinal.get(item.segment_ordinal)
+            quote = item.quote.strip()
+            if segment is None or not quote:
+                continue
+            relative_start = segment.text.find(quote)
+            if relative_start < 0:
+                continue
+            validated.append(
+                EvidenceSpan(
+                    field_name=item.field_name,
+                    segment_ordinal=segment.ordinal,
+                    segment_type=segment.segment_type.value,
+                    quote=quote,
+                    start_offset=segment.start_offset + relative_start,
+                    end_offset=segment.start_offset + relative_start + len(quote),
                 )
             )
         return tuple(validated)

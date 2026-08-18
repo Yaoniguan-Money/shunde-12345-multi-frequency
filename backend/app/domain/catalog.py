@@ -17,6 +17,10 @@ def _empty_object_dict() -> dict[str, object]:
     return {}
 
 
+def _empty_int_dict() -> dict[str, int]:
+    return {}
+
+
 HIGH_FREQUENCY_WINDOW_DAYS = 3
 HIGH_FREQUENCY_MIN_WORK_ORDERS = 3
 
@@ -82,6 +86,15 @@ class CatalogEvent:
     evidence: tuple[dict[str, object], ...]
     trace: VersionTrace
     occurrence_date: date | None = None
+    classification_node_id: str | None = None
+    classification_source: str | None = None
+    classification_confidence: float | None = None
+    classification_ambiguity: str | None = None
+    current_problem: str | None = None
+    current_request: str | None = None
+    history_context: str | None = None
+    evidence_spans: tuple[dict[str, object], ...] = ()
+    unknown_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,3 +222,18 @@ class ClusterDetail:
     handling_history: tuple[HandlingRecordView, ...] = ()
     human_corrections: tuple[HumanCorrectionView, ...] = ()
     removed_members: tuple[RemovedClusterMember, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogOverview:
+    total_work_orders: int
+    total_event_instances: int
+    analysis_state_counts: dict[str, int] = field(default_factory=_empty_int_dict)
+    multi_frequency_work_order_count: int = 0
+    high_frequency_cluster_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogFacets:
+    classification_nodes: dict[str, int] = field(default_factory=_empty_int_dict)
+    source_tags: dict[str, int] = field(default_factory=_empty_int_dict)

@@ -233,6 +233,9 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                     current_stage=job.current_stage or "queued",
                 )
             metrics = run.metrics or {}
+            scope = await session.scalar(
+                select(AnalysisScope).where(AnalysisScope.analysis_job_id == job.id)
+            )
             persisted_edge_count = await session.scalar(
                 select(func.count(EventMatchEdge.id)).where(
                     EventMatchEdge.analysis_run_id == run.id
@@ -278,6 +281,16 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                 selected_rows=self._metric_int(metrics, "selected_rows"),
                 processed_rows=self._metric_int(metrics, "processed_rows", "rows_processed"),
                 event_count=self._metric_int(metrics, "event_count", "events_extracted"),
+                provider_profile_snapshot=(
+                    dict(scope.provider_profile_snapshot)
+                    if scope is not None and scope.provider_profile_snapshot is not None
+                    else None
+                ),
+                execution_policy_snapshot=(
+                    dict(scope.execution_policy_snapshot)
+                    if scope is not None and scope.execution_policy_snapshot is not None
+                    else None
+                ),
             )
 
     async def list_resumable_jobs(self) -> tuple[ResumableAnalysisJob, ...]:
@@ -581,6 +594,33 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                             "location_signals": event.location_signals,
                             "time_signals": list(event.time_signals),
                             "occurrence_date": occurrence_date_from_signals(event.time_signals),
+                            "classification_node_id": event.classification_node_id,
+                            "classification_source": event.classification_source,
+                            "classification_confidence": event.classification_confidence,
+                            "classification_ambiguity": event.classification_ambiguity,
+                            "current_problem": event.current_problem,
+                            "current_request": event.current_request,
+                            "history_context": event.history_context,
+                            "previous_work_order_references": list(
+                                event.previous_work_order_references
+                            ),
+                            "focal_object_mentions": list(event.focal_object_mentions),
+                            "responsible_party_mentions": list(event.responsible_party_mentions),
+                            "location_mentions": list(event.location_mentions),
+                            "occurrence_interval_start": event.occurrence_interval_start,
+                            "occurrence_interval_end": event.occurrence_interval_end,
+                            "evidence_spans": [
+                                {
+                                    "field_name": span.field_name,
+                                    "segment_ordinal": span.segment_ordinal,
+                                    "segment_type": span.segment_type,
+                                    "quote": span.quote,
+                                    "start_offset": span.start_offset,
+                                    "end_offset": span.end_offset,
+                                }
+                                for span in event.evidence_spans
+                            ],
+                            "unknown_fields": list(event.unknown_fields),
                             "evidence": {
                                 "source": "raw_segment_quote",
                                 "items": [
@@ -595,6 +635,13 @@ class SQLAlchemyUnderstandingRepository(UnderstandingRepository):
                                     for item in event.evidence
                                 ],
                                 "mention_indexes": event.mention_indexes,
+                                "classification_candidate_node_ids": list(
+                                    event.classification_candidate_node_ids
+                                ),
+                                "classification_evidence_refs": list(
+                                    event.classification_evidence_refs
+                                ),
+                                "classification_reason": event.classification_reason,
                                 "analysis_run_id": str(run_id),
                             },
                             "model_id": trace.model_id,
