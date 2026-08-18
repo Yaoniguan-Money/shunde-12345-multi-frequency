@@ -252,3 +252,100 @@ export interface DependenciesResponse {
   gazetteer: DependencyState;
   local_model: DependencyState;
 }
+
+export type AgentHandlingStatus = "unhandled" | "investigating" | "resolved";
+
+export interface AgentTimeRange {
+  kind: "relative" | "absolute";
+  value?: string | null;
+  start?: ISODateString | null;
+  end?: ISODateString | null;
+}
+
+export interface AgentQueryDSL {
+  intent: string;
+  time_range: AgentTimeRange | null;
+  keywords: string[];
+  topic: string | null;
+  entity: string | null;
+  location: string | null;
+  event_type: string | null;
+  handling_status: AgentHandlingStatus | null;
+  cluster_status: string | null;
+  sort: "relevance" | "newest" | "oldest";
+  limit: number;
+  work_order_ids: UUID[];
+}
+
+export interface AgentTopicGroup { label: string; count: number; }
+
+export interface AgentWorkOrderResult {
+  work_order_id: UUID;
+  external_work_order_number: string | null;
+  title: string | null;
+  reported_at: ISODateString | null;
+  time_label: string;
+  normalized_summary: string | null;
+  location: string | null;
+  event_type: string | null;
+  handling_status: string;
+  cluster_ids: UUID[];
+  is_multi_frequency: boolean;
+  retrieval_evidence: string[];
+}
+
+export interface AgentQueryResponse {
+  original_query: string;
+  compiled_query: AgentQueryDSL;
+  planner_mode: "llm" | "rules";
+  answer: string;
+  disclaimer: string;
+  total: number;
+  topic_groups: AgentTopicGroup[];
+  handling_groups: AgentTopicGroup[];
+  work_orders: AgentWorkOrderResult[];
+  cluster_ids: UUID[];
+}
+
+export interface WorksetResponse {
+  id: UUID;
+  name: string;
+  original_query: string;
+  query_snapshot: AgentQueryDSL;
+  work_order_ids: UUID[];
+  cluster_ids: UUID[];
+  created_at: ISODateString;
+  created_by: string;
+  result_count: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface BatchActionPreviewResponse {
+  preview_id: UUID;
+  action_type: "add_handling_record" | "set_handling_status" | "export_csv";
+  affected_work_order_count: number;
+  affected_cluster_count: number;
+  skipped_work_order_count: number;
+  before_status_counts: Record<string, number>;
+  after_status: string | null;
+  message: string;
+}
+
+export interface BatchActionExecuteResponse {
+  preview_id: UUID;
+  action_type: "add_handling_record" | "set_handling_status" | "export_csv";
+  executed_work_order_count: number;
+  audit_action: string;
+  csv_content: string | null;
+}
+
+export interface DynamicDashboardResponse {
+  title: string;
+  work_order_count: number;
+  multi_frequency_event_count: number;
+  handling_groups: AgentTopicGroup[];
+  topic_groups: AgentTopicGroup[];
+  location_groups: AgentTopicGroup[];
+  focus_cluster_ids: UUID[];
+  disclaimer: string;
+}

@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AnyHttpUrl, SecretStr
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.app.domain.types import ProviderMode
@@ -32,6 +32,20 @@ class Settings(BaseSettings):
     ai_remote_llm_model_id: str | None = None
     ai_remote_embedding_model_id: str | None = None
     ai_remote_api_key: SecretStr | None = None
+    # Agent reasoning may use an existing DeepSeek-compatible endpoint while V2
+    # embeddings stay on their independently configured, frozen provider.
+    agent_deepseek_base_url: AnyHttpUrl | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SHUNDE_AGENT_DEEPSEEK_BASE_URL", "DEEPSEEK_BASE_URL"),
+    )
+    agent_deepseek_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SHUNDE_AGENT_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
+    )
+    agent_deepseek_model_id: str = Field(
+        default="deepseek-chat",
+        validation_alias=AliasChoices("SHUNDE_AGENT_DEEPSEEK_MODEL", "DEEPSEEK_MODEL"),
+    )
     ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0
     # 默认 8 并发：qwen-plus/dashscope 支持并发调用，单次 LLM 推断 30-60 秒，

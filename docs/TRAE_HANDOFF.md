@@ -204,3 +204,13 @@ docs/TRAE_CHANGELOG.md
 - 事件依据一眼可读，不能只显示一个相似度百分比。
 - AI 未识别字段显示“未识别/不确定”，不美化成虚构内容。
 - 不引入架构回退。
+# Agent Demo（2026-08-19）
+
+新一级路由：`/assistant`。前端 API contract：
+
+- `POST /agent/query`：受控 DSL 与证据优先的真实工单结果；前端应保留 `previous_query_snapshot` + `previous_work_order_ids` 以支持“只看这些”的上下文筛选。
+- `POST /worksets` / `GET /worksets/{id}`：持久化工作集。
+- `POST /worksets/{id}/actions/preview` → `POST /worksets/{id}/actions/execute`：任何写操作必须先预览再确认，不可直调 execute。
+- `POST /agent/dashboard`：只按传入的 Workset/查询范围返回动态统计，不可添加模拟数字。
+
+Agent 仅查询 V2 已有工单、事件、pgvector embedding 和 cluster；禁止在 TRAE 后续 UI 工作中改写 `understanding.v2`、SameEvent、EventGraph 或 Cluster 结果。结果措辞须保留“投诉记录不代表行政事实认定”。

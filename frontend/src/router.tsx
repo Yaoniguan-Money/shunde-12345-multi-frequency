@@ -7,6 +7,7 @@ import { EventsPage } from "./pages/EventsPage";
 import { ImportsPage } from "./pages/ImportsPage";
 import { WorkOrderDetailPage } from "./pages/WorkOrderDetailPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
+import { AssistantPage } from "./pages/AssistantPage";
 
 export const router = createBrowserRouter([
   {
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
         path: "imports",
         element: <ImportsPage />,
       },
+      { path: "assistant", element: <AssistantPage /> },
       {
         path: "*",
         element: <DashboardPage />,

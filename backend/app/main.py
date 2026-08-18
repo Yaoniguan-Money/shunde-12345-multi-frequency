@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.api.agent import router as agent_router
 from backend.app.api.analysis import router as analysis_router
 from backend.app.api.attachments import router as attachments_router
 from backend.app.api.catalog import router as catalog_router
@@ -12,11 +13,13 @@ from backend.app.api.health import router as health_router
 from backend.app.api.imports import router as imports_router
 from backend.app.api.review import router as review_router
 from backend.app.application.handlers.imports import ImportHandler
+from backend.app.application.services.agent import AgentOrchestrator
 from backend.app.application.services.analysis_jobs import AnalysisJobService
 from backend.app.application.services.catalog import CatalogService
 from backend.app.application.services.review import EventReviewService
 from backend.app.config import get_settings
 from backend.app.infrastructure.attachments import LocalAttachmentStore
+from backend.app.infrastructure.db.agent import AgentRepository
 from backend.app.infrastructure.db.catalog import SQLAlchemyCatalogRepository
 from backend.app.infrastructure.db.imports import SQLAlchemyImportRepository
 from backend.app.infrastructure.db.review import SQLAlchemyEventReviewRepository
@@ -41,6 +44,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         session_factory, settings.analysis_pipeline_version
     )
     app.state.catalog_service = CatalogService(catalog_repository)
+    app.state.agent_orchestrator = AgentOrchestrator.create(
+        AgentRepository(session_factory), settings
+    )
     analysis_job_service = AnalysisJobService(settings, session_factory)
     app.state.analysis_job_service = analysis_job_service
     app.state.review_service = EventReviewService(SQLAlchemyEventReviewRepository(session_factory))
@@ -91,6 +97,7 @@ def create_app() -> FastAPI:
     application.include_router(entities_router)
     application.include_router(review_router)
     application.include_router(catalog_router)
+    application.include_router(agent_router)
     return application
 
 

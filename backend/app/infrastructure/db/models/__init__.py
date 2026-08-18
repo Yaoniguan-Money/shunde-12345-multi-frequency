@@ -1,3 +1,10 @@
+from backend.app.infrastructure.db.models.agent import (
+    AgentActionPreview,
+    WorkOrderHandlingRecord,
+    Workset,
+    WorksetCluster,
+    WorksetWorkOrder,
+)
 from backend.app.infrastructure.db.models.analysis import (
     AnalysisJob,
     AnalysisRun,
@@ -31,6 +38,7 @@ from backend.app.infrastructure.db.models.work_orders import (
 )
 
 __all__ = [
+    "AgentActionPreview",
     "AnalysisJob",
     "AnalysisRun",
     "WorkOrderAnalysisResult",
@@ -51,5 +59,9 @@ __all__ = [
     "ImportRowError",
     "KnowledgeSnapshot",
     "WorkOrder",
+    "WorkOrderHandlingRecord",
     "WorkOrderEmbedding",
+    "Workset",
+    "WorksetCluster",
+    "WorksetWorkOrder",
 ]

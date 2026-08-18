@@ -15,6 +15,16 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   {
+    to: "/assistant",
+    label: "智能研判助手",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3a8 8 0 0 0-8 8c0 3 1.6 5.6 4 7l-.7 3 3.1-1.8A8.1 8.1 0 0 0 12 19a8 8 0 1 0 0-16Z" />
+        <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
+      </svg>
+    ),
+  },
+  {
     to: "/",
     label: "研判总览",
     end: true,

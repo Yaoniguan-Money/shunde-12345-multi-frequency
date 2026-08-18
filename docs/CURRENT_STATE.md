@@ -2,6 +2,8 @@
 
 更新日期：2026-08-15（Asia/Shanghai）
 
+> 2026-08-19 Agent Demo 分支补充：`agent-demo-v2` 从稳定 V2 `6e2150e` 创建，未合并 WP2/WP3/V3 链路。新增的 Agent 独立表和 API 运行于可丢弃的本地数据库副本 `shunde_agent_demo_v2`，源库未回迁/降级。主场景、Workset、确认式批量操作、AuditLog 和动态看板已按 100 条真实 V2 演示数据 smoke；详情见 `docs/AGENT_DEMO_PROGRESS.md`。DeepSeek 环境变量在本轮运行态未发现，故真实 smoke 的 planner mode 为 `rules`，不声称已完成 DeepSeek 实机推理。
+
 状态只允许：`DONE / PARTIAL / BLOCKED / PLANNED`。本文件区分已经实测的 shipped state 与后续目标，不以骨架冒充业务功能。
 
 ## Git
