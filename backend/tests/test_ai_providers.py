@@ -162,6 +162,64 @@ async def test_cloud_profile_prefers_explicit_flash_model() -> None:
     assert "test-only" not in cloud.model_dump_json()
 
 
+@pytest.mark.asyncio
+async def test_deepseek_profile_uses_local_embedding_without_exposing_secret() -> None:
+    service = ProviderProfileService(
+        Settings(
+            ai_provider_mode=ProviderMode.REMOTE,
+            ai_remote_base_url="https://remote.example.test/v1",
+            ai_remote_llm_model_id="qwen-plus",
+            ai_remote_embedding_model_id="embedding",
+            ai_remote_api_key=SecretStr("qwen-test-only"),
+            ai_deepseek_base_url="https://api.deepseek.example/v1",
+            ai_deepseek_llm_model_id="deepseek-v4-flash",
+            ai_deepseek_api_key=SecretStr("deepseek-test-only"),
+            ai_local_embedding_base_url="http://127.0.0.1:11434",
+            ai_local_embedding_model_id="nomic-embed-text",
+            ai_local_embedding_protocol="ollama",
+        )
+    )
+
+    profiles = await service.list_profiles()
+    deepseek = next(profile for profile in profiles if profile.profile_id == "cloud-deepseek")
+
+    assert deepseek.model_display_name == "deepseek-v4-flash"
+    assert deepseek.llm_deployment_kind == "cloud"
+    assert deepseek.embedding_deployment_kind == "local"
+    assert deepseek.configured is True
+    serialized = deepseek.model_dump_json()
+    assert "deepseek-test-only" not in serialized
+    assert "qwen-test-only" not in serialized
+
+
+def test_provider_plan_supports_independent_llm_and_embedding_routes() -> None:
+    settings = Settings(
+        ai_provider_mode=ProviderMode.HYBRID,
+        ai_local_base_url="http://127.0.0.1:11434",
+        ai_local_llm_model_id="qwen2.5:3b",
+        ai_local_embedding_base_url="http://127.0.0.1:11434",
+        ai_local_embedding_model_id="nomic-embed-text",
+        ai_local_embedding_protocol="ollama",
+        ai_remote_base_url="https://remote.example.test/v1",
+        ai_remote_llm_model_id="deepseek-v4-flash",
+        ai_remote_embedding_model_id=None,
+        ai_remote_api_key=SecretStr("test-only"),
+    )
+
+    plan = build_provider_plan(
+        settings,
+        llm_mode_override=ProviderMode.REMOTE,
+        embedding_mode_override=ProviderMode.LOCAL,
+    )
+
+    assert plan.llm_mode == ProviderMode.REMOTE
+    assert plan.embedding_mode == ProviderMode.LOCAL
+    assert plan.remote_llm is not None
+    assert plan.local_embedding is not None
+    assert plan.local_llm is None
+    assert plan.remote_embedding is None
+
+
 def test_hybrid_policy_cannot_be_silently_changed() -> None:
     settings = Settings(ai_hybrid_policy="confidence-threshold")
     with pytest.raises(ProviderConfigurationError, match="explicit-route-local-default"):

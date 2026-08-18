@@ -154,7 +154,7 @@ Status: superseded by ADR-024
 # ADR-019: 全批次研判，任务前 Provider Profile 选择
 Status: accepted
 
-一个导入批次成功导入 N 张工单，研判目标范围就是这 N 张；前端删除“研判数量”输入，API 删除 `max_work_orders` 与 `selection_mode`。用户在每次任务开始前选择“本地模型”或“云端模型”，任务创建时持久化 Provider Profile 快照，任务运行中不可切换。下一次任务可重新选择，不依赖修改全局环境变量。本地路径必须真实执行 LLM、Embedding、结构化输出和最小端到端研判，不能只做 ping/health；云端当前适配千问，支持通过显式 `SHUNDE_AI_REMOTE_FLASH_LLM_MODEL_ID` 选择 Flash 模型，但领域层、任务处理器和数据模型不出现厂商分支。任一模型失败都不得静默切换或返回规则伪造结果。
+一个导入批次成功导入 N 张工单，研判目标范围就是这 N 张；前端删除“研判数量”输入，API 删除 `max_work_orders` 与 `selection_mode`。用户在每次任务开始前选择 Provider Profile，任务创建时持久化 Provider Profile 快照，任务运行中不可切换。下一次任务可重新选择，不依赖修改全局环境变量。本地路径必须真实执行 LLM、Embedding、结构化输出和最小端到端研判，不能只做 ping/health；云端可使用千问或 DeepSeek，LLM 与 Embedding 路由可在 Profile 内独立配置，但领域层、任务处理器和数据模型不出现厂商分支。任一模型失败都不得静默切换或返回规则伪造结果。
 
 # ADR-020: ProviderProfileRegistry 与 per-job 快照
 Status: accepted
@@ -198,4 +198,10 @@ Status: accepted
 - Embeddings persist bounded recall evidence only. SameEvent decisions require structured evidence and hard-anchor checks; ambiguous decisions are not positive edges.
 - Catalog overview/facets are database projections. Page size is not a business total.
 
-Evidence at this checkpoint: backend 89 tests, frontend 33 tests, Ruff/Pyright/frontend build all pass. Real 100-work-order replay and Gold Set evidence remain pending and are not implied by this ADR.
+Evidence at this checkpoint: backend 92 tests, frontend 33 tests, Ruff/Pyright/frontend build all pass. Real 100-work-order replay reached 100/100 understanding with 102 persisted events, but SameEvent stopped on provider balance limits; Gold Set evidence remains pending and is not implied by this ADR.
+
+## ADR-028 — Provider Profile 支持独立 LLM/Embedding 部署路由（2026-08-18）
+
+Status: accepted
+
+Provider Profile 可以显式声明 LLM 与 Embedding 的部署类型。`cloud-deepseek` 使用 DeepSeek V4 Flash 完成结构化理解、分类和 SameEvent，使用本机 Ollama Embedding 完成向量召回；任务创建时同时冻结两个路由及脱敏配置快照。该组合不允许隐式 fallback，任一阶段失败都只归属于所选路由并使任务可观测失败。DeepSeek V4 Flash 的通用结构化输出上限为 8192，遇到 `finish_reason=length` 时最多重试到 16384；该参数属于 OpenAI-compatible adapter 的兼容策略，不改变领域 schema。账户余额限制时执行策略降到 2 并发，但仍必须由 Provider 验证门禁放行。

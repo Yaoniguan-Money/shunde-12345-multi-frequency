@@ -45,6 +45,8 @@ class ProviderEndpoint:
 @dataclass(frozen=True, slots=True)
 class AIProviderPlan:
     mode: ProviderMode
+    llm_mode: ProviderMode
+    embedding_mode: ProviderMode
     local_llm: ProviderEndpoint | None
     remote_llm: ProviderEndpoint | None
     local_embedding: ProviderEndpoint | None
@@ -57,8 +59,12 @@ def build_provider_plan(
     *,
     llm_model_override: str | None = None,
     embedding_model_override: str | None = None,
+    llm_mode_override: ProviderMode | None = None,
+    embedding_mode_override: ProviderMode | None = None,
 ) -> AIProviderPlan:
     mode = settings.ai_provider_mode
+    llm_mode = llm_mode_override or mode
+    embedding_mode = embedding_mode_override or mode
     timeout = settings.model_timeout_seconds
     concurrency = settings.model_concurrency
     if timeout <= 0:
@@ -72,9 +78,6 @@ def build_provider_plan(
     if settings.ai_local_embedding_protocol not in {"ollama", "openai"}:
         raise ProviderConfigurationError("local embedding protocol must be ollama or openai")
 
-    local_needed = mode in {ProviderMode.LOCAL, ProviderMode.HYBRID}
-    remote_needed = mode in {ProviderMode.REMOTE, ProviderMode.HYBRID}
-
     local_llm = _endpoint(
         provider="local-openai-compatible",
         base_url=str(
@@ -83,7 +86,7 @@ def build_provider_plan(
         model_id=llm_model_override or settings.ai_local_llm_model_id or settings.llm_model_id,
         timeout=timeout,
         concurrency=concurrency,
-        required=local_needed,
+        required=llm_mode in {ProviderMode.LOCAL, ProviderMode.HYBRID},
         label="local LLM",
     )
     local_embedding = _endpoint(
@@ -103,7 +106,7 @@ def build_provider_plan(
         or settings.embedding_model_id,
         timeout=timeout,
         concurrency=concurrency,
-        required=local_needed,
+        required=embedding_mode in {ProviderMode.LOCAL, ProviderMode.HYBRID},
         label="local embedding",
     )
 
@@ -116,7 +119,7 @@ def build_provider_plan(
         timeout=timeout,
         concurrency=concurrency,
         api_key=remote_key,
-        required=remote_needed,
+        required=llm_mode in {ProviderMode.REMOTE, ProviderMode.HYBRID},
         label="remote LLM",
     )
     remote_embedding = _endpoint(
@@ -126,11 +129,13 @@ def build_provider_plan(
         timeout=timeout,
         concurrency=concurrency,
         api_key=remote_key,
-        required=remote_needed,
+        required=embedding_mode in {ProviderMode.REMOTE, ProviderMode.HYBRID},
         label="remote embedding",
     )
     return AIProviderPlan(
         mode=mode,
+        llm_mode=llm_mode,
+        embedding_mode=embedding_mode,
         local_llm=local_llm,
         remote_llm=remote_llm,
         local_embedding=local_embedding,

@@ -17,6 +17,8 @@ class ProviderProfileResponse(BaseModel):
     model_display_name: str | None = None
     service_description: str
     configuration_version: str
+    llm_deployment_kind: ProviderDeploymentKind = "cloud"
+    embedding_deployment_kind: ProviderDeploymentKind = "cloud"
 
 
 class ProviderProfileListResponse(BaseModel):

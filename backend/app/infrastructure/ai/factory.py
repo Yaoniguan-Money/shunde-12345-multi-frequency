@@ -155,11 +155,15 @@ def build_provider_bundle(
     *,
     llm_model_override: str | None = None,
     embedding_model_override: str | None = None,
+    llm_mode_override: ProviderMode | None = None,
+    embedding_mode_override: ProviderMode | None = None,
 ) -> AIProviderBundle:
     plan = build_provider_plan(
         settings,
         llm_model_override=llm_model_override,
         embedding_model_override=embedding_model_override,
+        llm_mode_override=llm_mode_override,
+        embedding_mode_override=embedding_mode_override,
     )
     local_llm = _build_local_llm(plan.local_llm)
     remote_llm = _build_remote_llm(plan.remote_llm)
@@ -169,8 +173,10 @@ def build_provider_bundle(
     return AIProviderBundle(
         mode=plan.mode,
         plan=plan,
-        llm=RoutedLLMProvider(plan.mode, local_llm, remote_llm, policy),
-        embeddings=RoutedEmbeddingProvider(plan.mode, local_embedding, remote_embedding, policy),
+        llm=RoutedLLMProvider(plan.llm_mode, local_llm, remote_llm, policy),
+        embeddings=RoutedEmbeddingProvider(
+            plan.embedding_mode, local_embedding, remote_embedding, policy
+        ),
     )
 
 

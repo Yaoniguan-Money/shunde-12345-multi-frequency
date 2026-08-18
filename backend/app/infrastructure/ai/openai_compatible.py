@@ -19,7 +19,13 @@ from backend.app.domain.types import (
     VersionTrace,
 )
 
-_DEFAULT_MAX_OUTPUT_TOKENS = 1024
+# Reasoning models such as DeepSeek V4 Flash may spend tokens before emitting
+# structured JSON. 4096 can still truncate a real multi-field work order to an
+# empty content field, so the normal request allows 8192 and one length retry
+# can use the larger ceiling below.
+_DEFAULT_MAX_OUTPUT_TOKENS = 8192
+_LENGTH_RETRY_MAX_OUTPUT_TOKENS = 16384
+_MAX_TRANSIENT_RETRIES = 2
 
 
 class OpenAICompatibleUnavailable(RuntimeError):
@@ -149,17 +155,39 @@ class OpenAICompatibleChatAdapter:
             "response_format": {"type": "json_object"},
         }
         try:
-            response = await client.post(f"{self._api_base_url}/v1/chat/completions", json=payload)
-            response.raise_for_status()
-            body = _object(response.json(), "chat response")
-            raw_choices = body.get("choices")
-            if not isinstance(raw_choices, list) or not raw_choices:
-                raise OpenAICompatibleUnavailable("chat response has no choices")
-            choices = cast(list[object], raw_choices)
-            first_choice: object = choices[0]
-            choice_data = _object(first_choice, "chat choice")
-            message_data = _object(choice_data.get("message"), "chat message")
-            structured = _parse_json_content(message_data.get("content"), request.output_schema)
+            structured: dict[str, object] | None = None
+            for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
+                response = await client.post(
+                    f"{self._api_base_url}/v1/chat/completions", json=payload
+                )
+                if response.status_code in {429, 500, 502, 503, 504}:
+                    if attempt < _MAX_TRANSIENT_RETRIES:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                response.raise_for_status()
+                body = _object(response.json(), "chat response")
+                raw_choices = body.get("choices")
+                if not isinstance(raw_choices, list) or not raw_choices:
+                    raise OpenAICompatibleUnavailable("chat response has no choices")
+                choices = cast(list[object], raw_choices)
+                first_choice: object = choices[0]
+                choice_data = _object(first_choice, "chat choice")
+                message_data = _object(choice_data.get("message"), "chat message")
+                try:
+                    structured = _parse_json_content(
+                        message_data.get("content"), request.output_schema
+                    )
+                except (OpenAICompatibleUnavailable, ValueError, TypeError):
+                    if (
+                        choice_data.get("finish_reason") == "length"
+                        and attempt < _MAX_TRANSIENT_RETRIES
+                    ):
+                        payload["max_tokens"] = _LENGTH_RETRY_MAX_OUTPUT_TOKENS
+                        continue
+                    raise
+                break
+            if structured is None:
+                raise OpenAICompatibleUnavailable("structured inference returned no JSON")
         except httpx.HTTPStatusError as error:
             detail = _response_error_detail(error.response)
             raise OpenAICompatibleUnavailable(

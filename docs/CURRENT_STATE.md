@@ -15,10 +15,10 @@
 | WP2 领域数据、Reported At 与 AnalysisScope | PARTIAL | 代码、迁移和单元回归已完成：全批次成功工单冻结为不可变 Scope；V3 EventInstance/ComplaintSegment 字段持久化；reported_at 三优先级解析；原始字段不改写。仍缺真实隔离库 100 条 → 103 事项验收证据。 |
 | WP3 理解、事项拆分与标准分类 | PARTIAL | `understanding.v3` schema、current/history/reply/request 分段、EventFact/分类结果和 evidence span 已接通持久化；taxonomy validator 可返回 resolved/ambiguous/unresolved。来源代码全量回放和 89/90 Gold Set 尚未实跑。 |
 | WP4 Reality Object、候选、Same Event 与高频 | PARTIAL | embedding 仅作 bounded recall；候选召回路线/版本、SameEvent 结构化状态和硬锚点门槛已接入，reported_at 三日频次投影已改用 WorkOrder。角色化对象全量 Gold Set、组级一致性和真实五条美涂士回放尚未完成。 |
-| WP5 Provider 按任务选择与性能 | PARTIAL | Provider Profile API、合成验证链路、持久化 registry、任务 Profile/Execution Policy snapshot、local/cloud 固定路由已接入；本地与 qwen-plus 合成链路曾真实通过，当前 qwen-flash 切换验证被 DashScope 账户欠费拒绝，100 条失败隔离回放未完成。 |
+| WP5 Provider 按任务选择与性能 | PARTIAL | Provider Profile API、合成验证链路、持久化 registry、任务 Profile/Execution Policy snapshot、local/cloud 固定路由已接入；新增 `cloud-deepseek`（DeepSeek V4 Flash LLM + 本地 Ollama Embedding）并完成真实五阶段合成验证。DeepSeek 当前余额不足，已把任务并发持久化为 2，等待可用余额继续。 |
 | WP6 API、统计和分类筛选 | PARTIAL | 新增 `/work-orders/overview`、`/work-orders/facets`，数据库聚合区分全量工单/事项/分页；taxonomy tree 和 V3 详情证据已可读。统一 ScopeFilter 的完整分类/频次/来源筛选仍需补齐。 |
 | WP7 前端对齐 | PARTIAL | Provider 卡、验证门槛、全批次提示、锁定任务轮询、真实失败展示、V3 详情字段和高频提示已接入；前端门禁 33/33。完整 taxonomy 级联、多频详情证据/纠正历史的演讲稿主流程仍需 Playwright 实跑。 |
-| WP8 真实回放、评测与交付 | BLOCKED | 代码门禁已通过；qwen-flash 合成验证实际返回 DashScope `overdue-payment`，因此云端 100 条、Gold Set、三次性能和 Playwright 完整闭环尚未执行，等待可用云端账户/额度。 |
+| WP8 真实回放、评测与交付 | BLOCKED | DeepSeek 真实回放已完成 100/100 理解、0 failed、102 事项，并在 SameEvent 阶段因账户并发/余额限制先后返回 429/402；Gold Set、三次性能和 Playwright 完整闭环无法在当前余额下宣称完成。 |
 
 ### 2026-08-18 implementation checkpoint
 
@@ -28,14 +28,14 @@
 uv run ruff check .                 PASS
 uv run ruff format --check .        PASS — 192 files formatted
 uv run pyright backend              PASS — 0 errors, 0 warnings
-uv run pytest -q                    PASS — 89 passed
+uv run pytest -q                    PASS — 92 passed
 pnpm --dir frontend lint            PASS
 pnpm --dir frontend test --run     PASS — 33 passed
 pnpm --dir frontend build          PASS
 uv run alembic -c backend/alembic.ini heads  PASS — d3e4f5a6b7c8
 ```
 
-新增 Provider registry 迁移为 `d3e4f5a6b7c8_add_provider_profiles.py`，已在当前真实开发库执行 `alembic upgrade head`。真实 100 条重导入和 Gold Set 尚未完成；local provider 与 cloud qwen-plus 曾完成合成验证，本次切换 qwen-flash 的合成验证被账户欠费阻塞，不能由代码门禁替代真实回放。
+新增 Provider registry 迁移为 `d3e4f5a6b7c8_add_provider_profiles.py`，已在当前真实开发库执行 `alembic upgrade head`。历史 local provider 与 cloud qwen-plus 曾完成合成验证；qwen-flash 曾被账户欠费阻塞，后续 DeepSeek Profile 已完成合成验证，但真实回放在 102 事项、SameEvent 阶段被余额限制阻塞，不能由代码门禁替代 Gold Set。
 
 ### 2026-08-18 DS Flash 切换实测
 
@@ -43,6 +43,15 @@ uv run alembic -c backend/alembic.ini heads  PASS — d3e4f5a6b7c8
 - 隔离端口 `18082` 真实调用 `POST /ai/provider-profiles/cloud-qwen/validate`：Profile 识别为 `qwen-flash`，health 通过；结构化推理返回 HTTP 400 `overdue-payment`（账户欠费），不是模型/schema 兼容错误。
 - 因 Provider 未验证，未启动新的 100 条任务。此前 qwen-plus 的 V3 任务 `90edb603-b4e2-4298-b4af-3624c2f5c9de` 在 0/100 因同一账户欠费失败；没有产生新的 V3 事项，不能把数据库已有的旧 v2 100/103 结果当作 V3 验收证据。
 - 该阻塞属于外部账户/额度条件；恢复可用 DS 账户后，设置同一 Flash 变量、重新验证 Profile，再按固定 Scope 启动 100 条回放。
+
+### 2026-08-18 DeepSeek 接入与重新启动实测
+
+- 从本机已有的 Provider 抽象配置接入 `cloud-deepseek` Profile；密钥只写入用户环境变量，不进入仓库、API 响应或任务日志。
+- DeepSeek LLM 使用 `deepseek-v4-flash`；Embedding 明确固定为本地 Ollama `nomic-embed-text`，任务快照记录 `llm_deployment_kind=cloud`、`embedding_deployment_kind=local`，不存在跨 Provider fallback。
+- DeepSeek V4 Flash 的推理输出需要更高上限；OpenAI-compatible 适配器的结构化输出上限调整为 4096，并通过后端真实验证。
+- `POST /ai/provider-profiles/cloud-deepseek/validate` 于 2026-08-18 18:14（Asia/Shanghai）五阶段全部通过：health、structured_understanding、embedding、same_event_structured、taxonomy_validation。
+- 新建任务 `9d519456-7e6f-4592-bcaa-28656291e390` 曾因 DeepSeek 结构化输出上限失败；修正后任务 `ef659d81-4f53-4c7e-bb06-339e879e1e03` 固定同一批次、100 张成功工单、`understanding.v3`、DeepSeek Profile 和独立执行策略，真实完成 `100/100`、`0 failed`、`102` 事项，随后在 SameEvent 调用 107 条边后因 `429 Too many requests ... remaining balance` 失败。
+- 将用户环境中的 `SHUNDE_MODEL_CONCURRENCY` 调整为 `2` 后重新验证，DeepSeek 返回 `402 Insufficient Balance`；因此没有继续发送真实工单请求，也没有切换到本地模型冒充 DeepSeek 结果。
 
 ### WP0 已落地的口径冻结
 
@@ -136,7 +145,7 @@ uv run pytest -q                             PASS — 89 passed (14 reported_at 
 - 本轮 AI understanding/retrieval 行为提交：`c35403337769ad0467e0afa1ca9bf63d26d681b7`；本轮 provider/quality 提交：`8954e18`（已推送 `origin/main`）。
 - Remote：private repo 已创建：`https://github.com/Yaoniguan-Money/shunde-12345-multi-frequency`
 - Push：`DONE` — GitHub OAuth 已增加 `workflow` scope；本轮提交 `ebeb3d8` 已推送并设置跟踪 `origin/frontend-redesign`。用户未提交的辅助目录/脚本仍保留在工作区。
-- 本轮 V3/Provider/Flash 切换提交：`ebeb3d8`（已推送 `origin/frontend-redesign`）；当前云端 Profile 为 `qwen-flash`，验证被账户 `overdue-payment` 阻塞。
+- 本轮 V3/Provider/Flash 切换提交：`ebeb3d8`（已推送 `origin/frontend-redesign`）；后续未提交的 DeepSeek 接入改动尚待本地门禁、提交和远程交接；当前可验证 Profile 为 `cloud-deepseek`，真实回放被账户余额阻塞。
 - 本轮 cloud-first Demo Core commit：`8e9e5fc`；文档 checkpoint：`79f48b7`，均已推送 `origin/main`。
 - Final Codex hard-install closure commit：`7595dd2`（bounded analysis job HTTP contract），已推送 `origin/main`。
 - 本轮移出成员恢复提交：`eb309ed`（`fix: make removed event memberships restorable`），已推送 `origin/main`。

@@ -37,14 +37,34 @@ class _ProfileDefinition:
     profile_id: str
     deployment_kind: str
     display_name: str
+    llm_deployment_kind: str
+    embedding_deployment_kind: str
+    settings_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSelection:
+    settings: Settings
+    llm_mode: ProviderMode
+    embedding_mode: ProviderMode
 
 
 class ProviderProfileService:
     """Expose safe provider choices and run real synthetic capability validation."""
 
     _profiles = (
-        _ProfileDefinition("local-default", "local", "本地模型"),
-        _ProfileDefinition("cloud-qwen", "cloud", "云端模型（千问，已适配）"),
+        _ProfileDefinition("local-default", "local", "本地模型", "local", "local", "local"),
+        _ProfileDefinition(
+            "cloud-qwen", "cloud", "云端模型（千问，已适配）", "cloud", "cloud", "qwen"
+        ),
+        _ProfileDefinition(
+            "cloud-deepseek",
+            "cloud",
+            "云端模型（DeepSeek V4 Flash）",
+            "cloud",
+            "local",
+            "deepseek",
+        ),
     )
 
     def __init__(
@@ -81,19 +101,21 @@ class ProviderProfileService:
         )
         if definition is None:
             raise LookupError(f"provider profile not found: {profile_id}")
-        mode = ProviderMode.LOCAL if definition.deployment_kind == "local" else ProviderMode.REMOTE
-        settings = self._settings.model_copy(
-            update={
-                "ai_provider_mode": mode,
-                **_model_override_update(self._settings, definition.deployment_kind),
-            }
-        )
+        selection = self.selection_for(await self._profile_response(definition), self._settings)
         stages: list[ProviderValidationStage] = []
         try:
-            bundle = build_provider_bundle(settings)
+            bundle = build_provider_bundle(
+                selection.settings,
+                llm_mode_override=selection.llm_mode,
+                embedding_mode_override=selection.embedding_mode,
+            )
             await self._run_stage(stages, "health", bundle.health)
-            route = ProviderRoute.LOCAL if mode is ProviderMode.LOCAL else ProviderRoute.REMOTE
-            await self._run_structured_stage(bundle, route, stages)
+            await self._run_structured_stage(
+                bundle,
+                _route_for_mode(selection.llm_mode),
+                _route_for_mode(selection.embedding_mode),
+                stages,
+            )
             status = "validated"
             profile = await self._profile_response(definition, status=status)
         except Exception as error:
@@ -109,6 +131,29 @@ class ProviderProfileService:
         self._validation[profile_id] = profile
         await self._persist_profile(profile)
         return ProviderValidationResponse(profile=profile, stages=stages)
+
+    def selection_for(
+        self, profile: ProviderProfileResponse, settings: Settings
+    ) -> ProviderSelection:
+        definition = next(
+            (item for item in self._profiles if item.profile_id == profile.profile_id), None
+        )
+        if definition is None:
+            raise LookupError(f"provider profile not found: {profile.profile_id}")
+        selected = self._settings_for_definition(definition, settings)
+        if definition.llm_deployment_kind == "local":
+            selected = selected.model_copy(
+                update={"ai_local_llm_model_id": profile.model_display_name}
+            )
+        else:
+            selected = selected.model_copy(
+                update={"ai_remote_llm_model_id": profile.model_display_name}
+            )
+        return ProviderSelection(
+            settings=selected,
+            llm_mode=_mode_for_deployment(definition.llm_deployment_kind),
+            embedding_mode=_mode_for_deployment(definition.embedding_deployment_kind),
+        )
 
     async def require_validated(self, profile_id: str | None) -> ProviderProfileResponse:
         if profile_id is None:
@@ -130,24 +175,15 @@ class ProviderProfileService:
         *,
         status: str | None = None,
     ) -> ProviderProfileResponse:
-        settings = self._settings.model_copy(
-            update={
-                "ai_provider_mode": (
-                    ProviderMode.LOCAL
-                    if definition.deployment_kind == "local"
-                    else ProviderMode.REMOTE
-                ),
-                **_model_override_update(self._settings, definition.deployment_kind),
-            }
-        )
-        configured = _is_configured(settings, definition.deployment_kind)
+        settings = self._settings_for_definition(definition, self._settings)
+        configured = _is_configured(settings, definition)
         previous = self._validation.get(definition.profile_id)
         if previous is None and self._session_factory is not None:
             async with self._session_factory() as session:
                 stored = await session.get(ProviderProfileModel, definition.profile_id)
                 if stored is not None:
                     previous = _profile_response_from_model(stored)
-        configuration_version = _configuration_version(settings, definition.deployment_kind)
+        configuration_version = _configuration_version(settings, definition)
         same_configuration = (
             previous is not None and previous.configuration_version == configuration_version
         )
@@ -177,11 +213,34 @@ class ProviderProfileService:
             ),
             service_description=(
                 "本机模型服务，地址由服务端配置管理"
-                if definition.deployment_kind == "local"
-                else "云端千问兼容服务，地址和密钥不向浏览器暴露"
+                if definition.settings_key == "local"
+                else (
+                    "DeepSeek OpenAI-compatible 服务，地址和密钥不向浏览器暴露"
+                    if definition.settings_key == "deepseek"
+                    else "云端 OpenAI-compatible 服务，地址和密钥不向浏览器暴露"
+                )
             ),
-            configuration_version=_configuration_version(settings, definition.deployment_kind),
+            configuration_version=_configuration_version(settings, definition),
+            llm_deployment_kind=definition.llm_deployment_kind,  # type: ignore[arg-type]
+            embedding_deployment_kind=definition.embedding_deployment_kind,  # type: ignore[arg-type]
         )
+
+    @staticmethod
+    def _settings_for_definition(definition: _ProfileDefinition, settings: Settings) -> Settings:
+        if definition.settings_key == "deepseek":
+            return settings.model_copy(
+                update={
+                    "ai_provider_mode": ProviderMode.HYBRID,
+                    "ai_remote_base_url": settings.ai_deepseek_base_url,
+                    "ai_remote_llm_model_id": settings.ai_deepseek_llm_model_id,
+                    "ai_remote_api_key": settings.ai_deepseek_api_key,
+                }
+            )
+        mode = _mode_for_deployment(definition.llm_deployment_kind)
+        updates: dict[str, object] = {"ai_provider_mode": mode}
+        if definition.settings_key == "qwen":
+            updates.update(_model_override_update(settings, definition.deployment_kind))
+        return settings.model_copy(update=updates)
 
     async def _persist_profile(self, profile: ProviderProfileResponse) -> None:
         if self._session_factory is None:
@@ -197,7 +256,8 @@ class ProviderProfileService:
     async def _run_structured_stage(
         self,
         bundle: AIProviderBundle,
-        route: ProviderRoute,
+        llm_route: ProviderRoute,
+        embedding_route: ProviderRoute,
         stages: list[ProviderValidationStage],
     ) -> None:
         started = time.perf_counter()
@@ -207,7 +267,7 @@ class ProviderProfileService:
             output_schema=WorkOrderUnderstanding.model_json_schema(),
             schema_version="provider-validation.v1",
             pipeline_version="provider-validation.v1",
-            route=route,
+            route=llm_route,
         )
         outputs = await bundle.llm.generate_batch((understanding_request,))
         WorkOrderUnderstanding.model_validate(outputs[0].structured_output)
@@ -228,7 +288,7 @@ class ProviderProfileService:
                     text="凤城某项目夜间施工扰民",
                     schema_version="provider-validation.v1",
                     pipeline_version="provider-validation.v1",
-                    route=route,
+                    route=embedding_route,
                 ),
             )
         )
@@ -250,7 +310,7 @@ class ProviderProfileService:
             output_schema=SameEventResponse.model_json_schema(),
             schema_version="provider-validation.v1",
             pipeline_version="provider-validation.v1",
-            route=route,
+            route=llm_route,
         )
         outputs = await bundle.llm.generate_batch((same_event_request,))
         SameEventResponse.model_validate(outputs[0].structured_output)
@@ -301,20 +361,32 @@ class ProviderProfileService:
         )
 
 
-def _is_configured(settings: Settings, deployment_kind: str) -> bool:
-    if deployment_kind == "local":
-        return bool(
+def _is_configured(settings: Settings, definition: _ProfileDefinition) -> bool:
+    llm_configured = (
+        bool(
             (settings.ai_local_llm_base_url or settings.model_api_base_url)
             and (settings.ai_local_llm_model_id or settings.llm_model_id)
-            and (settings.ai_local_embedding_base_url or settings.embedding_api_base_url)
+        )
+        if definition.llm_deployment_kind == "local"
+        else bool(
+            settings.ai_remote_base_url
+            and settings.ai_remote_llm_model_id
+            and settings.ai_remote_api_key
+        )
+    )
+    embedding_configured = (
+        bool(
+            (settings.ai_local_embedding_base_url or settings.embedding_api_base_url)
             and (settings.ai_local_embedding_model_id or settings.embedding_model_id)
         )
-    return bool(
-        settings.ai_remote_base_url
-        and settings.ai_remote_llm_model_id
-        and settings.ai_remote_embedding_model_id
-        and settings.ai_remote_api_key
+        if definition.embedding_deployment_kind == "local"
+        else bool(
+            settings.ai_remote_base_url
+            and settings.ai_remote_embedding_model_id
+            and settings.ai_remote_api_key
+        )
     )
+    return llm_configured and embedding_configured
 
 
 def _profile_model(profile: ProviderProfileResponse) -> ProviderProfileModel:
@@ -328,7 +400,11 @@ def _profile_model(profile: ProviderProfileResponse) -> ProviderProfileModel:
         model_display_name=profile.model_display_name,
         service_description=profile.service_description,
         configuration_version=profile.configuration_version,
-        adapter_config={"profile_id": profile.profile_id},
+        adapter_config={
+            "profile_id": profile.profile_id,
+            "llm_deployment_kind": profile.llm_deployment_kind,
+            "embedding_deployment_kind": profile.embedding_deployment_kind,
+        },
     )
 
 
@@ -343,21 +419,42 @@ def _profile_response_from_model(model: ProviderProfileModel) -> ProviderProfile
         model_display_name=model.model_display_name,
         service_description=model.service_description,
         configuration_version=model.configuration_version,
+        llm_deployment_kind=cast(
+            ProviderDeploymentKind,
+            model.adapter_config.get("llm_deployment_kind", model.deployment_kind),
+        ),
+        embedding_deployment_kind=cast(
+            ProviderDeploymentKind,
+            model.adapter_config.get("embedding_deployment_kind", model.deployment_kind),
+        ),
     )
 
 
-def _configuration_version(settings: Settings, deployment_kind: str) -> str:
-    endpoint = (
+def _configuration_version(settings: Settings, definition: _ProfileDefinition) -> str:
+    llm_endpoint = (
         settings.ai_local_llm_base_url
-        if deployment_kind == "local"
+        if definition.llm_deployment_kind == "local"
         else settings.ai_remote_base_url
     )
-    model = (
-        settings.ai_local_llm_model_id
-        if deployment_kind == "local"
+    llm_model = (
+        settings.ai_local_llm_model_id or settings.llm_model_id
+        if definition.llm_deployment_kind == "local"
         else settings.ai_remote_llm_model_id
     )
-    return f"{deployment_kind}:{endpoint or 'unconfigured'}:{model or 'unconfigured'}"
+    embedding_endpoint = (
+        settings.ai_local_embedding_base_url or settings.embedding_api_base_url
+        if definition.embedding_deployment_kind == "local"
+        else settings.ai_remote_base_url
+    )
+    embedding_model = (
+        settings.ai_local_embedding_model_id or settings.embedding_model_id
+        if definition.embedding_deployment_kind == "local"
+        else settings.ai_remote_embedding_model_id
+    )
+    return (
+        f"{definition.profile_id}:{llm_endpoint or 'unconfigured'}:{llm_model or 'unconfigured'}:"
+        f"{embedding_endpoint or 'unconfigured'}:{embedding_model or 'unconfigured'}"
+    )
 
 
 def _model_override_update(settings: Settings, deployment_kind: str) -> dict[str, object]:
@@ -379,6 +476,19 @@ def _update_profile_model(stored: ProviderProfileModel, profile: ProviderProfile
     stored.model_display_name = profile.model_display_name
     stored.service_description = profile.service_description
     stored.configuration_version = profile.configuration_version
+    stored.adapter_config = {
+        "profile_id": profile.profile_id,
+        "llm_deployment_kind": profile.llm_deployment_kind,
+        "embedding_deployment_kind": profile.embedding_deployment_kind,
+    }
+
+
+def _mode_for_deployment(deployment_kind: str) -> ProviderMode:
+    return ProviderMode.LOCAL if deployment_kind == "local" else ProviderMode.REMOTE
+
+
+def _route_for_mode(mode: ProviderMode) -> ProviderRoute:
+    return ProviderRoute.LOCAL if mode is ProviderMode.LOCAL else ProviderRoute.REMOTE
 
 
 def _elapsed_ms(started: float) -> int:

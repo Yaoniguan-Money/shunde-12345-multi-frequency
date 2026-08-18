@@ -71,23 +71,20 @@ class AnalysisJobService:
             else None
         )
         selected_settings = self._settings
+        llm_mode_override = None
+        embedding_mode_override = None
         if profile is not None:
-            selected_settings = self._settings.model_copy(
+            if self._provider_profiles is None:
+                raise ValueError("provider profile service is required for profile-based jobs")
+            selection = self._provider_profiles.selection_for(profile, self._settings)
+            selected_settings = selection.settings.model_copy(
                 update={
-                    "ai_provider_mode": (
-                        ProviderMode.LOCAL
-                        if profile.deployment_kind == "local"
-                        else ProviderMode.REMOTE
-                    ),
-                    **(
-                        {"ai_local_llm_model_id": profile.model_display_name}
-                        if profile.deployment_kind == "local"
-                        else {"ai_remote_llm_model_id": profile.model_display_name}
-                    ),
                     "analysis_pipeline_version": self._ACTIVE_PIPELINE_VERSION,
                     "analysis_schema_version": self._ACTIVE_SCHEMA_VERSION,
                 }
             )
+            llm_mode_override = selection.llm_mode
+            embedding_mode_override = selection.embedding_mode
         elif self._provider_profiles is not None:
             selected_settings = self._settings.model_copy(
                 update={
@@ -95,17 +92,18 @@ class AnalysisJobService:
                     "analysis_schema_version": self._ACTIVE_SCHEMA_VERSION,
                 }
             )
-        plan = build_provider_plan(selected_settings)
-        selected_llm = (
-            plan.remote_llm
-            if selected_settings.ai_provider_mode is ProviderMode.REMOTE
-            else plan.local_llm
+        plan = build_provider_plan(
+            selected_settings,
+            llm_mode_override=llm_mode_override,
+            embedding_mode_override=embedding_mode_override,
         )
+        selected_llm = plan.remote_llm if plan.llm_mode is ProviderMode.REMOTE else plan.local_llm
         if selected_llm is None:
             raise ValueError("selected LLM provider is not configured")
         idempotency_key = (
             f"analysis:{batch_id}:{self._ACTIVE_PIPELINE_VERSION}:"
-            f"{provider_profile_id or selected_llm.provider}:{selected_llm.model_id}"
+            f"{provider_profile_id or selected_llm.provider}:{selected_llm.model_id}:"
+            f"{selected_llm.config_hash()}"
         )
         selected_settings = selected_settings.model_copy(
             update={
@@ -257,24 +255,19 @@ class AnalysisJobService:
         if self._custom_orchestrator_factory is not None:
             return await self._custom_orchestrator_factory()
         selected_settings = self._settings
+        llm_mode_override = None
+        embedding_mode_override = None
         if self._provider_profiles is not None and provider_profile_id is not None:
             profile = await self._provider_profiles.require_validated(provider_profile_id)
-            selected_settings = self._settings.model_copy(
+            selection = self._provider_profiles.selection_for(profile, self._settings)
+            selected_settings = selection.settings.model_copy(
                 update={
-                    "ai_provider_mode": (
-                        ProviderMode.LOCAL
-                        if profile.deployment_kind == "local"
-                        else ProviderMode.REMOTE
-                    ),
-                    **(
-                        {"ai_local_llm_model_id": profile.model_display_name}
-                        if profile.deployment_kind == "local"
-                        else {"ai_remote_llm_model_id": profile.model_display_name}
-                    ),
                     "analysis_pipeline_version": self._ACTIVE_PIPELINE_VERSION,
                     "analysis_schema_version": self._ACTIVE_SCHEMA_VERSION,
                 }
             )
+            llm_mode_override = selection.llm_mode
+            embedding_mode_override = selection.embedding_mode
         else:
             selected_settings = self._settings.model_copy(
                 update={
@@ -282,7 +275,12 @@ class AnalysisJobService:
                     "analysis_schema_version": self._ACTIVE_SCHEMA_VERSION,
                 }
             )
-        return await DemoAnalysisOrchestrator.create(selected_settings, self._session_factory)
+        return await DemoAnalysisOrchestrator.create(
+            selected_settings,
+            self._session_factory,
+            llm_mode_override=llm_mode_override,
+            embedding_mode_override=embedding_mode_override,
+        )
 
 
 def _profile_id_from_snapshot(snapshot: dict[str, object] | None) -> str | None:

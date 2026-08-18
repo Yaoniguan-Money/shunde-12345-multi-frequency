@@ -94,16 +94,23 @@ class DemoAnalysisOrchestrator:
         cls,
         settings: Settings,
         session_factory: async_sessionmaker[AsyncSession],
+        *,
+        llm_mode_override: ProviderMode | None = None,
+        embedding_mode_override: ProviderMode | None = None,
     ) -> "DemoAnalysisOrchestrator":
-        providers = build_provider_bundle(settings)
+        providers = build_provider_bundle(
+            settings,
+            llm_mode_override=llm_mode_override,
+            embedding_mode_override=embedding_mode_override,
+        )
         selected_llm = (
             providers.plan.remote_llm
-            if settings.ai_provider_mode is ProviderMode.REMOTE
+            if providers.plan.llm_mode is ProviderMode.REMOTE
             else providers.plan.local_llm
         )
         selected_embedding = (
             providers.plan.remote_embedding
-            if settings.ai_provider_mode is ProviderMode.REMOTE
+            if providers.plan.embedding_mode is ProviderMode.REMOTE
             else providers.plan.local_embedding
         )
         if selected_llm is None or selected_embedding is None:
@@ -313,12 +320,12 @@ class DemoAnalysisOrchestrator:
     def _build_indexing_pipeline(self) -> UnderstandingAndIndexingPipeline:
         selected_llm = (
             self._providers.plan.remote_llm
-            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            if self._providers.plan.llm_mode is ProviderMode.REMOTE
             else self._providers.plan.local_llm
         )
         selected_embedding = (
             self._providers.plan.remote_embedding
-            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            if self._providers.plan.embedding_mode is ProviderMode.REMOTE
             else self._providers.plan.local_embedding
         )
         if selected_llm is None or selected_embedding is None:
@@ -352,12 +359,12 @@ class DemoAnalysisOrchestrator:
             return EventGraphRunResult(run_id, (), ())
         selected_embedding = (
             self._providers.plan.remote_embedding
-            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            if self._providers.plan.embedding_mode is ProviderMode.REMOTE
             else self._providers.plan.local_embedding
         )
         selected_route = (
             ProviderRoute.REMOTE
-            if self._settings.ai_provider_mode is ProviderMode.REMOTE
+            if self._providers.plan.llm_mode is ProviderMode.REMOTE
             else ProviderRoute.LOCAL
         )
         if selected_embedding is None:

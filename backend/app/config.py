@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     ai_remote_flash_llm_model_id: str | None = None
     ai_remote_embedding_model_id: str | None = None
     ai_remote_api_key: SecretStr | None = None
+    ai_deepseek_base_url: AnyHttpUrl | None = None
+    ai_deepseek_llm_model_id: str | None = None
+    ai_deepseek_api_key: SecretStr | None = None
     ai_hybrid_policy: str = "explicit-route-local-default"
     model_timeout_seconds: float = 120.0
     # 默认 8 并发：DashScope 兼容服务支持并发调用，单次 LLM 推断 30-60 秒，
