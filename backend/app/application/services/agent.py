@@ -66,7 +66,10 @@ class AgentOrchestrator:
             # An unavailable configured model does not become a cloud fallback.  The
             # deterministic planner remains explicit in the response as `rules`.
             providers = None
-        planner_llm: LLMProvider | None = providers.llm if providers is not None else None
+        # V2 may have a different remote chat model configured.  The Agent
+        # planner is intentionally DeepSeek-only; absence is explicit rules
+        # mode, never a silent Qwen (or other provider) substitution.
+        planner_llm: LLMProvider | None = None
         if settings.agent_deepseek_base_url and settings.agent_deepseek_api_key:
             planner_llm = RemoteOpenAICompatibleLLMProvider(
                 str(settings.agent_deepseek_base_url),
