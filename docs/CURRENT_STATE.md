@@ -408,3 +408,16 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 | 渐进式操作 | DONE | “调整事件归属”和“新增办理记录”默认收起，非技术用户先看结论和证据，需要操作时再展开；状态使用真实后端值映射的绿/橙/红信号点 |
 | 真实页面复核 | DONE | 本地真实 cluster 页面检查未发现 `complete_link_guard`、`demo-operator`、provider/model/schema/pipeline、内部状态枚举等可见术语；未知证据键不再显示英文 |
 | 前端验证 | DONE | `pnpm --dir frontend test --run` 33 passed；`pnpm --dir frontend lint` passed；`pnpm --dir frontend build` passed |
+
+## 多频 / 高频研判口径修复（2026-08-19）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| 主工单身份 | DONE | `canonical_root_work_order_number()` 仅去除末尾明确 `-NN` 子单后缀；原始 `external_work_order_number` 保留，缺失编号回退 UUID identity |
+| 多频 / 高频 | DONE | 多频要求有效 SameEvent cluster 的 `distinct root_work_order_identity >= 2`；高频额外要求任意连续 3 个自然日内 `distinct root_work_order_identity >= 3` |
+| 投诉时间 | DONE | 导入可映射真实受理/投诉时间到 `WorkOrder.reported_at`；高频只用该字段，缺失日期不计窗口，`occurrence_date` 不参与频次 |
+| SameEvent / 召回 | DONE | 不再把 entity UUID 或地点字符串不交直接 hard reject；仅互斥实体/地点或明确事项冲突拒绝。候选为 pgvector 与同实体、强项目/地点锚点的有界并集 |
+| 前端 | DONE | Dashboard 的多频总数直接取后端有效 cluster total；高频仅使用后端字段，并明确为独立主工单/受理日期口径 |
+| 迁移 | DONE | `b2c3d4e5f6a7` 增加 root identity 并兼容既有 `reported_at`；同时补回缺失历史 revision marker，最终 head=`c3d4e5f6a7b8` |
+
+验证：`uv run alembic upgrade head` PASS；`uv run pytest -q` 64 passed（1 个既有 SQLAlchemy cartesian-product warning）；Ruff、format、Pyright、frontend lint/test/build 与 `scripts/check.ps1` 均 PASS。覆盖子单、两独立主单、三单三日、美涂士三单欠薪、正文历史日期、长期重复非高频、实体/地点不同但项目一致，以及混合候选召回。

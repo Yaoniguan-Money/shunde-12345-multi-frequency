@@ -56,7 +56,7 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 - `uv run python scripts/retrieval_benchmark.py --profile 1000 --embedding-model nomic-embed-text`：运行 pgvector candidate retrieval 性能测试；没有业务 Gold Set 时 `quality` 必须保持 `null`。
 - 原始 `work_orders.raw_*` 永不被 AI 改写。AI 结果存放在 `complaint_segments`、`entity_mentions`、`event_instances`、`work_order_embeddings`，并带 `model_id / schema_version / pipeline_version / knowledge_snapshot_id` 等 trace 字段。
 - Demo Core 已提供真实事件聚类、同事件判定、详情和产品处理闭环 API；TRAE 不应为不存在的全量能力制作静态“已完成”页面。当前 Demo 只覆盖真实数据库动态抽出的少量工单，列表必须显示分页总数和当前状态，未知/未解析状态必须原样显示。
-- **锁定语义：多频按 distinct WorkOrder 计算，不按 EventInstance 数计算。** 一张工单可以有多个真实 AI 事件，但不能自己构成多频；同工单事件不会进入跨工单 retrieval / SameEvent / cluster。
+- **锁定语义：多频按 distinct root WorkOrder 计算，不按 EventInstance 数计算。** 仅末尾 `-NN` 子单会归入同一主工单；一张主工单可以有多个子单或真实 AI 事件，但只能贡献一次频次。高频必须已是多频，且任意连续 3 个自然日内有至少 3 个独立主工单，日期只取后端 `reported_at`，不取 `occurrence_date`、导入时间或 created_at。
 - 质量 review：`uv run python scripts/quality_review.py --sample-size 300 --chunk-size 8 --candidate-limit 5`。输出在 `data/runtime/quality/`，逐条展示原始工单→分段→v2 事件→实体解析→embedding/pgvector 候选→SameEvent evidence→版本 trace；弱标签只是待人工确认候选，不能显示为 Gold Label，也不能显示 Recall/Precision/F1。
 
 ## Demo Core 云端路径与 API

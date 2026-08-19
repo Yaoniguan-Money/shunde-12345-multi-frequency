@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -14,6 +15,7 @@ class ImportField(StrEnum):
     EXTERNAL_WORK_ORDER_NUMBER = "external_work_order_number"
     TITLE = "title"
     CONTENT = "content"
+    REPORTED_AT = "reported_at"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,7 @@ class ImportMapping:
     external_work_order_number: str | None
     title: str | None
     content: str
+    reported_at: str | None = None
 
     def as_dict(self) -> dict[str, str]:
         values = {ImportField.CONTENT.value: self.content}
@@ -44,6 +47,7 @@ class ImportMapping:
             ImportField.SOURCE_ROW_NUMBER.value: self.source_row_number,
             ImportField.EXTERNAL_WORK_ORDER_NUMBER.value: self.external_work_order_number,
             ImportField.TITLE.value: self.title,
+            ImportField.REPORTED_AT.value: self.reported_at,
         }
         values.update({key: value for key, value in optional.items() if value is not None})
         return values
@@ -55,6 +59,7 @@ class ImportRow:
     external_work_order_number: str | None
     title: str | None
     content: str
+    reported_at: datetime | None
     raw_fields: dict[str, ImportScalar]
     raw_sha256: str
 

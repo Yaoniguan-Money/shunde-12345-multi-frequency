@@ -14,6 +14,7 @@ from backend.app.domain.imports import (
     ImportRowFailure,
 )
 from backend.app.domain.ports.imports import ImportBatchRepository
+from backend.app.domain.work_orders import canonical_root_work_order_number
 from backend.app.infrastructure.db.models import ImportBatch, ImportRowError, WorkOrder
 
 
@@ -74,6 +75,10 @@ class SQLAlchemyImportRepository(ImportBatchRepository):
                                 import_batch_id=batch_id,
                                 source_row_number=row.source_row_number,
                                 external_work_order_number=row.external_work_order_number,
+                                root_work_order_number=canonical_root_work_order_number(
+                                    row.external_work_order_number
+                                ),
+                                reported_at=row.reported_at,
                                 raw_title=row.title,
                                 raw_content=row.content,
                                 raw_fields=row.raw_fields,

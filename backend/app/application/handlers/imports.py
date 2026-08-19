@@ -4,6 +4,7 @@ import math
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime
 
 from backend.app.domain.imports import (
     ImportBatchSpec,
@@ -55,6 +56,15 @@ _ALIASES: dict[ImportField, tuple[str, ...]] = {
     ),
     ImportField.TITLE: ("标题", "主题", "主题概括", "title", "subject"),
     ImportField.CONTENT: ("内容", "工单内容", "正文", "content", "description", "text"),
+    ImportField.REPORTED_AT: (
+        "受理时间",
+        "受理日期",
+        "投诉时间",
+        "投诉日期",
+        "上报时间",
+        "上报日期",
+        "reported_at",
+    ),
 }
 
 
@@ -108,6 +118,7 @@ def resolve_mapping(
         external_work_order_number=resolved[ImportField.EXTERNAL_WORK_ORDER_NUMBER],
         title=resolved[ImportField.TITLE],
         content=content,
+        reported_at=resolved[ImportField.REPORTED_AT],
     )
 
 
@@ -143,6 +154,24 @@ def _source_row_number(value: ImportScalar, fallback: int) -> int:
     return int(parsed)
 
 
+def _reported_at(value: ImportScalar) -> datetime | None:
+    """Parse only an explicit source acceptance/report timestamp.
+
+    A blank value remains unknown; event-body dates and import timestamps are
+    never used as a substitute.
+    """
+
+    text = _text(value)
+    if text is None:
+        return None
+    normalized = text.replace("年", "-").replace("月", "-").replace("日", "").strip()
+    normalized = normalized.replace("/", "-")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise ImportRowValidationError("invalid_reported_at", "受理/投诉时间格式无效") from error
+
+
 def _raw_hash(raw_fields: dict[str, ImportScalar]) -> str:
     payload = json.dumps(raw_fields, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -174,11 +203,13 @@ def _validate_row(
         else None
     )
     title = _text(raw_fields.get(mapping.title)) if mapping.title else None
+    reported_at = _reported_at(raw_fields.get(mapping.reported_at)) if mapping.reported_at else None
     return ImportRow(
         source_row_number=source_row_number,
         external_work_order_number=external_number,
         title=title,
         content=content,
+        reported_at=reported_at,
         raw_fields=raw_fields,
         raw_sha256=_raw_hash(raw_fields),
     )

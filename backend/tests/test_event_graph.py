@@ -94,6 +94,7 @@ def _event(
     summary: str,
     event_type: str = "noise",
     work_order_id: WorkOrderId | None = None,
+    root_work_order_identity: str | None = None,
 ) -> EventForMatching:
     return EventForMatching(
         event_id=event_id,
@@ -107,6 +108,7 @@ def _event(
         evidence=({"segment_type": "complaint", "quote": summary},),
         raw_title=None,
         raw_content=summary,
+        root_work_order_identity=root_work_order_identity,
     )
 
 
@@ -373,11 +375,23 @@ async def test_event_graph_uses_bounded_concurrency_for_remote_work() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remote_same_event_forces_disjoint_entities_false_and_routes_remote() -> None:
+async def test_remote_same_event_allows_project_and_contractor_entities_when_evidence_agrees() -> (
+    None
+):
     left_id = EventInstanceId(uuid4())
     right_id = EventInstanceId(uuid4())
-    left = _event(event_id=left_id, entity=EntityId(uuid4()), location="大良", summary="噪声投诉")
-    right = _event(event_id=right_id, entity=EntityId(uuid4()), location="大良", summary="噪声投诉")
+    left = _event(
+        event_id=left_id,
+        entity=EntityId(uuid4()),
+        location="美涂士全球生态智能总部二期项目",
+        summary="美涂士二期项目拖欠工资",
+    )
+    right = _event(
+        event_id=right_id,
+        entity=EntityId(uuid4()),
+        location="南国西路美涂士项目",
+        summary="中航天建设工程集团拖欠工资",
+    )
 
     class Events:
         async def get_for_matching(self, event_id):
@@ -410,8 +424,8 @@ async def test_remote_same_event_forces_disjoint_entities_false_and_routes_remot
 
     llm = LLM()
     decision = await RemoteSameEventMatcher(Events(), llm).match(left_id, right_id)
-    assert decision.same_event is False
-    assert "canonical_entity_conflict" in decision.evidence.contradictions
+    assert decision.same_event is True
+    assert decision.evidence.contradictions == ()
     assert llm.routes == [ProviderRoute.REMOTE]
 
 
@@ -461,7 +475,18 @@ def test_cluster_builder_rejects_contradictory_transitive_merge() -> None:
         a.event_id, b.event_id, True, 0.95, SameEventEvidence(True, True, True, True), trace
     )
     edge_bc = EventMatchEdgeRecord(
-        b.event_id, c.event_id, True, 0.90, SameEventEvidence(True, True, True, True), trace
+        b.event_id,
+        c.event_id,
+        True,
+        0.90,
+        SameEventEvidence(
+            False,
+            False,
+            True,
+            True,
+            ("entity_mutually_exclusive", "location_mutually_exclusive"),
+        ),
+        trace,
     )
 
     proposals = EventClusterBuilder().build((a, b, c), (edge_ab, edge_bc))
@@ -504,6 +529,105 @@ def test_cluster_builder_never_creates_multi_frequency_from_one_work_order() -> 
     )
 
     assert EventClusterBuilder().build(events, edges) == ()
+
+
+def test_cluster_builder_does_not_count_child_work_orders_as_independent_frequency() -> None:
+    entity = EntityId(uuid4())
+    events = (
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            entity=entity,
+            location="美涂士二期项目",
+            summary="拖欠工资",
+            root_work_order_identity="250113166160109",
+        ),
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            entity=entity,
+            location="美涂士二期项目",
+            summary="再次反映拖欠工资",
+            root_work_order_identity="250113166160109",
+        ),
+    )
+    edge = EventMatchEdgeRecord(
+        events[0].event_id,
+        events[1].event_id,
+        True,
+        0.98,
+        SameEventEvidence(True, True, True, True),
+        _remote_trace(),
+    )
+
+    assert EventClusterBuilder().build(events, (edge,)) == ()
+
+
+def test_cluster_builder_emits_multi_frequency_for_two_independent_root_work_orders() -> None:
+    entity = EntityId(uuid4())
+    events = (
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            entity=entity,
+            location="同一项目",
+            summary="同一欠薪事项",
+            root_work_order_identity="A",
+        ),
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            entity=entity,
+            location="同一项目",
+            summary="再次反映同一欠薪事项",
+            root_work_order_identity="B",
+        ),
+    )
+    edge = EventMatchEdgeRecord(
+        events[0].event_id,
+        events[1].event_id,
+        True,
+        0.98,
+        SameEventEvidence(True, True, True, True),
+        _remote_trace(),
+    )
+
+    proposals = EventClusterBuilder().build(events, (edge,))
+    assert len(proposals) == 1
+    assert set(proposals[0].members) == {event.event_id for event in events}
+
+
+def test_meitus_three_reports_form_one_high_frequency_project_wage_cluster() -> None:
+    project_entity = EntityId(uuid4())
+    contractor_entity = EntityId(uuid4())
+    specifications = (
+        ("250331144260109", project_entity, "美涂士全球生态智能总部二期项目"),
+        ("250331149120109", contractor_entity, "南国西路美涂士项目"),
+        ("250331160700109", contractor_entity, "杏坛镇麦村美涂士二期工程"),
+    )
+    events = tuple(
+        _event(
+            event_id=EventInstanceId(uuid4()),
+            entity=entity,
+            location=location,
+            summary="美涂士二期项目中航天建设拖欠工资",
+            root_work_order_identity=root_number,
+        )
+        for root_number, entity, location in specifications
+    )
+    trace = _remote_trace()
+    edges = tuple(
+        EventMatchEdgeRecord(
+            events[index].event_id,
+            events[index + 1].event_id,
+            True,
+            0.97,
+            SameEventEvidence(True, True, True, True),
+            trace,
+        )
+        for index in range(2)
+    )
+
+    proposals = EventClusterBuilder().build(events, edges)
+
+    assert len(proposals) == 1
+    assert set(proposals[0].members) == {event.event_id for event in events}
 
 
 def test_cluster_builder_keeps_semantic_event_type_synonyms_together() -> None:

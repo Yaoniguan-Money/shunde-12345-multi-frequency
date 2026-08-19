@@ -52,8 +52,11 @@ class EventClusterBuilder:
 
         proposals: list[ClusterProposal] = []
         for root, event_ids in members.items():
-            work_order_ids = {by_id[event_id].work_order_id for event_id in event_ids}
-            if len(event_ids) < 2 or len(work_order_ids) < 2:
+            root_work_order_ids = {
+                by_id[event_id].root_work_order_identity or str(by_id[event_id].work_order_id)
+                for event_id in event_ids
+            }
+            if len(event_ids) < 2 or len(root_work_order_ids) < 2:
                 continue
             scores = accepted_confidence.get(root, [])
             proposals.append(
@@ -90,30 +93,16 @@ def _find(
 
 
 def _conflicts(left: EventForMatching, right: EventForMatching) -> bool:
-    if left.entity_ids and right.entity_ids and set(left.entity_ids).isdisjoint(right.entity_ids):
-        return True
-    if (
-        left.location_signals
-        and right.location_signals
-        and _normalize(left.location_signals).isdisjoint(_normalize(right.location_signals))
-    ):
-        return True
-    # Event type is an LLM label, not a canonical ontology.  SameEventMatcher
-    # explicitly permits semantic synonyms (for example noise_disturbance and
-    # commercial_noise); only the structured edge evidence can make issue conflict
-    # a hard rejection.
+    # Distinct IDs and different free-text locations can describe a project's
+    # owner, contractor and site at different granularities.  Only SameEvent's
+    # explicit structured evidence can establish a mutually-exclusive conflict.
+    del left, right
     return False
 
 
 def _edge_conflicts(edge: EventMatchEdgeRecord) -> bool:
     evidence = edge.evidence
-    return (
-        evidence.same_entity is False
-        or evidence.same_location is False
-        or evidence.same_issue is False
-        or bool(evidence.contradictions)
+    return evidence.same_issue is False or any(
+        code in {"entity_mutually_exclusive", "location_mutually_exclusive"}
+        for code in evidence.contradictions
     )
-
-
-def _normalize(values: tuple[str, ...]) -> set[str]:
-    return {"".join(value.split()).casefold() for value in values if value.strip()}

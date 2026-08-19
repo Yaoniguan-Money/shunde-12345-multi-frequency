@@ -110,7 +110,7 @@ function DashboardSignalPanel({ clusters }: { clusters: ClusterSummaryResponse[]
           tone={highCount > 0 ? "red" : "muted"}
           label="高频关注"
           value={highCount}
-          detail="三天内 ≥ 3 条工单"
+          detail="三天内 ≥ 3 个独立主工单"
         />
       </div>
       <p className="dashboard-signal-panel__note">
@@ -170,9 +170,7 @@ export function DashboardPage(): JSX.Element {
     workOrdersQuery.isPending || eventsQuery.isPending || clustersQuery.isPending;
   if (loading) return <Skeleton variant="detail" />;
 
-  const clusters = (clustersQuery.data?.items ?? []).filter(
-    (cluster) => cluster.is_multi_frequency,
-  );
+  const clusters = clustersQuery.data?.items ?? [];
 
   return (
     <section>
@@ -202,7 +200,7 @@ export function DashboardPage(): JSX.Element {
         <StatCard
           label="多频事件"
           value={clustersQuery.data?.total ?? null}
-          description="后端 is_multi_frequency=true"
+          description="后端真实多频 cluster 总数"
           loading={clustersQuery.isPending}
         />
         <StatCard
@@ -240,8 +238,8 @@ export function DashboardPage(): JSX.Element {
           高频判定说明
         </div>
         <p className="text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
-          高频仅展示后端合同结果：active cluster 在滚动三天日历窗口内至少有 3 条不同真实
-          WorkOrder 且日期可解析。前端不会自行按相似度或日期重算；没有后端高频字段的记录
+          高频仅展示后端合同结果：多频 cluster 在滚动三天日历窗口内至少有 3 个不同主工单，
+          且使用工单受理/投诉日期。前端不会自行按相似度或日期重算；没有后端高频字段的记录
           不显示高频标签。
         </p>
       </div>

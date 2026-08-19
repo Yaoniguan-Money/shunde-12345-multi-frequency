@@ -22,34 +22,35 @@ HIGH_FREQUENCY_MIN_WORK_ORDERS = 3
 
 
 def rolling_window_max_distinct_work_orders(
-    records: Iterable[tuple[UUID, date | None]],
+    records: Iterable[tuple[str | UUID, date | None]],
     *,
     window_days: int = HIGH_FREQUENCY_WINDOW_DAYS,
 ) -> int:
-    """Return the largest dated-work-order count in any calendar window.
+    """Return the largest reported-root-work-order count in any calendar window.
 
-    A work order is counted once per window even when the model extracted more
-    than one event from it.  Undated events are intentionally excluded: they
-    cannot provide evidence for a time-window frequency claim.
+    A root work order is counted once per window even when it has child orders
+    or multiple model-extracted events.  Missing source report dates are
+    intentionally excluded: no event-body date or import timestamp is invented
+    for a time-window frequency claim.
     """
 
     if window_days < 1:
         raise ValueError("window_days must be at least 1")
     dated = tuple(
-        (work_order_id, occurrence_date)
-        for work_order_id, occurrence_date in records
-        if occurrence_date
+        (root_work_order_identity, reported_date)
+        for root_work_order_identity, reported_date in records
+        if reported_date
     )
     if not dated:
         return 0
-    dates = sorted({occurrence_date for _, occurrence_date in dated if occurrence_date})
+    dates = sorted({reported_date for _, reported_date in dated if reported_date})
     window_span = timedelta(days=window_days - 1)
     return max(
         len(
             {
-                work_order_id
-                for work_order_id, occurrence_date in dated
-                if start_date <= occurrence_date <= start_date + window_span
+                root_work_order_identity
+                for root_work_order_identity, reported_date in dated
+                if start_date <= reported_date <= start_date + window_span
             }
         )
         for start_date in dates

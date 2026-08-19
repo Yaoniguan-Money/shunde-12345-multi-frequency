@@ -8,6 +8,7 @@ from backend.app.config import get_settings
 from backend.app.domain.types import (
     EmbeddingRequest,
     EmbeddingResult,
+    EntityId,
     EventInstanceId,
     RetrievalQuery,
     WorkOrderId,
@@ -41,6 +42,7 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
     engine = create_engine(get_settings())
     session_factory = create_session_factory(engine)
     batch_id = uuid4()
+    shared_entity_id = uuid4()
     work_order_ids = (uuid4(), uuid4(), uuid4())
     event_ids = (uuid4(), uuid4(), uuid4(), uuid4())
     try:
@@ -83,7 +85,11 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
                             event_type="test",
                             behavior=None,
                             normalized_summary=f"event {index}",
-                            entity_ids=[],
+                            entity_ids=(
+                                [str(shared_entity_id)]
+                                if event_id in {event_ids[0], event_ids[3]}
+                                else []
+                            ),
                             location_signals=[],
                             time_signals=[],
                             evidence={"test": True},
@@ -150,6 +156,21 @@ async def test_pgvector_retrieval_excludes_self_and_ranks_hard_negative() -> Non
         assert all(candidate.event_id != EventInstanceId(event_ids[1]) for candidate in candidates)
         assert candidates[0].score > candidates[-1].score
         assert embedding_provider.calls == 0
+
+        anchored = await retriever.retrieve(
+            RetrievalQuery(
+                event_id=EventInstanceId(event_ids[0]),
+                work_order_id=WorkOrderId(work_order_ids[0]),
+                entity_ids=(EntityId(shared_entity_id),),
+                location_signals=(),
+                event_type="test",
+                text="query",
+                limit=1,
+            )
+        )
+
+        assert [candidate.event_id for candidate in anchored] == [EventInstanceId(event_ids[3])]
+        assert "hybrid_anchor" in anchored[0].evidence
     finally:
         try:
             async with session_factory() as session:

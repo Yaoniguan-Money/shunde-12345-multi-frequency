@@ -8,8 +8,11 @@ class ImportMappingRequest(BaseModel):
     external_work_order_number: str | None = None
     title: str | None = None
     content: str | None = None
+    reported_at: str | None = None
 
-    @field_validator("source_row_number", "external_work_order_number", "title", "content")
+    @field_validator(
+        "source_row_number", "external_work_order_number", "title", "content", "reported_at"
+    )
     @classmethod
     def blank_to_none(cls, value: str | None) -> str | None:
         if value is None:

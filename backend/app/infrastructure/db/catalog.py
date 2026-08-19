@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import and_, exists, func, not_, or_, select, true
+from sqlalchemy import String, and_, exists, func, not_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -249,7 +249,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
                     .order_by(EventInstance.work_order_id, EventInstance.ordinal)
                 )
             ).all()
-            work_order_count = len({row[2].id for row in member_rows})
+            work_order_count = len({_root_work_order_identity(row[2]) for row in member_rows})
             events = tuple(row[1] for row in member_rows)
             entity_map = await self._entity_map(session, events)
             work_order_by_id = {row[2].id: row[2] for row in member_rows}
@@ -283,7 +283,11 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             human_corrections = tuple(self._human_correction_view(row) for row in correction_rows)
             removed_members = await self._removed_members(session, correction_rows)
             frequency_records = tuple(
-                (work_order.id, event.occurrence_date) for _, event, work_order in member_rows
+                (
+                    _root_work_order_identity(work_order),
+                    work_order.reported_at.date() if work_order.reported_at else None,
+                )
+                for _, _event, work_order in member_rows
             )
             return ClusterDetail(
                 summary=self._cluster_summary(
@@ -552,7 +556,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             await session.execute(
                 select(
                     EventClusterMember.event_cluster_id,
-                    func.count(func.distinct(EventInstance.work_order_id)),
+                    func.count(func.distinct(_root_work_order_identity_column())),
                     func.count(EventClusterMember.id),
                 )
                 .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
@@ -564,26 +568,31 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
 
     async def _cluster_frequency_records(
         self, session: AsyncSession, ids: tuple[UUID, ...]
-    ) -> dict[UUID, tuple[tuple[UUID, date | None], ...]]:
+    ) -> dict[UUID, tuple[tuple[str, date | None], ...]]:
         if not ids:
             return {}
         rows = (
             await session.execute(
                 select(
                     EventClusterMember.event_cluster_id,
-                    EventInstance.work_order_id,
-                    EventInstance.occurrence_date,
+                    WorkOrder.root_work_order_number,
+                    WorkOrder.id,
+                    WorkOrder.reported_at,
                 )
                 .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+                .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
                 .where(
                     EventClusterMember.event_cluster_id.in_(ids),
                     EventInstance.pipeline_version == self._pipeline_version,
                 )
             )
         ).all()
-        records: dict[UUID, list[tuple[UUID, date | None]]] = {}
-        for cluster_id, work_order_id, occurrence_date in rows:
-            records.setdefault(cluster_id, []).append((work_order_id, occurrence_date))
+        records: dict[UUID, list[tuple[str, date | None]]] = {}
+        for cluster_id, root_number, work_order_id, reported_at in rows:
+            root_identity = root_number or str(work_order_id)
+            records.setdefault(cluster_id, []).append(
+                (root_identity, reported_at.date() if reported_at else None)
+            )
         return {cluster_id: tuple(values) for cluster_id, values in records.items()}
 
     async def _cluster_edges(
@@ -621,7 +630,7 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
     def _cluster_summary(
         cluster: EventCluster,
         counts: tuple[int, int],
-        frequency_records: tuple[tuple[UUID, date | None], ...] = (),
+        frequency_records: tuple[tuple[str, date | None], ...] = (),
     ) -> ClusterSummary:
         work_order_count, event_count = counts
         frequency_work_order_count = rolling_window_max_distinct_work_orders(frequency_records)
@@ -638,7 +647,10 @@ class SQLAlchemyCatalogRepository(CatalogRepository):
             trace=_trace(cluster),
             review_status=cluster.review_status,
             is_multi_frequency=work_order_count >= 2,
-            is_high_frequency=is_high_frequency_work_order_count(frequency_work_order_count),
+            is_high_frequency=(
+                work_order_count >= 2
+                and is_high_frequency_work_order_count(frequency_work_order_count)
+            ),
             frequency_work_order_count=frequency_work_order_count,
         )
 
@@ -734,10 +746,19 @@ def _valid_multi_frequency_cluster_ids(pipeline_version: str):
     return (
         select(EventClusterMember.event_cluster_id)
         .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+        .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
         .where(EventInstance.pipeline_version == pipeline_version)
         .group_by(EventClusterMember.event_cluster_id)
-        .having(func.count(func.distinct(EventInstance.work_order_id)) >= 2)
+        .having(func.count(func.distinct(_root_work_order_identity_column())) >= 2)
     )
+
+
+def _root_work_order_identity_column():
+    return func.coalesce(WorkOrder.root_work_order_number, func.cast(WorkOrder.id, String))
+
+
+def _root_work_order_identity(work_order: WorkOrder) -> str:
+    return work_order.root_work_order_number or str(work_order.id)
 
 
 def _title_tag_condition(title_tag: str) -> ColumnElement[bool]:

@@ -86,7 +86,7 @@ duplicate model, retrieval or clustering logic. Every request must carry an
 explicit `max_work_orders` bounded to 1–300, and the Demo route requires an
 explicit remote provider configuration with no local/cloud fallback.
 
-# ADR-013: Multi-frequency is counted over distinct WorkOrders
+# ADR-013: Multi-frequency is counted over distinct root WorkOrders
 Status: accepted
 
 A WorkOrder is the immutable frequency unit; an EventInstance is an AI-derived
@@ -94,10 +94,12 @@ issue inside that WorkOrder. One WorkOrder may legitimately produce several
 EventInstances, but those events must not match each other or make that WorkOrder
 look repeatedly reported. Retrieval, SameEvent matching and graph construction
 therefore accept only pairs from different WorkOrders, and cluster construction
-and persistence require at least two distinct WorkOrder IDs.
+and persistence require at least two distinct root WorkOrder identities. A root
+identity removes only an explicit final `-NN` child suffix; records without a
+source number retain their UUID identity rather than being coalesced.
 
 Cluster membership remains event-level so evidence and human corrections retain
-their existing identity. Product projections count distinct WorkOrders separately
+their existing identity. Product projections count distinct root WorkOrders separately
 from EventInstances: `work_order_count` is the frequency count, `event_count` is
 the supporting AI-event count, and compatibility `member_count` has the same
 meaning as `work_order_count`. Detail projections group events by WorkOrder to
@@ -155,8 +157,19 @@ Status: accepted
 
 High frequency is not inferred by the client from similarity, total members or
 displayed event cards. For each active cluster, the catalog calculates the
-maximum number of distinct WorkOrders whose parsed `occurrence_date` falls in
+maximum number of distinct root WorkOrders whose source `reported_at` falls in
 any inclusive three-calendar-day window. A count of at least three returns
-`is_high_frequency=true`; an EventInstance without a parsed date is excluded,
-and multiple events from one WorkOrder count once. The API also returns the
-window size and observed count for auditability. No schema migration is needed.
+`is_high_frequency=true`; a WorkOrder without a reliable report date is excluded,
+and child orders or multiple events count once. `occurrence_date` remains event
+understanding evidence and never supplies a complaint-frequency date. The API
+also returns the window size and observed count for auditability.
+
+# ADR-019: Hybrid recall and evidence-based conflict guards
+Status: accepted
+
+Candidate recall is a bounded union of pgvector results and deterministic same
+canonical-entity/project-location anchors. It remains retrieval evidence only.
+Different canonical entity UUIDs or different location strings are not hard
+contradictions because they can identify a project, its contractor, or an
+alias/parent location. SameEvent may hard reject only an explicit mutually
+exclusive entity/location finding or an explicit issue conflict.

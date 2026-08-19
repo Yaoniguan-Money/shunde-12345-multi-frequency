@@ -18,12 +18,12 @@ from backend.app.infrastructure.db.models import (
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
 
 
-async def test_cluster_repository_rejects_members_from_only_one_work_order() -> None:
+async def test_cluster_repository_rejects_members_from_one_root_work_order() -> None:
     engine = create_engine(get_settings())
     session_factory = create_session_factory(engine)
     repository = SQLAlchemyEventRepository(session_factory)
     batch_id = uuid4()
-    work_order_id = uuid4()
+    work_order_ids = (uuid4(), uuid4())
     event_ids = (uuid4(), uuid4())
     job_id: UUID | None = None
     created_cluster_id: UUID | None = None
@@ -39,30 +39,33 @@ async def test_cluster_repository_rejects_members_from_only_one_work_order() -> 
                             source_sha256=uuid4().hex + uuid4().hex,
                             source_size_bytes=1,
                             field_mapping={},
-                            total_rows=1,
-                            successful_rows=1,
+                            total_rows=2,
+                            successful_rows=2,
                             failed_rows=0,
                             duplicate_rows=0,
-                            checkpoint_row=1,
+                            checkpoint_row=2,
                             status="completed",
                         )
                     )
-                    session.add(
+                    session.add_all(
                         WorkOrder(
                             id=work_order_id,
                             import_batch_id=batch_id,
-                            source_row_number=1,
+                            source_row_number=index,
+                            external_work_order_number=f"250113166160109-0{index}",
+                            root_work_order_number="250113166160109",
                             raw_title=None,
-                            raw_content="同一工单包含两个AI事件",
+                            raw_content="同一主工单的子单事件",
                             raw_fields={},
                             raw_sha256=uuid4().hex + uuid4().hex,
                         )
+                        for index, work_order_id in enumerate(work_order_ids, start=1)
                     )
                     await session.flush()
                     session.add_all(
                         EventInstance(
                             id=event_id,
-                            work_order_id=work_order_id,
+                            work_order_id=work_order_ids[ordinal],
                             ordinal=ordinal,
                             event_type="noise",
                             behavior=None,
@@ -88,7 +91,7 @@ async def test_cluster_repository_rejects_members_from_only_one_work_order() -> 
                 created_cluster_id = await repository.save_cluster(
                     run_id,
                     tuple(EventInstanceId(event_id) for event_id in event_ids),
-                    name="invalid single-work-order cluster",
+                    name="invalid child-work-order cluster",
                     confidence=0.99,
                     evidence={"same_issue": True},
                     trace=trace,
@@ -100,7 +103,7 @@ async def test_cluster_repository_rejects_members_from_only_one_work_order() -> 
         except (OSError, SQLAlchemyError) as error:
             pytest.skip(f"PostgreSQL not available; cluster invariant deferred: {error}")
 
-        assert rejected, "repository persisted a cluster with only one distinct work order"
+        assert rejected, "repository persisted a cluster with only one distinct root work order"
     finally:
         try:
             async with session_factory() as session:

@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -91,6 +92,22 @@ def test_resolve_mapping_uses_real_government_headers() -> None:
         "title": "标题",
         "content": "内容",
     }
+
+
+async def test_import_preserves_explicit_reported_at_without_using_body_dates(
+    tmp_path: Path,
+) -> None:
+    document = TabularDocument(
+        columns=("序号", "工单编号", "受理时间", "内容"),
+        total_rows=1,
+        rows=((1, "250331144260109-01", "2025-03-31", "2024年6月开始欠薪"),),
+    )
+    repository = InMemoryRepository()
+
+    await ImportHandler(InMemoryReader(document), repository).execute(_source(tmp_path))
+
+    assert repository.rows[0].reported_at == datetime(2025, 3, 31)
+    assert repository.rows[0].raw_fields["内容"] == "2024年6月开始欠薪"
 
 
 async def test_import_keeps_raw_fields_and_continues_after_bad_row(tmp_path: Path) -> None:

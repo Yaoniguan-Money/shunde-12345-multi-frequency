@@ -109,6 +109,7 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                 evidence=evidence,
                 raw_title=work_order.raw_title,
                 raw_content=work_order.raw_content,
+                root_work_order_identity=work_order.root_work_order_number or str(work_order.id),
             )
 
     async def list_event_ids(
@@ -237,16 +238,28 @@ class SQLAlchemyEventRepository(EventRepository, EventGraphRepository):
                 unique_member_ids = tuple(dict.fromkeys(member_ids))
                 member_rows = (
                     await session.execute(
-                        select(EventInstance.id, EventInstance.work_order_id).where(
-                            EventInstance.id.in_(unique_member_ids)
+                        select(
+                            EventInstance.id.label("event_id"),
+                            WorkOrder.id.label("work_order_id"),
+                            WorkOrder.root_work_order_number,
                         )
+                        .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
+                        .where(EventInstance.id.in_(unique_member_ids))
                     )
                 ).all()
                 if len(member_rows) != len(unique_member_ids):
                     raise LookupError("every cluster member event must exist")
-                if len({row.work_order_id for row in member_rows}) < 2:
+                if (
+                    len(
+                        {
+                            row.root_work_order_number or str(row.work_order_id)
+                            for row in member_rows
+                        }
+                    )
+                    < 2
+                ):
                     raise ValueError(
-                        "multi-frequency cluster requires at least two distinct work orders"
+                        "multi-frequency cluster requires at least two distinct root work orders"
                     )
                 signature = _member_signature(unique_member_ids)
                 existing = await session.scalar(

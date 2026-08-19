@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +34,8 @@ class WorkOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     source_row_number: Mapped[int] = mapped_column(Integer, nullable=False)
     external_work_order_number: Mapped[str | None] = mapped_column(String(255), index=True)
+    root_work_order_number: Mapped[str | None] = mapped_column(String(255), index=True)
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     raw_title: Mapped[str | None] = mapped_column(Text)
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     raw_fields: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)

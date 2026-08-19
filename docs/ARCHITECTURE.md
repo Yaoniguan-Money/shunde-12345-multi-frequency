@@ -106,10 +106,13 @@ be one underlying issue even when dates differ, while same subject does not eras
 different issue/behavior evidence. Candidate retrieval excludes events from the
 query's own WorkOrder, the matcher rejects a same-WorkOrder pair before any model
 call, and graph persistence applies the same guard. `EventClusterBuilder` uses
-cross-WorkOrder positive edges but rejects a merge that would create disjoint
-canonical entities, disjoint locations or explicit SameEvent contradictions; a
-cluster is emitted and persisted only when it spans at least two distinct
-WorkOrders. Different `event_type` strings alone are not a contradiction.
+cross-WorkOrder positive edges but rejects a merge only for explicit issue
+conflicts or mutually-exclusive entity/location evidence; merely disjoint UUID
+or location-string sets are not sufficient. Candidate recall is a bounded union
+of pgvector, same canonical entity, and strong project/location anchors. A
+cluster is emitted and persisted only when it spans at least two distinct root
+WorkOrder identities. Different `event_type` strings alone are not a
+contradiction.
 
 ### Read API boundary
 

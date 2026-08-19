@@ -75,8 +75,12 @@ class RemoteSameEventMatcher(SameEventMatcher):
             "才判 same_event=false。注意：同一主体/同一地点不等于同一问题；例如消防设施机械杂音"
             "与商铺KTV商业噪音、物业维修与商户扰民属于不同事件，即使出现在同一工单也必须判 false。"
             "历史部门回复的复制文本不能单独证明同事件，但可作为处置链证据。"
-            "若主体不同、地点明显不同或问题冲突，必须返回 same_event=false，并在 contradictions "
-            "中说明。confidence 是对 same_event 判断的置信度，不是 cosine similarity。只输出 JSON，"
+            "canonical entity UUID 不同、地点文字不相同本身不是矛盾：它们可能分别是项目、建设单位、"
+            "总包、分包或上级/别名地点。只有证据足以确认主体互斥时，才在 contradictions 填入精确值 "
+            "entity_mutually_exclusive；只有证据足以确认地点互斥时，才填入 "
+            "location_mutually_exclusive。信息不足时不要制造矛盾。问题明确冲突时必须返回 "
+            "same_event=false。confidence 是对 same_event 判断的置信度，不是 cosine similarity。"
+            "只输出 JSON，"
             "不要补充解释。\n" + json.dumps(payload, ensure_ascii=False)
         )
 
@@ -104,13 +108,12 @@ class RemoteSameEventMatcher(SameEventMatcher):
         same_entity = decision.evidence.same_entity
         same_location = decision.evidence.same_location
         same_issue = decision.evidence.same_issue
-        left_entities = {str(value) for value in left.entity_ids}
-        right_entities = {str(value) for value in right.entity_ids}
-        if left_entities and right_entities and left_entities.isdisjoint(right_entities):
-            same_entity = False
-            contradictions.append("canonical_entity_conflict")
         unique_contradictions = tuple(dict.fromkeys(contradictions))
-        if not unique_contradictions:
+        hard_conflict = any(
+            code in {"entity_mutually_exclusive", "location_mutually_exclusive"}
+            for code in unique_contradictions
+        )
+        if not hard_conflict and same_issue is not False:
             return decision
         return SameEventDecision(
             same_event=False,

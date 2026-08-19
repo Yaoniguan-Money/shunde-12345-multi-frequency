@@ -74,6 +74,7 @@ class EventForMatching:
     evidence: tuple[dict[str, object], ...]
     raw_title: str | None
     raw_content: str
+    root_work_order_identity: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
