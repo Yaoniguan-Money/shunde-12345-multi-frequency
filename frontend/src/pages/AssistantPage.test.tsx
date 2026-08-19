@@ -71,7 +71,7 @@ const DASHBOARD_RESPONSE = {
   disclaimer: "测试免责声明",
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); });
 
 test("keeps query context in memory and does not auto-select retrieved work orders", async () => {
   let queryCalls = 0;
@@ -126,4 +126,36 @@ test("pages the compiled scope without clearing a cross-page selection", async (
   expect((await screen.findAllByText("第二页真实工单")).length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "建立工作集 · 1" })).toBeInTheDocument();
   expect(requestPaths.some((path) => path.includes("/agent/query/results"))).toBe(true);
+});
+
+test("keeps aggregate filtering separate from concrete work-order and cluster links", async () => {
+  const clustered = {
+    ...FIRST_RESPONSE.work_orders[0],
+    cluster_ids: ["33333333-3333-3333-3333-333333333333"],
+    is_multi_frequency: true,
+  };
+  const dashboard = {
+    ...DASHBOARD_RESPONSE,
+    topic_tree: [{
+      label: "欠薪",
+      count: 1,
+      urgent_count: 0,
+      multi_frequency_count: 1,
+      children: [{ label: "大良", count: 1, work_orders: [clustered] }],
+    }],
+  };
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/worksets")) return new Response(JSON.stringify({ items: [], total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("/agent/dashboard")) return new Response(JSON.stringify(dashboard), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...FIRST_RESPONSE, work_orders: [clustered] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+
+  render(<MemoryRouter><AssistantPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "容桂有什么事情" }));
+
+  const workOrderPath = `/work-orders/${clustered.work_order_id}`;
+  expect((await screen.findByRole("link", { name: "WO-1 · 拖欠工资" })).getAttribute("href")).toBe(workOrderPath);
+  expect(screen.getByRole("link", { name: "多频 × 1" }).getAttribute("href")).toBe("/events/33333333-3333-3333-3333-333333333333");
+  expect(screen.getAllByRole("button", { name: /欠薪/ }).length).toBeGreaterThan(0);
 });

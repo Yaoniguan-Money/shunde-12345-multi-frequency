@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import type { JSX } from "react";
@@ -130,6 +130,10 @@ function EventCard({ event }: { event: EventResponse }): JSX.Element {
 export function WorkOrderDetailPage(): JSX.Element {
   const { workOrderId } = useParams<{ workOrderId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromAssistant = Boolean(
+    (location.state as { fromAssistant?: boolean } | null)?.fromAssistant,
+  );
   const containerRef = useRef<HTMLElement>(null);
 
   const query = useQuery({
@@ -169,13 +173,10 @@ export function WorkOrderDetailPage(): JSX.Element {
           title="工单不存在"
           description="未找到该工单，可能已被删除或链接已失效。"
           action={
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => navigate("/work-orders")}
-            >
-              返回工单列表
-            </button>
+            <div className="detail-return-actions">
+              {fromAssistant ? <button type="button" className="btn btn--primary" onClick={() => navigate("/assistant")}>← 返回智能研判</button> : null}
+              <button type="button" className="btn btn--secondary" onClick={() => navigate("/")}>返回研判总览</button>
+            </div>
           }
         />
       );
@@ -193,14 +194,10 @@ export function WorkOrderDetailPage(): JSX.Element {
   return (
     <section ref={containerRef} className="cluster-detail-page work-order-detail-page">
       <div className="detail-header">
-        <div className="detail-header__back">
-          <button
-            type="button"
-            className="btn btn--ghost btn--back"
-            onClick={() => navigate("/work-orders")}
-          >
-            ← 返回工单列表
-          </button>
+        <div className="detail-header__back detail-return-actions">
+          {fromAssistant ? <button type="button" className="btn btn--ghost btn--back" onClick={() => navigate("/assistant")}>← 返回智能研判</button> : null}
+          <button type="button" className="btn btn--ghost btn--back" onClick={() => navigate("/")}>返回研判总览</button>
+          {!fromAssistant ? <button type="button" className="btn btn--ghost btn--back" onClick={() => navigate("/work-orders")}>返回工单列表</button> : null}
         </div>
         <p className="eyebrow">工单详情</p>
         <h1 className="detail-header__title">

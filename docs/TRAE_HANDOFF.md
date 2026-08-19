@@ -240,3 +240,5 @@ V3 工作区 UI 使用“当前分析 / 工作集”两个 Tab。当前分析可
 - `POST /agent/dashboard` 应传 `compiled_query` 和同一 `drilldown`，绝不能传当前页 ID 代替查询范围。指标：`multi_frequency_event_count`、`multi_frequency_work_order_count`、`high_frequency_event_count` 含义不同，禁止互换或前端重算。
 - 关系树 `topic_tree/location_tree/status_tree` 的一、二级 `count` 均是完整范围聚合；`work_orders` 是可跳转的少量样例叶子。分类截断必须显示“显示 x / 共 y”，二级“查看全部”必须触发完整范围 drilldown + 分页。
 - 跨页勾选建立 Workset 时保留已选 work order IDs 及后端返回的有效 `cluster_ids`；切页、展开图表或 drilldown 不能静默清空选择。
+- `/assistant` 点击语义不可改：分类汇总节点只做 drilldown；任何具体工单标题、编号、关注项和树叶必须是 `/work-orders/{work_order_id}` 链接；任何具体 cluster badge/入口必须是 `/events/{cluster_id}` 链接。不可把具体记录重新接到 topic/location/status 筛选。
+- 从 `/assistant` 进入工单或多频事件详情时必须保留“← 返回智能研判”及“返回研判总览”。当前查询可以用 `sessionStorage` 恢复，禁止借此扩展为历史聊天或持久化会话功能。

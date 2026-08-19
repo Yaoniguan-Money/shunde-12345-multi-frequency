@@ -482,3 +482,7 @@ pnpm --dir frontend build                    PASS — Vite 8.2.1
 | 查询说明 | DONE | 当前分析展示由 compiled DSL 直接映射的“本次理解”（地点、问题、时间、关键词），不使用不可审计的补写解释。 |
 
 验证（2026-08-19）：`uv run ruff check .` PASS；`uv run ruff format --check .` PASS（168 files）；`uv run pyright backend` PASS（0 errors）；`uv run pytest -q` PASS（74 passed，保留 1 条既有 SQLAlchemy cartesian-product warning）；`pnpm --dir frontend lint` PASS；`pnpm --dir frontend test --run` PASS（8 files / 35 tests）；`pnpm --dir frontend build` PASS。真实浏览器 smoke：容桂完整范围 27 条，分页 2 页；跨页选择保留；“涉及多频工单”下钻为 7 条；实时指标多频事件 4、涉及多频工单 7、高频事件 0。
+
+## Agent 点击语义与详情退出 P0（2026-08-19）
+
+`/assistant` 已锁定点击语义：问题、地点、状态和关系树的一级/二级节点仅用于完整 scope drilldown，并由 breadcrumb 明示；任何具体工单标题、编号、关注项和关系树叶子都跳转 `/work-orders/{work_order_id}`；具体多频事件 badge/入口跳转 `/events/{cluster_id}`。工单/事件详情从 Agent 进入时同时展示“← 返回智能研判”和“返回研判总览”。当前查询、筛选、分页和跨页选择使用浏览器 `sessionStorage` 轻量恢复，不创建会话历史或后端聊天记录。

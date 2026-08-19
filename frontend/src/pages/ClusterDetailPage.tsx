@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import type { JSX } from "react";
@@ -328,6 +328,7 @@ function RemovedMemberCard({
 
 function WorkOrderCard({
   detail,
+  fromAssistant,
   onRemoveEvent,
   onConfirmEvent,
   actorByEvent,
@@ -337,6 +338,7 @@ function WorkOrderCard({
   removedEventIds,
 }: {
   detail: WorkOrderDetailResponse;
+  fromAssistant: boolean;
   onRemoveEvent: (eventInstanceId: string) => void;
   onConfirmEvent: (eventInstanceId: string) => void;
   actorByEvent: Record<string, string>;
@@ -350,12 +352,14 @@ function WorkOrderCard({
     <article className="member-card">
       <header className="member-card__header">
         <h4 className="member-card__title">
+          <Link to={`/work-orders/${workOrder.work_order_id}`} state={{ fromAssistant }}>
           {workOrder.raw_title ??
             `工单 ${workOrder.external_work_order_number ?? "未命名"}`}
+          </Link>
         </h4>
-        <span className="uuid-mono">
+        <Link className="uuid-mono" to={`/work-orders/${workOrder.work_order_id}`} state={{ fromAssistant }}>
           {workOrder.external_work_order_number ?? "工单编号未提供"}
-        </span>
+        </Link>
       </header>
       <div className="member-card__body">
         <div className="member-card__region member-card__region--raw">
@@ -684,6 +688,10 @@ function HandlingRecordForm({
 export function ClusterDetailPage(): JSX.Element {
   const { clusterId } = useParams<{ clusterId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromAssistant = Boolean(
+    (location.state as { fromAssistant?: boolean } | null)?.fromAssistant,
+  );
   const queryClient = useQueryClient();
   const { push: pushToast } = useToast();
   const containerRef = useRef<HTMLElement>(null);
@@ -822,13 +830,10 @@ export function ClusterDetailPage(): JSX.Element {
           title="事件不存在"
           description="未找到该多频事件，可能已被删除或链接已失效。"
           action={
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => navigate("/events")}
-            >
-              返回多频事件列表
-            </button>
+            <div className="detail-return-actions">
+              {fromAssistant ? <button type="button" className="btn btn--primary" onClick={() => navigate("/assistant")}>← 返回智能研判</button> : null}
+              <button type="button" className="btn btn--secondary" onClick={() => navigate("/")}>返回研判总览</button>
+            </div>
           }
         />
       );
@@ -928,14 +933,10 @@ export function ClusterDetailPage(): JSX.Element {
   return (
     <section ref={containerRef} className="cluster-detail-page">
       <div className="detail-header">
-        <div className="detail-header__back">
-          <button
-            type="button"
-            className="btn btn--ghost btn--back"
-            onClick={() => navigate("/events")}
-          >
-            ← 返回多频事件
-          </button>
+        <div className="detail-header__back detail-return-actions">
+          {fromAssistant ? <button type="button" className="btn btn--ghost btn--back" onClick={() => navigate("/assistant")}>← 返回智能研判</button> : null}
+          <button type="button" className="btn btn--ghost btn--back" onClick={() => navigate("/")}>返回研判总览</button>
+          {!fromAssistant ? <button type="button" className="btn btn--ghost btn--back" onClick={() => navigate("/events")}>返回多频事件</button> : null}
         </div>
         <p className="eyebrow">多频事件详情</p>
         <h1 className="detail-header__title">{summary.name}</h1>
@@ -984,6 +985,7 @@ export function ClusterDetailPage(): JSX.Element {
             <WorkOrderCard
               key={workOrder.summary.work_order_id}
               detail={workOrder}
+              fromAssistant={fromAssistant}
               onRemoveEvent={handleRemoveEvent}
               onConfirmEvent={handleConfirmEvent}
               actorByEvent={actorByEvent}
