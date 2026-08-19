@@ -457,3 +457,15 @@ pnpm --dir frontend test --run               PASS — 8 files, 34 tests
 pnpm --dir frontend lint                     PASS
 pnpm --dir frontend build                    PASS — Vite 8.2.1
 ```
+
+## Agent 工作集 + 当前查询洞察 V3（2026-08-19）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| 当前查询洞察 | DONE | `/assistant` 使用真实 `/agent/dashboard` 数据展示核心数字、问题/地点排行、办理状态环图、确定事实关注项与问题/地点/状态关系树；点击图表和关系节点可筛选实际工单卡片。 |
+| 工作集恢复 | DONE | `GET /worksets` 读取最近持久化工作集；`GET /worksets/{id}/workspace` 读取保存成员与实时统计，不依赖浏览器内存。 |
+| 批量状态操作 | DONE | 工作集内先 `preview`，展示影响工单/多频事件和原状态，再 `execute`；后端继续新增不可变 handling record 与 AuditLog。 |
+| 动效与可访问性 | DONE | GSAP 实现模块进入、数字 Count Up、条形图、SVG 环图、关系节点、工作区和确认 Modal 动效；遵循 `prefers-reduced-motion`。 |
+| 真实 smoke / 视觉检查 | DONE | 容桂范围：20 条工单、4 个多频事件、4 个急单；1440 视觉检查通过，1280 无横向溢出。 |
+
+本轮没有引入假数据、趋势或风险预测；`urgent_count` 仅来自后端 `is_urgent`。验证：frontend lint / 8 files、34 tests / build 均 PASS；backend Ruff、format、Pyright 与 74 tests PASS（保留 1 条既有 SQLAlchemy cartesian-product warning）。

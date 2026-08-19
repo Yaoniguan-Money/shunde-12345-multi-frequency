@@ -50,13 +50,32 @@ const FIRST_RESPONSE = {
   retrieval_trace: [],
 };
 
+const DASHBOARD_RESPONSE = {
+  title: "当前查询洞察",
+  work_order_count: 1,
+  multi_frequency_event_count: 0,
+  urgent_count: 0,
+  handling_groups: [{ label: "unhandled", count: 1 }],
+  topic_groups: [{ label: "欠薪", count: 1 }],
+  location_groups: [{ label: "大良", count: 1 }],
+  focus_cluster_ids: [],
+  disclaimer: "测试免责声明",
+};
+
 afterEach(() => vi.restoreAllMocks());
 
-test("keeps a conversation history and does not auto-select retrieved work orders", async () => {
-  let calls = 0;
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-    calls += 1;
-    const response = calls === 1
+test("keeps query context in memory and does not auto-select retrieved work orders", async () => {
+  let queryCalls = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/worksets")) {
+      return new Response(JSON.stringify({ items: [], total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("/agent/dashboard")) {
+      return new Response(JSON.stringify(DASHBOARD_RESPONSE), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    queryCalls += 1;
+    const response = queryCalls === 1
       ? FIRST_RESPONSE
       : { ...FIRST_RESPONSE, original_query: "那最近一个月呢？", answer: "最近一个月没有记录。", total: 0, work_orders: [] };
     return new Response(JSON.stringify(response), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -65,14 +84,14 @@ test("keeps a conversation history and does not auto-select retrieved work order
   render(<MemoryRouter><AssistantPage /></MemoryRouter>);
   const input = screen.getByLabelText("自然语言工单查询");
   fireEvent.change(input, { target: { value: "大良有没有拖欠工资" } });
-  fireEvent.click(screen.getByRole("button", { name: "开始对话" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始研判" }));
 
   expect(await screen.findByText("有。当前检索范围内找到 1 条直接相关工单。")).toBeInTheDocument();
   expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
 
   fireEvent.change(input, { target: { value: "那最近一个月呢？" } });
-  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始研判" }));
   expect(await screen.findByText("最近一个月没有记录。")).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByText("大良有没有拖欠工资")).toBeInTheDocument());
-  expect(calls).toBe(2);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "那最近一个月呢？" })).toBeInTheDocument());
+  expect(queryCalls).toBe(2);
 });

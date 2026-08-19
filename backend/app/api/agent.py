@@ -18,7 +18,9 @@ from backend.app.schemas.agent import (
     DynamicDashboardRequest,
     DynamicDashboardResponse,
     WorksetCreateRequest,
+    WorksetListResponse,
     WorksetResponse,
+    WorksetWorkspaceResponse,
 )
 
 router = APIRouter(tags=["agent"])
@@ -41,6 +43,21 @@ async def create_workset(
 @router.get("/worksets/{workset_id}", response_model=WorksetResponse)
 async def get_workset(workset_id: UUID, service: AgentOrchestratorDependency) -> WorksetResponse:
     result = await service.get_workset(workset_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workset not found")
+    return result
+
+
+@router.get("/worksets", response_model=WorksetListResponse)
+async def list_worksets(service: AgentOrchestratorDependency) -> WorksetListResponse:
+    return await service.list_worksets()
+
+
+@router.get("/worksets/{workset_id}/workspace", response_model=WorksetWorkspaceResponse)
+async def get_workset_workspace(
+    workset_id: UUID, service: AgentOrchestratorDependency
+) -> WorksetWorkspaceResponse:
+    result = await service.workspace(workset_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workset not found")
     return result

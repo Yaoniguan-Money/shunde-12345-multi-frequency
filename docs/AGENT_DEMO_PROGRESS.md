@@ -15,6 +15,9 @@
 - 执行预览必须属于 URL 指定的 Workset，不能使用另一个 Workset 的 preview ID 跨范围执行。
 - 动态看板只按当前查询/Workset 范围的真实工单统计问题、地点、处理状态和关联多频簇。
 - `/assistant` 已成为一级业务页面，支持上下文追问、工单/多频事件详情跳转、工作集、批量确认与临时看板。
+- 当前查询区域已升级为“当前查询洞察”：真实问题/地点横向条形图、状态环图、核心数字、确定事实优先级和工单关系树均由同一查询范围 API 驱动，图表与关系节点可下钻到工单卡片。
+- 工作集不再是窄抽屉：`GET /worksets` 恢复最近工作集，`GET /worksets/{id}/workspace` 恢复持久化成员和实时状态统计；页面提供全宽“当前分析 / 工作集”研判工作区。
+- 看板新增 `urgent_count`，它仅统计后端 `is_urgent` 的确定性标题标签，不创建风险分数或预测。
 
 ## 本地数据边界
 
@@ -34,10 +37,14 @@ POST /worksets/{id}/actions/preview          PASS
 POST /worksets/{id}/actions/execute          PASS — 5 条、AuditLog action
 POST /agent/dashboard                        PASS — 按工作集真实统计
 浏览器 /assistant 主场景                     PASS
+GET /worksets                                PASS — 最近工作集恢复列表
+GET /worksets/{id}/workspace                 PASS — 持久化成员和实时统计
+POST /agent/dashboard（容桂范围）             PASS — 20 条工单、4 个多频事件、4 个急单
+浏览器 /assistant V3 视觉检查                PASS — 1440 图表/关系树/工作集；1280 无横向溢出
 uv run pytest -q test_agent_query_planner + test_event_graph
                                                PASS — 13 passed
 pnpm --dir frontend lint && build            PASS
-pnpm --dir frontend test --run               PASS — 7 files / 33 tests
+pnpm --dir frontend test --run               PASS — 8 files / 34 tests
 uv run ruff check .                          PASS
 uv run ruff format --check .                 PASS
 uv run pyright backend                       PASS — 0 errors

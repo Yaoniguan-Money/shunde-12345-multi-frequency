@@ -327,6 +327,11 @@ export interface WorksetResponse {
   metadata: Record<string, unknown>;
 }
 
+export interface WorksetListResponse {
+  items: WorksetResponse[];
+  total: number;
+}
+
 export interface BatchActionPreviewResponse {
   preview_id: UUID;
   action_type: "add_handling_record" | "set_handling_status" | "export_csv";
@@ -350,9 +355,16 @@ export interface DynamicDashboardResponse {
   title: string;
   work_order_count: number;
   multi_frequency_event_count: number;
+  urgent_count: number;
   handling_groups: AgentTopicGroup[];
   topic_groups: AgentTopicGroup[];
   location_groups: AgentTopicGroup[];
   focus_cluster_ids: UUID[];
   disclaimer: string;
+}
+
+export interface WorksetWorkspaceResponse {
+  workset: WorksetResponse;
+  work_orders: AgentWorkOrderResult[];
+  dashboard: DynamicDashboardResponse;
 }

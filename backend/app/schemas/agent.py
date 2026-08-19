@@ -133,6 +133,13 @@ class WorksetResponse(BaseModel):
     metadata: dict[str, object]
 
 
+class WorksetListResponse(BaseModel):
+    """Recent durable worksets, ordered for workspace restoration."""
+
+    items: list[WorksetResponse]
+    total: int
+
+
 class BatchActionPayload(BaseModel):
     action_type: BatchActionType
     new_status: HandlingStatus | None = None
@@ -175,8 +182,17 @@ class DynamicDashboardResponse(BaseModel):
     title: str
     work_order_count: int
     multi_frequency_event_count: int
+    urgent_count: int
     handling_groups: list[AgentTopicGroup]
     topic_groups: list[AgentTopicGroup]
     location_groups: list[AgentTopicGroup]
     focus_cluster_ids: list[UUID]
     disclaimer: str
+
+
+class WorksetWorkspaceResponse(BaseModel):
+    """The durable workspace surface: current members plus real-time aggregates."""
+
+    workset: WorksetResponse
+    work_orders: list[AgentWorkOrderResult]
+    dashboard: DynamicDashboardResponse

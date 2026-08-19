@@ -77,6 +77,7 @@ class AgentActionSnapshot(TypedDict):
 class AgentDashboardValues(TypedDict):
     work_order_count: int
     multi_frequency_event_count: int
+    urgent_count: int
     topic_groups: list[dict[str, object]]
     handling_groups: list[dict[str, object]]
     location_groups: list[dict[str, object]]
@@ -529,6 +530,43 @@ class AgentRepository:
             )
             return workset, work_order_ids, cluster_ids
 
+    async def list_worksets(
+        self, *, limit: int = 24
+    ) -> list[tuple[Workset, list[UUID], list[UUID]]]:
+        """List recent durable worksets without relying on browser-held state."""
+        async with self._session_factory() as session:
+            worksets = list(
+                (
+                    await session.scalars(
+                        select(Workset).order_by(Workset.created_at.desc()).limit(limit)
+                    )
+                ).all()
+            )
+            if not worksets:
+                return []
+            ids = [item.id for item in worksets]
+            membership_rows = (
+                await session.execute(
+                    select(WorksetWorkOrder.workset_id, WorksetWorkOrder.work_order_id).where(
+                        WorksetWorkOrder.workset_id.in_(ids)
+                    )
+                )
+            ).all()
+            cluster_rows = (
+                await session.execute(
+                    select(WorksetCluster.workset_id, WorksetCluster.cluster_id).where(
+                        WorksetCluster.workset_id.in_(ids)
+                    )
+                )
+            ).all()
+            members: dict[UUID, list[UUID]] = {item.id: [] for item in worksets}
+            clusters: dict[UUID, list[UUID]] = {item.id: [] for item in worksets}
+            for workset_id, work_order_id in membership_rows:
+                members[workset_id].append(work_order_id)
+            for workset_id, cluster_id in cluster_rows:
+                clusters[workset_id].append(cluster_id)
+            return [(item, members[item.id], clusters[item.id]) for item in worksets]
+
     async def create_preview(
         self,
         *,
@@ -640,6 +678,7 @@ class AgentRepository:
                 "multi_frequency_event_count": len(
                     _unique_ids(item for row in projections for item in row["cluster_ids"])
                 ),
+                "urgent_count": sum(1 for row in projections if row["is_urgent"]),
                 "topic_groups": _counter_groups(
                     str(row["event_type"] or "未归类") for row in projections
                 ),

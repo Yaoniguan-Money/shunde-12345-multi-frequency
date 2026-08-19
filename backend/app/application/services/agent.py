@@ -29,7 +29,9 @@ from backend.app.schemas.agent import (
     BatchActionPreviewResponse,
     DynamicDashboardResponse,
     WorksetCreateRequest,
+    WorksetListResponse,
     WorksetResponse,
+    WorksetWorkspaceResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,6 +185,57 @@ class AgentOrchestrator:
             cluster_ids,
         )
 
+    async def list_worksets(self) -> WorksetListResponse:
+        records = await self._repository.list_worksets()
+        items = [
+            _workset_response(
+                cast(WorksetView, workset),
+                AgentQueryDSL.model_validate(workset.query_snapshot),
+                work_order_ids,
+                cluster_ids,
+            )
+            for workset, work_order_ids, cluster_ids in records
+        ]
+        return WorksetListResponse(items=items, total=len(items))
+
+    async def workspace(self, workset_id: UUID) -> WorksetWorkspaceResponse | None:
+        record = await self._repository.get_workset(workset_id)
+        if record is None:
+            return None
+        workset, work_order_ids, cluster_ids = record
+        members = await self._repository.retrieve(
+            keywords=(),
+            issue_terms=(),
+            issue_required=False,
+            entity=None,
+            location=None,
+            event_type=None,
+            title_tag=None,
+            work_order_ids=tuple(work_order_ids),
+            handling_status=None,
+            reported_after=None,
+            reported_before=None,
+            limit=None,
+            semantic_vector=None,
+            semantic_model_id=None,
+            complete_scope=True,
+        )
+        dashboard = await self.dashboard(
+            title=workset.name,
+            work_order_ids=tuple(work_order_ids),
+            cluster_ids=tuple(cluster_ids),
+        )
+        return WorksetWorkspaceResponse(
+            workset=_workset_response(
+                cast(WorksetView, workset),
+                AgentQueryDSL.model_validate(workset.query_snapshot),
+                work_order_ids,
+                cluster_ids,
+            ),
+            work_orders=[_work_order_result(item) for item in members],
+            dashboard=dashboard,
+        )
+
     async def preview_action(
         self, workset_id: UUID, payload: BatchActionPayload
     ) -> BatchActionPreviewResponse:
@@ -219,6 +272,7 @@ class AgentOrchestrator:
             title=title,
             work_order_count=values["work_order_count"],
             multi_frequency_event_count=values["multi_frequency_event_count"],
+            urgent_count=values["urgent_count"],
             topic_groups=[AgentTopicGroup.model_validate(item) for item in values["topic_groups"]],
             handling_groups=[
                 AgentTopicGroup.model_validate(item) for item in values["handling_groups"]

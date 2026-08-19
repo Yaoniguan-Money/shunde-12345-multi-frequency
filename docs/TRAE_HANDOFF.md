@@ -216,8 +216,10 @@ docs/TRAE_CHANGELOG.md
 
 - `POST /agent/query`：受控 DSL 与证据优先的真实工单结果；前端应保留 `previous_query`、`previous_query_snapshot` + `previous_work_order_ids` 以支持连续上下文。
 - `POST /worksets` / `GET /worksets/{id}`：持久化工作集。
+- `GET /worksets`：按创建时间倒序返回最近工作集，供刷新后的工作区恢复；不得改用浏览器本地数据伪造列表。
+- `GET /worksets/{id}/workspace`：返回持久化 workset、当前成员工单投影和实时 dashboard，供工作集详情恢复。
 - `POST /worksets/{id}/actions/preview` → `POST /worksets/{id}/actions/execute`：任何写操作必须先预览再确认，不可直调 execute。
-- `POST /agent/dashboard`：只按传入的 Workset/查询范围返回动态统计，不可添加模拟数字。
+- `POST /agent/dashboard`：只按传入的 Workset/查询范围返回动态统计，不可添加模拟数字；`urgent_count` 只代表 `is_urgent` 的确定性标题标签。
 
 Agent 仅查询 V2 已有工单、事件、pgvector embedding 和 cluster；禁止在 TRAE 后续 UI 工作中改写 `understanding.v2`、SameEvent、EventGraph 或 Cluster 结果。结果措辞须保留“投诉记录不代表行政事实认定”。
 
@@ -229,4 +231,4 @@ Agent 仅查询 V2 已有工单、事件、pgvector embedding 和 cluster；禁�
 - `aggregation`：`none / count / group_by_topic / group_by_status / group_by_location`。`count` 的 `total` 是完整合法 scope 的数量，不是 `work_orders` Top-N 长度。
 - `context_mode`：`new_scope / refine_scope / reference_results`。只有 `reference_results` 才绑定上一轮 `work_order_ids`；`refine_scope` 必须重查完整 scope。
 
-UI 必须将 `work_orders`、`cluster_ids` 显示为 assistant message 附件。大于 3 条默认仅显示查看入口，不能在每轮默认铺卡片；工作集/看板维持既有 API 和预览→确认写入流程，但不得常驻右栏。
+V3 工作区 UI 使用“当前分析 / 工作集”两个 Tab。当前分析可将真实 `work_orders` 渲染为可勾选紧凑卡片，并用同一响应范围的 dashboard 完成图表、关系树和点击下钻；工作集必须使用 workspace 恢复接口，不得常驻窄右栏。任何写入仍维持预览→确认→执行流程。

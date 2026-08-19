@@ -6,7 +6,9 @@ import type {
   BatchActionPreviewResponse,
   DynamicDashboardResponse,
   UUID,
+  WorksetListResponse,
   WorksetResponse,
+  WorksetWorkspaceResponse,
 } from "../types/api";
 
 export function queryAgent(body: {
@@ -28,6 +30,14 @@ export function createWorkset(body: {
   created_by?: string;
 }): Promise<WorksetResponse> {
   return apiRequest<WorksetResponse>("/worksets", { method: "POST", body });
+}
+
+export function listWorksets(): Promise<WorksetListResponse> {
+  return apiRequest<WorksetListResponse>("/worksets");
+}
+
+export function getWorksetWorkspace(worksetId: UUID): Promise<WorksetWorkspaceResponse> {
+  return apiRequest<WorksetWorkspaceResponse>(`/worksets/${worksetId}/workspace`);
 }
 
 export function previewWorksetAction(worksetId: UUID, body: {

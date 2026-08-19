@@ -1,116 +1,75 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
+import { Link } from "react-router-dom";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "gsap";
 
-import {
-  createWorkset,
-  executeWorksetAction,
-  generateAgentDashboard,
-  previewWorksetAction,
-  queryAgent,
-} from "../api/agent";
+import { createWorkset, executeWorksetAction, generateAgentDashboard, getWorksetWorkspace, listWorksets, previewWorksetAction, queryAgent } from "../api/agent";
 import { describeApiError } from "../api/client";
-import type {
-  AgentQueryResponse,
-  BatchActionPreviewResponse,
-  DynamicDashboardResponse,
-  UUID,
-  WorksetResponse,
-} from "../types/api";
+import { AnimatedBarChart, AnimatedDonutChart, MetricCard, StackedStatusBar } from "../components/InsightVisuals";
+import { InsightTree, type TreeMode } from "../components/InsightTree";
+import type { AgentQueryResponse, AgentTopicGroup, AgentWorkOrderResult, BatchActionPreviewResponse, DynamicDashboardResponse, UUID, WorksetResponse, WorksetWorkspaceResponse } from "../types/api";
+
+gsap.registerPlugin(useGSAP);
 
 const EXAMPLES = ["容桂有什么事情", "容桂有几条急单", "大良有没有拖欠工资的情况"];
-const statusLabel: Record<string, string> = { unhandled: "未处理", investigating: "正在跟进", resolved: "已解决" };
+const STATUS_LABEL: Record<string, string> = { unhandled: "未处理", investigating: "正在跟进", resolved: "已解决" };
+type Message = { id: string; query: string; response: AgentQueryResponse };
+type Tab = "insights" | "worksets";
+type Drilldown = { topic: string | null; location: string | null; status: string | null };
+const emptyDrilldown: Drilldown = { topic: null, location: null, status: null };
 
-type ConversationMessage = { id: string; query: string; response: AgentQueryResponse; expanded: boolean };
+function SkeletonInsights(): JSX.Element { return <div className="insight-skeleton" aria-label="正在加载当前查询洞察"><i /><i /><i /><i /><div /><div /><div /></div>; }
+function statusCount(items: AgentTopicGroup[], status: string): number { return items.find((item) => item.label === status)?.count ?? 0; }
 
-function groupList(items: { label: string; count: number }[]): JSX.Element {
-  return <div className="assistant-stat-list">{items.slice(0, 5).map((item) => <div key={item.label} className="assistant-stat-row"><span>{statusLabel[item.label] ?? item.label}</span><strong>{item.count}</strong></div>)}</div>;
+function WorkOrderCard({ item, selected, selectable, onToggle }: { item: AgentWorkOrderResult; selected: boolean; selectable: boolean; onToggle: (id: UUID) => void }): JSX.Element {
+  return <article className="work-order-insight-card"><div className="work-order-insight-card__top"><div>{item.is_urgent ? <span className="fact-badge fact-badge--urgent">急</span> : null}<span className={`fact-badge fact-badge--${item.handling_status}`}>{STATUS_LABEL[item.handling_status] ?? item.handling_status}</span></div>{selectable ? <label className="work-order-insight-card__select"><input type="checkbox" checked={selected} onChange={() => onToggle(item.work_order_id)} />选择</label> : null}</div><Link className="work-order-insight-card__title" to={`/work-orders/${item.work_order_id}`}>{item.title ?? "未提供标题"}</Link><p>{item.normalized_summary ?? "当前 V2 未生成事件摘要。"}</p><div className="work-order-insight-card__meta"><span>{item.location ?? "地点未解析"}</span><span>{item.event_type ?? "事件类型未归类"}</span></div><footer><span>{item.external_work_order_number ?? "未提供工单号"}</span>{item.is_multi_frequency ? <Link className="multi-link" to={`/events/${item.cluster_ids[0]}`}>多频 × {item.cluster_ids.length || 1}</Link> : <Link to={`/work-orders/${item.work_order_id}`}>查看详情 →</Link>}</footer></article>;
 }
 
-function WorkOrderAttachment({ item, selected, selectable, toggle }: {
-  item: AgentQueryResponse["work_orders"][number]; selected: UUID[]; selectable: boolean; toggle: (id: UUID) => void;
-}): JSX.Element {
-  return <article className="assistant-attachment-card">
-    {selectable ? <label className="assistant-attachment-card__select"><input type="checkbox" checked={selected.includes(item.work_order_id)} onChange={() => toggle(item.work_order_id)} /><span>选择</span></label> : null}
-    <div className="assistant-attachment-card__body"><div><span className="assistant-card__number">{item.external_work_order_number ?? "未提供工单号"}</span>{item.is_urgent ? <span className="tag tag--danger">急</span> : null}</div><strong>{item.title ?? "未提供标题"}</strong><p>{item.normalized_summary ?? "当前 V2 未生成事件摘要。"}</p><small>{item.location ?? "地点未解析"} · {item.event_type ?? "事件类型未归类"} · {statusLabel[item.handling_status] ?? item.handling_status}</small></div>
-    <div className="assistant-attachment-card__links"><Link to={`/work-orders/${item.work_order_id}`}>查看工单 →</Link>{item.cluster_ids[0] ? <Link to={`/events/${item.cluster_ids[0]}`}>查看多频事件 →</Link> : null}</div>
-  </article>;
+function AttentionList({ items }: { items: AgentWorkOrderResult[] }): JSX.Element {
+  const attention = [...items].sort((left, right) => Number(right.is_urgent) - Number(left.is_urgent) || Number(right.is_multi_frequency) - Number(left.is_multi_frequency) || Number(left.handling_status === "unhandled") - Number(right.handling_status === "unhandled")).slice(0, 3);
+  return <section className="attention-panel"><div className="attention-panel__head"><div><span>事实优先</span><h2>当前值得关注</h2></div><p>仅按急单、多频与未处理状态排序</p></div>{attention.length === 0 ? <div className="attention-panel__empty">当前范围内暂无需要优先排列的工单。</div> : <ol>{attention.map((item, index) => <li key={item.work_order_id}><b>0{index + 1}</b><div><Link to={`/work-orders/${item.work_order_id}`}>{item.title ?? "未提供标题"}</Link><p>{item.location ?? "地点未解析"} · {item.event_type ?? "事件类型未归类"}</p></div><span>{item.is_urgent ? "急 · " : ""}{item.is_multi_frequency ? "多频" : STATUS_LABEL[item.handling_status] ?? item.handling_status}</span></li>)}</ol>}</section>;
+}
+
+function Breadcrumb({ drilldown, clear }: { drilldown: Drilldown; clear: () => void }): JSX.Element | null {
+  const labels = [drilldown.topic, drilldown.location, drilldown.status ? STATUS_LABEL[drilldown.status] ?? drilldown.status : null].filter(Boolean);
+  return labels.length ? <div className="insight-breadcrumb"><button onClick={clear}>当前查询</button>{labels.map((label) => <span key={label}>› {label}</span>)}<button className="insight-breadcrumb__clear" onClick={clear}>清除筛选</button></div> : null;
+}
+
+function CurrentInsights({ response, dashboard, selected, onToggle, onCreateWorkset }: { response: AgentQueryResponse; dashboard: DynamicDashboardResponse | null; selected: UUID[]; onToggle: (id: UUID) => void; onCreateWorkset: () => void }): JSX.Element {
+  const [drilldown, setDrilldown] = useState<Drilldown>(emptyDrilldown);
+  const [treeMode, setTreeMode] = useState<TreeMode>("topic");
+  const root = useRef<HTMLElement>(null);
+  useGSAP(() => { const media = gsap.matchMedia(); media.add({ all: "(min-width: 0px)", reduceMotion: "(prefers-reduced-motion: reduce)" }, (context) => { const timeline = gsap.timeline({ defaults: { duration: context.conditions?.reduceMotion ? 0 : 0.36, ease: "power2.out" } }); timeline.from(".insight-enter", { autoAlpha: 0, y: 12, stagger: 0.055 }).from(".insight-chart, .attention-panel", { autoAlpha: 0, y: 10, stagger: 0.05 }, "<0.12"); }); return () => media.revert(); }, { scope: root, dependencies: [response.original_query], revertOnUpdate: true });
+  const displayed = useMemo(() => response.work_orders.filter((item) => (!drilldown.topic || (item.event_type ?? "未归类") === drilldown.topic) && (!drilldown.location || (item.location ?? "未提供地点") === drilldown.location) && (!drilldown.status || item.handling_status === drilldown.status)), [drilldown, response.work_orders]);
+  const select = (dimension: "topic" | "location" | "status", value: string) => setDrilldown((old) => ({ ...old, [dimension]: dimension === "status" ? Object.entries(STATUS_LABEL).find(([, label]) => label === value)?.[0] ?? value : value }));
+  if (!dashboard) {
+    if (response.total === 0) return <section ref={root} className="current-insights"><header className="insights-heading"><div><span className="section-kicker">当前查询洞察</span><h1>{response.original_query}</h1><p>{response.answer}</p></div></header><div className="insight-empty"><strong>当前范围内暂无匹配工单</strong><p>系统未使用补全数据；你可以调整地点、问题或时间范围后重新查询。</p></div></section>;
+    return <SkeletonInsights />;
+  }
+  return <section ref={root} className="current-insights"><header className="insights-heading insight-enter"><div><span className="section-kicker">当前查询洞察</span><h1>{response.original_query}</h1><p>{response.answer}</p></div><small>{response.disclaimer}</small></header><div className="insight-metric-grid insight-enter"><MetricCard label="当前工单" value={dashboard.work_order_count} tone="blue" detail="当前查询范围" /><MetricCard label="多频事件" value={dashboard.multi_frequency_event_count} tone="slate" detail="已关联的真实事件" /><MetricCard label="急单" value={dashboard.urgent_count} tone="red" detail="标题确定性急标签" /><MetricCard label="未处理" value={statusCount(dashboard.handling_groups, "unhandled")} tone="orange" detail="尚无处理记录" /><MetricCard label="正在跟进" value={statusCount(dashboard.handling_groups, "investigating")} tone="green" detail="已有办理进展" /></div><div className="insight-overview-grid"><AnimatedBarChart title="问题类型" items={dashboard.topic_groups} activeLabel={drilldown.topic} onSelect={(value) => select("topic", value)} emptyMessage="当前范围内暂无已归类的问题类型。" /><AnimatedBarChart title="地点分布" items={dashboard.location_groups} activeLabel={drilldown.location} onSelect={(value) => select("location", value)} emptyMessage="当前范围内尚未解析出可排行的地点。" /><AnimatedDonutChart items={dashboard.handling_groups} activeLabel={drilldown.status} onSelect={(value) => select("status", value)} /></div><AttentionList items={response.work_orders} /><div className="tree-toolbar"><div><span className="section-kicker">从分布到关系</span><h2>看看这些工单如何聚合</h2></div><div role="tablist" aria-label="关系树视角"><button className={treeMode === "topic" ? "is-active" : ""} onClick={() => setTreeMode("topic")}>按问题</button><button className={treeMode === "location" ? "is-active" : ""} onClick={() => setTreeMode("location")}>按地点</button><button className={treeMode === "status" ? "is-active" : ""} onClick={() => setTreeMode("status")}>按状态</button></div></div><InsightTree items={response.work_orders} mode={treeMode} onSelect={select} /><section className="insight-results"><div className="insight-results__head"><div><Breadcrumb drilldown={drilldown} clear={() => setDrilldown(emptyDrilldown)} /><h2>{drilldown.topic || drilldown.location || drilldown.status ? "筛选后的相关工单" : "当前查询相关工单"}</h2><p>共 {displayed.length} 条，点击图表、节点或筛选条件可继续下钻。</p></div>{selected.length ? <button className="btn btn--primary" onClick={onCreateWorkset}>建立工作集 · {selected.length}</button> : <span className="selection-hint">选择工单后可建立持续办理工作集</span>}</div>{displayed.length === 0 ? <div className="insight-empty"><strong>当前筛选下暂无工单</strong><p>可清除筛选，返回当前查询的全部真实工单。</p></div> : <div className="work-order-insight-grid">{displayed.map((item) => <WorkOrderCard key={item.work_order_id} item={item} selected={selected.includes(item.work_order_id)} selectable onToggle={onToggle} />)}</div>}</section></section>;
+}
+
+function WorksetView({ workspace, recent, busy, onOpen, onPreview }: { workspace: WorksetWorkspaceResponse | null; recent: WorksetResponse[]; busy: boolean; onOpen: (id: UUID) => void; onPreview: (status: "unhandled" | "investigating" | "resolved") => void }): JSX.Element {
+  const [status, setStatus] = useState<"unhandled" | "investigating" | "resolved">("investigating");
+  const root = useRef<HTMLElement>(null);
+  useGSAP(() => { const media = gsap.matchMedia(); media.add({ all: "(min-width: 0px)", reduceMotion: "(prefers-reduced-motion: reduce)" }, (context) => { gsap.from(".workset-enter", { autoAlpha: 0, x: 16, duration: context.conditions?.reduceMotion ? 0 : .34, ease: "power2.out", stagger: .055 }); }); return () => media.revert(); }, { scope: root, dependencies: [workspace?.workset.id], revertOnUpdate: true });
+  if (!workspace) return <section ref={root} className="workset-empty workset-enter"><span className="section-kicker">研判工作区</span><h1>从当前分析建立可持续办理的工作集</h1><p>工作集会保存人工筛选的工单、关联多频事件与来源查询；刷新后仍可从最近工作集恢复。</p>{recent.length ? <div className="recent-worksets">{recent.map((item) => <button key={item.id} onClick={() => onOpen(item.id)}><span>{new Date(item.created_at).toLocaleDateString("zh-CN")}</span><strong>{item.name}</strong><p>{item.original_query}</p><small>{item.result_count} 条工单 · {item.cluster_ids.length} 个多频事件</small></button>)}</div> : <div className="workset-empty__note">尚无工作集。请在“当前分析”中选择工单后建立。</div>}</section>;
+  const { workset, dashboard, work_orders } = workspace;
+  return <section ref={root} className="workset-workbench workset-enter"><header className="workset-head"><div><span className="section-kicker">研判工作区</span><h1>{workset.name}</h1><p>来源问题：{workset.original_query}</p></div><div className="workset-head__facts"><span><b>{dashboard.work_order_count}</b>条工单</span><span><b>{dashboard.multi_frequency_event_count}</b>个多频事件</span><span><b>{dashboard.urgent_count}</b>个急单</span><span><b>{statusCount(dashboard.handling_groups, "unhandled")}</b>个未处理</span></div></header><section className="workset-status"><div><span className="section-kicker">持续办理进度</span><h2>状态分布</h2></div><StackedStatusBar items={dashboard.handling_groups} /></section><div className="workset-main-grid"><section className="workset-members"><div className="workset-section-head"><div><span className="section-kicker">成员</span><h2>工作集成员</h2></div><span>{work_orders.length} 条已保存工单</span></div><div className="workset-member-list">{work_orders.map((item) => <WorkOrderCard key={item.work_order_id} item={item} selected={false} selectable={false} onToggle={() => undefined} />)}</div></section><aside className="batch-operation"><span className="section-kicker">可审计操作</span><h2>批量操作</h2><label>操作类型<select defaultValue="set_handling_status"><option value="set_handling_status">修改办理状态</option></select></label><label>新状态<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="investigating">正在跟进</option><option value="unhandled">未处理</option><option value="resolved">已解决</option></select></label><button className="btn btn--primary" disabled={busy || !work_orders.length} onClick={() => onPreview(status)}>预览影响</button><p>先生成快照，再确认执行。每次执行都会新增办理记录和审计日志。</p></aside></div>{recent.length > 1 ? <section className="workset-recent"><div><span className="section-kicker">恢复记录</span><h2>最近工作集</h2></div><div>{recent.filter((item) => item.id !== workset.id).slice(0, 3).map((item) => <button key={item.id} onClick={() => onOpen(item.id)}><strong>{item.name}</strong><span>{item.result_count} 条工单 · {new Date(item.created_at).toLocaleDateString("zh-CN")}</span></button>)}</div></section> : null}</section>;
 }
 
 export function AssistantPage(): JSX.Element {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [selected, setSelected] = useState<UUID[]>([]);
-  const [workset, setWorkset] = useState<WorksetResponse | null>(null);
-  const [dashboard, setDashboard] = useState<DynamicDashboardResponse | null>(null);
-  const [preview, setPreview] = useState<BatchActionPreviewResponse | null>(null);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const latest = messages.at(-1)?.response ?? null;
-
-  const ask = async (question = input) => {
-    const normalized = question.trim();
-    if (!normalized || busy) return;
-    setBusy(true); setError(null); setPreview(null);
-    try {
-      const previous = messages.at(-1);
-      const response = await queryAgent({ query: normalized, previous_query: previous?.query, previous_query_snapshot: previous?.response.compiled_query, previous_work_order_ids: previous?.response.work_orders.map((item) => item.work_order_id) });
-      setMessages((old) => [...old, { id: `${Date.now()}-${old.length}`, query: normalized, response, expanded: false }]);
-      setInput(""); setSelected([]); setDashboard(null);
-    } catch (cause) { setError(describeApiError(cause)); }
-    finally { setBusy(false); }
-  };
+  const [input, setInput] = useState(""); const [messages, setMessages] = useState<Message[]>([]); const [dashboard, setDashboard] = useState<DynamicDashboardResponse | null>(null); const [selected, setSelected] = useState<UUID[]>([]); const [recentWorksets, setRecentWorksets] = useState<WorksetResponse[]>([]); const [workspace, setWorkspace] = useState<WorksetWorkspaceResponse | null>(null); const [tab, setTab] = useState<Tab>("insights"); const [preview, setPreview] = useState<BatchActionPreviewResponse | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const latest = messages.at(-1)?.response ?? null;
+  const modalRoot = useRef<HTMLDivElement>(null);
+  useGSAP(() => { if (!preview) return undefined; const media = gsap.matchMedia(); media.add({ all: "(min-width: 0px)", reduceMotion: "(prefers-reduced-motion: reduce)" }, (context) => { gsap.from(".batch-modal", { autoAlpha: 0, scale: .97, y: 8, duration: context.conditions?.reduceMotion ? 0 : .24, ease: "power2.out" }); }); return () => media.revert(); }, { scope: modalRoot, dependencies: [preview?.preview_id], revertOnUpdate: true });
+  const refreshWorksets = async () => { const response = await listWorksets(); setRecentWorksets(response.items); };
+  useEffect(() => { void refreshWorksets().catch(() => undefined); }, []);
+  const ask = async (question = input) => { const query = question.trim(); if (!query || busy) return; setBusy(true); setError(null); setPreview(null); try { const prior = messages.at(-1); const response = await queryAgent({ query, previous_query: prior?.query, previous_query_snapshot: prior?.response.compiled_query, previous_work_order_ids: prior?.response.work_orders.map((item) => item.work_order_id) }); const nextDashboard = response.work_orders.length ? await generateAgentDashboard({ title: "当前查询洞察", work_order_ids: response.work_orders.map((item) => item.work_order_id), cluster_ids: response.cluster_ids }) : null; setMessages((old) => [...old, { id: `${Date.now()}-${old.length}`, query, response }]); setDashboard(nextDashboard); setSelected([]); setInput(""); setTab("insights"); } catch (cause) { setError(describeApiError(cause)); } finally { setBusy(false); } };
   const toggle = (id: UUID) => setSelected((old) => old.includes(id) ? old.filter((item) => item !== id) : [...old, id]);
-  const selectedRows = latest?.work_orders.filter((item) => selected.includes(item.work_order_id)) ?? [];
-  const addToWorkset = async () => {
-    if (!latest || selected.length === 0) return;
-    setBusy(true); setError(null);
-    try {
-      setWorkset(await createWorkset({ name: `${latest.original_query.slice(0, 22)}工作集`, original_query: latest.original_query, query_snapshot: latest.compiled_query, work_order_ids: selected, cluster_ids: [...new Set(selectedRows.flatMap((item) => item.cluster_ids))] }));
-      setWorkspaceOpen(true);
-    } catch (cause) { setError(describeApiError(cause)); }
-    finally { setBusy(false); }
-  };
-  const makeDashboard = async () => {
-    const ids = workset?.work_order_ids ?? selected;
-    if (ids.length === 0) return;
-    setBusy(true); setError(null);
-    try { setDashboard(await generateAgentDashboard({ title: "当前查询临时看板", work_order_ids: ids, cluster_ids: workset?.cluster_ids ?? [] })); setWorkspaceOpen(true); }
-    catch (cause) { setError(describeApiError(cause)); }
-    finally { setBusy(false); }
-  };
-  const requestPreview = async () => {
-    if (!workset) return;
-    setBusy(true); setError(null);
-    try { setPreview(await previewWorksetAction(workset.id, { action_type: "set_handling_status", new_status: "investigating" })); }
-    catch (cause) { setError(describeApiError(cause)); }
-    finally { setBusy(false); }
-  };
-  const confirmAction = async () => {
-    if (!workset || !preview) return;
-    setBusy(true); setError(null);
-    try { await executeWorksetAction(workset.id, { preview_id: preview.preview_id }); setPreview(null); }
-    catch (cause) { setError(describeApiError(cause)); }
-    finally { setBusy(false); }
-  };
-
-  return <section className="assistant-page">
-    <header className="assistant-hero assistant-hero--chat"><div><p className="eyebrow">智能研判助手</p><h1>问问 12345</h1><p>在同一段对话里继续追问；回答只依据附带的可核查工单证据。</p></div><button className="btn btn--secondary" onClick={() => setWorkspaceOpen(true)}>工作集{workset ? ` · ${workset.result_count}` : ""}</button></header>
-    <main className="assistant-chat-shell"><div className="assistant-conversation" aria-live="polite">
-      {messages.map((message, index) => {
-        const isLatest = index === messages.length - 1;
-        const hasAttachments = message.response.total > 0;
-        const showCards = hasAttachments && (message.response.total <= 3 || message.expanded);
-        return <article className="assistant-message-pair" key={message.id}>
-          <div className="assistant-user-message"><span>你</span><p>{message.query}</p></div>
-          <div className="assistant-answer"><div className="assistant-answer__identity"><span>12345</span><strong>问问12345</strong></div><p>{message.response.answer}</p>
-            {hasAttachments ? <div className="assistant-message-attachments">{showCards ? <div className="assistant-attachment-list">{message.response.work_orders.map((item) => <WorkOrderAttachment key={item.work_order_id} item={item} selected={isLatest ? selected : []} selectable={isLatest} toggle={toggle} />)}</div> : <button className="assistant-attachment-button" onClick={() => setMessages((old) => old.map((item) => item.id === message.id ? { ...item, expanded: true } : item))}>📄 查看 {message.response.total} 条工单</button>}{message.response.cluster_ids.length > 0 ? <Link className="assistant-attachment-link" to={`/events/${message.response.cluster_ids[0]}`}>🔗 多频事件 · {message.response.cluster_ids.length} 个</Link> : null}{message.expanded && message.response.total > 3 ? <button className="btn btn--secondary" onClick={() => setMessages((old) => old.map((item) => item.id === message.id ? { ...item, expanded: false } : item))}>收起工单</button> : null}</div> : null}
-            {isLatest && selected.length > 0 ? <div className="assistant-message-actions"><span>已选择 {selected.length} 条</span><button className="btn btn--secondary" onClick={() => void addToWorkset()} disabled={busy}>加入工作集</button><button className="btn btn--primary" onClick={() => void makeDashboard()} disabled={busy}>生成看板</button></div> : null}<small>{message.response.disclaimer}</small></div>
-        </article>;
-      })}
-      {messages.length === 0 ? <div className="assistant-empty"><h2>开始对话</h2><p>例如：容桂有什么事情？接着可以问“有几条急单”。</p><div>{EXAMPLES.map((example) => <button key={example} onClick={() => void ask(example)} disabled={busy}>{example}</button>)}</div></div> : null}
-    </div>{error ? <div className="assistant-alert assistant-alert--error">{error}</div> : null}<div className={`assistant-query-box assistant-query-box--chat ${messages.length === 0 ? "assistant-query-box--initial" : ""}`}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder="继续问问12345……" aria-label="自然语言工单查询" /><div className="assistant-query-box__footer"><span>Enter 发送 · Shift + Enter 换行</span><button className="btn btn--primary" onClick={() => void ask()} disabled={busy}>{busy ? "正在查询…" : messages.length === 0 ? "开始对话" : "发送"}</button></div></div></main>
-    {workspaceOpen ? <div className="assistant-drawer-backdrop" role="presentation" onMouseDown={() => setWorkspaceOpen(false)}><aside className="assistant-workspace-drawer" aria-label="工作集" onMouseDown={(event) => event.stopPropagation()}><div className="assistant-drawer-head"><div><p className="eyebrow">工作集</p><h2>{workset?.name ?? "尚未创建工作集"}</h2></div><button className="btn btn--secondary" onClick={() => setWorkspaceOpen(false)}>关闭</button></div>{workset ? <><p>已持久化 {workset.result_count} 条人工选择的工单。</p><button className="btn btn--primary btn--block" onClick={() => void requestPreview()} disabled={busy}>批量设为正在跟进</button></> : <p>展开最新消息的工单附件并勾选后，可加入工作集。</p>}{preview ? <div className="assistant-drawer-section"><h3>执行前确认</h3><p>{preview.message}</p><button className="btn btn--secondary" onClick={() => setPreview(null)}>取消</button><button className="btn btn--primary" onClick={() => void confirmAction()} disabled={busy}>确认执行</button></div> : null}{dashboard ? <div className="assistant-drawer-section"><p className="eyebrow">动态临时看板</p><h3>{dashboard.title}</h3><p>{dashboard.work_order_count} 条工单 · {dashboard.multi_frequency_event_count} 个多频事件</p><h4>主要问题</h4>{groupList(dashboard.topic_groups)}<h4>主要地点</h4>{groupList(dashboard.location_groups)}<small>{dashboard.disclaimer}</small></div> : null}</aside></div> : null}
-  </section>;
+  const createSelectedWorkset = async () => { if (!latest || selected.length === 0) return; setBusy(true); setError(null); try { const rows = latest.work_orders.filter((item) => selected.includes(item.work_order_id)); const created = await createWorkset({ name: `${latest.original_query.slice(0, 22)}工作集`, original_query: latest.original_query, query_snapshot: latest.compiled_query, work_order_ids: selected, cluster_ids: [...new Set(rows.flatMap((item) => item.cluster_ids))] }); setWorkspace(await getWorksetWorkspace(created.id)); setTab("worksets"); await refreshWorksets(); } catch (cause) { setError(describeApiError(cause)); } finally { setBusy(false); } };
+  const openWorkset = async (id: UUID) => { setBusy(true); setError(null); try { setWorkspace(await getWorksetWorkspace(id)); setTab("worksets"); } catch (cause) { setError(describeApiError(cause)); } finally { setBusy(false); } };
+  const requestPreview = async (newStatus: "unhandled" | "investigating" | "resolved") => { if (!workspace) return; setBusy(true); setError(null); try { setPreview(await previewWorksetAction(workspace.workset.id, { action_type: "set_handling_status", new_status: newStatus })); } catch (cause) { setError(describeApiError(cause)); } finally { setBusy(false); } };
+  const executePreview = async () => { if (!workspace || !preview) return; setBusy(true); setError(null); try { await executeWorksetAction(workspace.workset.id, { preview_id: preview.preview_id }); setPreview(null); setWorkspace(await getWorksetWorkspace(workspace.workset.id)); } catch (cause) { setError(describeApiError(cause)); } finally { setBusy(false); } };
+  return <section className="assistant-page assistant-workspace-page"><header className="assistant-command-head"><div><span className="section-kicker">12345 · AI 辅助研判</span><h1>问问 12345</h1><p>查询用于看懂当前工单；工作集用于持续办理、跟踪与审计。</p></div><div className="assistant-command-head__tabs" role="tablist"><button className={tab === "insights" ? "is-active" : ""} onClick={() => setTab("insights")}>当前分析</button><button className={tab === "worksets" ? "is-active" : ""} onClick={() => setTab("worksets")}>工作集{recentWorksets.length ? ` · ${recentWorksets.length}` : ""}</button></div></header><div className="assistant-query-box assistant-query-box--workspace"><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder="例如：容桂有什么事情？" aria-label="自然语言工单查询" /><div className="assistant-query-box__footer"><span>Enter 发送 · 结果只呈现可核查工单与真实统计</span><button className="btn btn--primary" onClick={() => void ask()} disabled={busy}>{busy ? "正在查询…" : "开始研判"}</button></div></div>{!latest ? <div className="assistant-start"><h2>从一个问题开始</h2><p>输入范围、问题、地点或办理状态；系统将返回当前工单范围和可核查依据。</p><div>{EXAMPLES.map((item) => <button key={item} onClick={() => void ask(item)} disabled={busy}>{item}</button>)}</div></div> : null}{error ? <div className="assistant-alert assistant-alert--error">{error}</div> : null}{tab === "insights" && latest ? <CurrentInsights response={latest} dashboard={dashboard} selected={selected} onToggle={toggle} onCreateWorkset={() => void createSelectedWorkset()} /> : null}{tab === "worksets" ? <WorksetView workspace={workspace} recent={recentWorksets} busy={busy} onOpen={(id) => void openWorkset(id)} onPreview={(status) => void requestPreview(status)} /> : null}{preview ? <div ref={modalRoot} className="batch-modal-backdrop" role="presentation"><section className="batch-modal" role="dialog" aria-modal="true" aria-labelledby="batch-modal-title"><span className="section-kicker">执行前确认</span><h2 id="batch-modal-title">本次操作：修改办理状态</h2><div className="batch-modal__impact"><span><b>{preview.affected_work_order_count}</b> 条工单</span><span><b>{preview.affected_cluster_count}</b> 个多频事件</span></div><div className="batch-modal__compare"><div><small>原状态</small>{Object.entries(preview.before_status_counts).map(([key, value]) => <p key={key}>{STATUS_LABEL[key] ?? key}<b>{value}</b></p>)}</div><div><small>修改为</small><strong>{preview.after_status ? STATUS_LABEL[preview.after_status] ?? preview.after_status : "—"}</strong></div></div><p>{preview.message}</p><footer><button className="btn btn--secondary" onClick={() => setPreview(null)} disabled={busy}>取消</button><button className="btn btn--primary" onClick={() => void executePreview()} disabled={busy}>确认执行</button></footer></section></div> : null}</section>;
 }
