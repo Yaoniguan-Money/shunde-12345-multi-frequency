@@ -65,6 +65,8 @@ async def test_remote_openai_compatible_contract_keeps_key_out_of_trace() -> Non
         if request.url.path == "/v1/models":
             return httpx.Response(200, json={"data": [{"id": "remote-model"}]})
         if request.url.path == "/v1/chat/completions":
+            payload = json.loads(request.read().decode("utf-8"))
+            assert payload["max_tokens"] == 4096
             return httpx.Response(
                 200,
                 json={
@@ -85,6 +87,24 @@ async def test_remote_openai_compatible_contract_keeps_key_out_of_trace() -> Non
     assert result.structured_output == {"ok": True}
     assert result.trace.provider == "remote-openai-compatible"
     assert secret not in result.trace.model_config_hash
+
+
+@pytest.mark.asyncio
+async def test_deepseek_v4_disables_thinking_for_structured_output() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.read().decode("utf-8"))
+        assert payload["max_tokens"] == 4096
+        assert payload["thinking"] == {"type": "disabled"}
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok":true}'}}]})
+
+    provider = RemoteOpenAICompatibleLLMProvider(
+        "https://api.deepseek.com",
+        "deepseek-v4-flash",
+        SecretStr("deepseek-key"),
+        transport=httpx.MockTransport(handler),
+    )
+    result = (await provider.generate_batch((_request(),)))[0]
+    assert result.structured_output == {"ok": True}
 
 
 @pytest.mark.asyncio
@@ -138,6 +158,26 @@ def test_remote_configuration_requires_explicit_key() -> None:
     )
     with pytest.raises(ProviderConfigurationError, match="API key"):
         build_provider_plan(settings)
+
+
+def test_remote_llm_and_embedding_endpoints_can_be_independent() -> None:
+    settings = Settings(
+        ai_provider_mode=ProviderMode.REMOTE,
+        ai_remote_llm_base_url="https://api.deepseek.com",
+        ai_remote_llm_model_id="deepseek-v4-flash",
+        ai_remote_llm_api_key=SecretStr("llm-key"),
+        ai_remote_embedding_base_url="https://dashscope.example.test/v1",
+        ai_remote_embedding_model_id="qwen3.7-text-embedding",
+        ai_remote_embedding_api_key=SecretStr("embedding-key"),
+    )
+
+    plan = build_provider_plan(settings)
+    assert plan.remote_llm is not None
+    assert plan.remote_embedding is not None
+    assert plan.remote_llm.base_url.rstrip("/") == "https://api.deepseek.com"
+    assert plan.remote_llm.model_id == "deepseek-v4-flash"
+    assert plan.remote_embedding.base_url.rstrip("/") == "https://dashscope.example.test/v1"
+    assert plan.remote_embedding.model_id == "qwen3.7-text-embedding"
 
 
 def test_hybrid_policy_cannot_be_silently_changed() -> None:

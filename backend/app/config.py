@@ -29,9 +29,13 @@ class Settings(BaseSettings):
     ai_local_embedding_model_id: str | None = None
     ai_local_embedding_protocol: str = "ollama"
     ai_remote_base_url: AnyHttpUrl | None = None
+    ai_remote_llm_base_url: AnyHttpUrl | None = None
+    ai_remote_embedding_base_url: AnyHttpUrl | None = None
     ai_remote_llm_model_id: str | None = None
     ai_remote_embedding_model_id: str | None = None
     ai_remote_api_key: SecretStr | None = None
+    ai_remote_llm_api_key: SecretStr | None = None
+    ai_remote_embedding_api_key: SecretStr | None = None
     # Agent reasoning may use an existing DeepSeek-compatible endpoint while V2
     # embeddings stay on their independently configured, frozen provider.
     agent_deepseek_base_url: AnyHttpUrl | None = Field(

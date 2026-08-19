@@ -173,3 +173,14 @@ Different canonical entity UUIDs or different location strings are not hard
 contradictions because they can identify a project, its contractor, or an
 alias/parent location. SameEvent may hard reject only an explicit mutually
 exclusive entity/location finding or an explicit issue conflict.
+
+# ADR-020: Independent remote LLM and embedding endpoints
+Status: accepted
+
+The remote provider plan supports separate endpoint and credential settings for the
+structured LLM and embeddings. This permits a user-authorized DeepSeek-compatible
+LLM endpoint to be paired with the existing Qwen embedding endpoint when the LLM
+provider does not expose embeddings. DeepSeek v4 Flash requests disable thinking
+for the bounded JSON contract and use a 4096-token output budget so evidence-rich
+work orders are not truncated. No cloud fallback, mock result, or fabricated
+embedding is allowed; endpoint health and model traces remain auditable.

@@ -424,4 +424,12 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 
 ## 重研判运行状态（2026-08-19）
 
-`BLOCKED`：旧批次任务 `bd9ec2ac-2edb-4454-8516-f307695becac` 与新导入批次任务 `d81a2bd0-e8c6-4c4c-bdfc-977205317a72` 均在第一条 understanding 请求返回 HTTP 400 `Arrearage`（账户欠费/访问被拒）。新批次 `c6dd53e0-8239-4081-bb2d-633251e7818d` 已真实导入 100/100，但未产生新的事件、边或 cluster。未切换本地模型、云端替代账号或 mock 结果；恢复条件是远端账户/额度恢复后重新提交任务。
+`DONE`：从桌面文件 `顺德12345热线精选工单数据集（含重复工单）(1).xlsx` 真实导入批次
+`71070a55-8164-40e0-95b9-ef04cf6fb0a4`，100/100 行成功。研判任务
+`8d8204f5-d928-4a93-98f5-0dc85267cd7f` 完成 100/100 条工单，产出 102 个事件、356 条
+SameEvent 匹配边、9 个事件簇；任务 trace 为 `remote-openai-compatible / deepseek-v4-flash`。
+
+本机额度配置采用独立端点：DeepSeek v4 Flash 负责结构化工单研判，现有 DashScope Qwen
+embedding 负责向量检索（DeepSeek `/v1/embeddings` 返回 404，未伪造或静默切换）。为避免
+证据丰富工单的 JSON 被截断，OpenAI-compatible 结构化输出上限调整为 4096 tokens，并对
+DeepSeek v4 显式关闭 thinking。原始工单保持不可变；本次导入、事件、边和簇均由真实运行写入。

@@ -19,7 +19,9 @@ from backend.app.domain.types import (
     VersionTrace,
 )
 
-_DEFAULT_MAX_OUTPUT_TOKENS = 1024
+# DeepSeek v4 Flash can legitimately emit several evidence-rich mentions for
+# one work order.  1024 tokens truncated those responses before the JSON closed.
+_DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 
 class OpenAICompatibleUnavailable(RuntimeError):
@@ -148,6 +150,12 @@ class OpenAICompatibleChatAdapter:
             ],
             "response_format": {"type": "json_object"},
         }
+        # DeepSeek v4 flash/pro may spend the bounded output budget on
+        # ``reasoning_content`` unless thinking is explicitly disabled.  The
+        # understanding contract requires the structured JSON in message
+        # content; do not parse hidden reasoning as business output.
+        if "deepseek" in self._model_id.casefold() or "deepseek.com" in self._api_base_url:
+            payload["thinking"] = {"type": "disabled"}
         try:
             response = await client.post(f"{self._api_base_url}/v1/chat/completions", json=payload)
             response.raise_for_status()
@@ -159,6 +167,16 @@ class OpenAICompatibleChatAdapter:
             first_choice: object = choices[0]
             choice_data = _object(first_choice, "chat choice")
             message_data = _object(choice_data.get("message"), "chat message")
+            if (
+                not isinstance(message_data.get("content"), str)
+                or not message_data.get("content", "").strip()
+            ):
+                finish_reason = choice_data.get("finish_reason")
+                message_keys = ",".join(sorted(str(key) for key in message_data))
+                raise OpenAICompatibleUnavailable(
+                    f"structured inference returned empty content for {request.request_id} "
+                    f"(finish_reason={finish_reason!r}, message_keys={message_keys!r})"
+                )
             structured = _parse_json_content(message_data.get("content"), request.output_schema)
         except httpx.HTTPStatusError as error:
             detail = _response_error_detail(error.response)

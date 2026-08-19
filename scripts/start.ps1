@@ -7,9 +7,16 @@ New-Item -ItemType Directory -Force -Path $runtimePath | Out-Null
 $runtimeEnvironmentNames = @(
     "SHUNDE_AI_PROVIDER_MODE",
     "SHUNDE_AI_REMOTE_BASE_URL",
+    "SHUNDE_AI_REMOTE_LLM_BASE_URL",
+    "SHUNDE_AI_REMOTE_EMBEDDING_BASE_URL",
     "SHUNDE_AI_REMOTE_LLM_MODEL_ID",
     "SHUNDE_AI_REMOTE_EMBEDDING_MODEL_ID",
     "SHUNDE_AI_REMOTE_API_KEY",
+    "SHUNDE_AI_REMOTE_LLM_API_KEY",
+    "SHUNDE_AI_REMOTE_EMBEDDING_API_KEY",
+    "SHUNDE_AI_DEEPSEEK_BASE_URL",
+    "SHUNDE_AI_DEEPSEEK_API_KEY",
+    "SHUNDE_AI_DEEPSEEK_LLM_MODEL_ID",
     "SHUNDE_MODEL_CONCURRENCY",
     "SHUNDE_GAZETTEER_HOME"
 )
@@ -21,6 +28,25 @@ foreach ($environmentName in $runtimeEnvironmentNames) {
             [Environment]::SetEnvironmentVariable($environmentName, $userValue, "Process")
         }
     }
+}
+
+# The user-provided DeepSeek quota is the explicit remote LLM route. Keep the
+# existing remote endpoint for embeddings unless an endpoint-specific override
+# is supplied; DeepSeek's compatible API does not expose embeddings.
+$deepseekBaseUrl = [Environment]::GetEnvironmentVariable("SHUNDE_AI_DEEPSEEK_BASE_URL", "User")
+$deepseekApiKey = [Environment]::GetEnvironmentVariable("SHUNDE_AI_DEEPSEEK_API_KEY", "User")
+$deepseekModel = [Environment]::GetEnvironmentVariable("SHUNDE_AI_DEEPSEEK_LLM_MODEL_ID", "User")
+if ([string]::IsNullOrWhiteSpace($deepseekModel)) {
+    $deepseekModel = [Environment]::GetEnvironmentVariable("SHUNDE_AI_DEEPSEEK_MODEL", "User")
+}
+if (-not [string]::IsNullOrWhiteSpace($deepseekBaseUrl)) {
+    [Environment]::SetEnvironmentVariable("SHUNDE_AI_REMOTE_LLM_BASE_URL", $deepseekBaseUrl, "Process")
+}
+if (-not [string]::IsNullOrWhiteSpace($deepseekApiKey)) {
+    [Environment]::SetEnvironmentVariable("SHUNDE_AI_REMOTE_LLM_API_KEY", $deepseekApiKey, "Process")
+}
+if (-not [string]::IsNullOrWhiteSpace($deepseekModel)) {
+    [Environment]::SetEnvironmentVariable("SHUNDE_AI_REMOTE_LLM_MODEL_ID", $deepseekModel, "Process")
 }
 
 docker compose --project-directory $projectRoot up -d postgres

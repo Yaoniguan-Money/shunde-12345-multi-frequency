@@ -108,24 +108,33 @@ def build_provider_plan(
     )
 
     remote_base_url = str(settings.ai_remote_base_url) if settings.ai_remote_base_url else None
-    remote_key = settings.ai_remote_api_key
+    remote_llm_base_url = (
+        str(settings.ai_remote_llm_base_url) if settings.ai_remote_llm_base_url else remote_base_url
+    )
+    remote_embedding_base_url = (
+        str(settings.ai_remote_embedding_base_url)
+        if settings.ai_remote_embedding_base_url
+        else remote_base_url
+    )
+    remote_llm_key = settings.ai_remote_llm_api_key or settings.ai_remote_api_key
+    remote_embedding_key = settings.ai_remote_embedding_api_key or settings.ai_remote_api_key
     remote_llm = _endpoint(
         provider="remote-openai-compatible",
-        base_url=remote_base_url,
+        base_url=remote_llm_base_url,
         model_id=settings.ai_remote_llm_model_id,
         timeout=timeout,
         concurrency=concurrency,
-        api_key=remote_key,
+        api_key=remote_llm_key,
         required=remote_needed,
         label="remote LLM",
     )
     remote_embedding = _endpoint(
         provider="remote-openai-compatible",
-        base_url=remote_base_url,
+        base_url=remote_embedding_base_url,
         model_id=settings.ai_remote_embedding_model_id,
         timeout=timeout,
         concurrency=concurrency,
-        api_key=remote_key,
+        api_key=remote_embedding_key,
         required=remote_needed,
         label="remote embedding",
     )
