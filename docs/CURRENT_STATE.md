@@ -424,4 +424,4 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 
 ## 重研判运行状态（2026-08-19）
 
-`BLOCKED`：已对真实 100 条批次提交 `analysis-job bd9ec2ac-2edb-4454-8516-f307695becac`，选择模式为 `recurrence_candidates`，实际选中 10 条。远端 Qwen 在第一条 understanding 请求返回 HTTP 400 `Arrearage`（账户欠费/访问被拒），任务未产生新的事件、边或 cluster。未切换本地模型、云端替代账号或 mock 结果；恢复条件是远端账户/额度恢复后重新提交任务。
+`BLOCKED`：旧批次任务 `bd9ec2ac-2edb-4454-8516-f307695becac` 与新导入批次任务 `d81a2bd0-e8c6-4c4c-bdfc-977205317a72` 均在第一条 understanding 请求返回 HTTP 400 `Arrearage`（账户欠费/访问被拒）。新批次 `c6dd53e0-8239-4081-bb2d-633251e7818d` 已真实导入 100/100，但未产生新的事件、边或 cluster。未切换本地模型、云端替代账号或 mock 结果；恢复条件是远端账户/额度恢复后重新提交任务。
