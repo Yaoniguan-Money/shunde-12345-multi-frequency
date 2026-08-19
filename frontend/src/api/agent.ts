@@ -13,6 +13,10 @@ import type {
   WorksetWorkspaceResponse,
 } from "../types/api";
 
+const AGENT_QUERY_TIMEOUT_MS = 130_000;
+const AGENT_RESULTS_TIMEOUT_MS = 30_000;
+const AGENT_DASHBOARD_TIMEOUT_MS = 30_000;
+
 export function queryAgent(body: {
   query: string;
   previous_query?: string;
@@ -20,7 +24,9 @@ export function queryAgent(body: {
   previous_work_order_ids?: UUID[];
   limit?: number;
 }, signal?: AbortSignal): Promise<AgentQueryResponse> {
-  return apiRequest<AgentQueryResponse>("/agent/query", { method: "POST", body, signal });
+  return apiRequest<AgentQueryResponse>("/agent/query", {
+    method: "POST", body, signal, timeoutMs: AGENT_QUERY_TIMEOUT_MS,
+  });
 }
 
 export function queryAgentResults(body: {
@@ -29,7 +35,9 @@ export function queryAgentResults(body: {
   page_size: number;
   drilldown?: AgentDrilldown;
 }): Promise<AgentQueryResultsResponse> {
-  return apiRequest<AgentQueryResultsResponse>("/agent/query/results", { method: "POST", body });
+  return apiRequest<AgentQueryResultsResponse>("/agent/query/results", {
+    method: "POST", body, timeoutMs: AGENT_RESULTS_TIMEOUT_MS,
+  });
 }
 
 export function createWorkset(body: {
@@ -72,5 +80,7 @@ export function generateAgentDashboard(body: {
   compiled_query?: AgentQueryDSL;
   drilldown?: AgentDrilldown;
 }): Promise<DynamicDashboardResponse> {
-  return apiRequest<DynamicDashboardResponse>("/agent/dashboard", { method: "POST", body });
+  return apiRequest<DynamicDashboardResponse>("/agent/dashboard", {
+    method: "POST", body, timeoutMs: AGENT_DASHBOARD_TIMEOUT_MS,
+  });
 }

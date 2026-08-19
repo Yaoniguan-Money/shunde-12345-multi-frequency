@@ -386,8 +386,9 @@ test("CSV export calls triggerBlobDownload with returned blob", async () => {
   await waitFor(() => {
     expect(createdLinks.length).toBeGreaterThan(0);
   });
-  const link = createdLinks[0];
-  expect(link.download).toBe("cluster-1.csv");
+  const link = createdLinks.find((candidate) => candidate.download === "cluster-1.csv");
+  expect(link).toBeDefined();
+  expect(link?.download).toBe("cluster-1.csv");
   expect(
     (link as unknown as { __clickSpy?: { mock: { calls: unknown[] } } }).__clickSpy
       ?.mock.calls.length,

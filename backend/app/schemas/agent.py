@@ -51,6 +51,9 @@ class AgentTimeRange(BaseModel):
 
 
 class AgentQueryDSL(BaseModel):
+    # Retain the user's wording for vector retrieval.  The remaining slots are
+    # controlled query semantics and are not a substitute for this text.
+    semantic_query: str | None = Field(default=None, max_length=500)
     intent: AgentIntent = "search_work_orders"
     time_range: AgentTimeRange | None = None
     keywords: list[str] = Field(default_factory=_empty_strings, max_length=8)

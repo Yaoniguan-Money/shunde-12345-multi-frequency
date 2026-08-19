@@ -159,3 +159,19 @@ test("keeps aggregate filtering separate from concrete work-order and cluster li
   expect(screen.getByRole("link", { name: "多频 × 1" }).getAttribute("href")).toBe("/events/33333333-3333-3333-3333-333333333333");
   expect(screen.getAllByRole("button", { name: /欠薪/ }).length).toBeGreaterThan(0);
 });
+
+test("keeps successful query evidence visible when the dashboard fails", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/worksets")) return new Response(JSON.stringify({ items: [], total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("/agent/dashboard")) return new Response(JSON.stringify({ detail: "unavailable" }), { status: 500, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(FIRST_RESPONSE), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+
+  render(<MemoryRouter><AssistantPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "容桂有什么事情" }));
+
+  expect(await screen.findByText("有。当前检索范围内找到 1 条直接相关工单。" )).toBeInTheDocument();
+  expect(await screen.findByText(/查询结果正常，统计洞察暂时不可用/)).toBeInTheDocument();
+  expect(screen.getByText("拖欠工资")).toBeInTheDocument();
+});

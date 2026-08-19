@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from backend.app.application.services.agent_composer import compose_evidence_answer
 from backend.app.config import Settings
+from backend.app.domain.agent_search import AgentSearchPlan
 from backend.app.domain.ports.analysis import LLMProvider
 from backend.app.domain.title_tags import TITLE_TAG_WHITELIST
 from backend.app.domain.types import EmbeddingRequest, LLMRequest, ProviderRoute
@@ -95,9 +96,19 @@ class AgentOrchestrator:
     async def query(self, request: AgentQueryRequest) -> AgentQueryResponse:
         rules_plan = self._rules_plan(request)
         compiled, planner_mode = await self._plan_with_llm(request, rules_plan)
-        records = await self._scope_records(compiled)
-        total = len(records)
-        page_records = records[: request.limit]
+        compiled = compiled.model_copy(update={"semantic_query": request.query})
+        search_plan = _search_plan(compiled)
+        vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
+        page = await self._repository.search_page(
+            search_plan,
+            page=1,
+            page_size=request.limit,
+            semantic_vector=vector,
+            semantic_model_id=embedding_model_id,
+        )
+        records = page.records
+        total = page.matched_total
+        page_records = records
         work_orders = [_work_order_result(item) for item in page_records]
         topic_groups = _groups(item["event_type"] or "未归类" for item in records)
         handling_groups = _groups(item["handling_status"] for item in records)
@@ -139,15 +150,21 @@ class AgentOrchestrator:
         )
 
     async def query_results(self, request: AgentQueryResultsRequest) -> AgentQueryResultsResponse:
-        records = _apply_drilldown(
-            await self._scope_records(request.compiled_query), request.drilldown
-        )
-        start = (request.page - 1) * request.page_size
-        return AgentQueryResultsResponse(
-            matched_total=len(records),
+        search_plan = _search_plan(request.compiled_query)
+        vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
+        page = await self._repository.search_page(
+            search_plan,
             page=request.page,
             page_size=request.page_size,
-            items=[_work_order_result(item) for item in records[start : start + request.page_size]],
+            semantic_vector=vector,
+            semantic_model_id=embedding_model_id,
+            drilldown=request.drilldown,
+        )
+        return AgentQueryResultsResponse(
+            matched_total=page.matched_total,
+            page=request.page,
+            page_size=request.page_size,
+            items=[_work_order_result(item) for item in page.records],
         )
 
     async def create_workset(self, request: WorksetCreateRequest) -> WorksetResponse:
@@ -267,9 +284,15 @@ class AgentOrchestrator:
         drilldown: AgentDrilldown | None = None,
     ) -> DynamicDashboardResponse:
         if compiled_query is not None:
-            return _dashboard_response(
-                title, _apply_drilldown(await self._scope_records(compiled_query), drilldown)
+            search_plan = _search_plan(compiled_query)
+            vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
+            values = await self._repository.aggregate(
+                search_plan,
+                semantic_vector=vector,
+                semantic_model_id=embedding_model_id,
+                drilldown=drilldown,
             )
+            return _dashboard_values_response(title, values)
         values: AgentDashboardValues = await self._repository.dashboard(work_order_ids, cluster_ids)
         return DynamicDashboardResponse(
             title=title,
@@ -290,28 +313,6 @@ class AgentOrchestrator:
             status_tree=[],
             focus_cluster_ids=values["focus_cluster_ids"],
             disclaimer="所有统计均基于当前查询或工作集的真实工单范围，不代表行政事实认定。",
-        )
-
-    async def _scope_records(self, compiled: AgentQueryDSL) -> list[AgentRecord]:
-        """The durable scope never inherits a page limit from the UI."""
-        reported_after, reported_before = _compile_time_range(compiled.time_range)
-        vector, embedding_model_id = await self._semantic_vector(_scope_query_text(compiled))
-        return await self._repository.retrieve(
-            keywords=_retrieval_terms(compiled),
-            issue_terms=_issue_terms(compiled),
-            issue_required=compiled.issue_required,
-            entity=compiled.entity,
-            location=compiled.location,
-            event_type=compiled.event_type,
-            title_tag=compiled.title_tag,
-            work_order_ids=tuple(compiled.work_order_ids),
-            handling_status=compiled.handling_status,
-            reported_after=reported_after,
-            reported_before=reported_before,
-            limit=None,
-            semantic_vector=vector,
-            semantic_model_id=embedding_model_id,
-            complete_scope=True,
         )
 
     def _rules_plan(self, request: AgentQueryRequest) -> AgentQueryDSL:
@@ -498,6 +499,26 @@ def _compile_time_range(value: AgentTimeRange | None) -> tuple[datetime | None, 
         if value.value == "last_30_days":
             return now - timedelta(days=30), now
     return value.start, value.end
+
+
+def _search_plan(compiled: AgentQueryDSL) -> AgentSearchPlan:
+    """Compile stable DSL semantics for all retrieval-core executions."""
+    reported_after, reported_before = _compile_time_range(compiled.time_range)
+    return AgentSearchPlan(
+        semantic_query=compiled.semantic_query or _scope_query_text(compiled),
+        keywords=_retrieval_terms(compiled),
+        issue_terms=_issue_terms(compiled),
+        issue_required=compiled.issue_required,
+        entity=compiled.entity,
+        location=compiled.location,
+        event_type=compiled.event_type,
+        title_tag=compiled.title_tag,
+        work_order_ids=tuple(compiled.work_order_ids),
+        handling_status=compiled.handling_status,
+        reported_after=reported_after,
+        reported_before=reported_before,
+        sort=compiled.sort,
+    )
 
 
 def _time_range(text: str) -> AgentTimeRange | None:
@@ -726,25 +747,28 @@ def _apply_drilldown(
     ]
 
 
-def _dashboard_response(title: str, records: list[AgentRecord]) -> DynamicDashboardResponse:
-    cluster_ids = _unique_ids(cluster_id for item in records for cluster_id in item["cluster_ids"])
-    high_cluster_ids = _unique_ids(
-        cluster_id for item in records for cluster_id in item["high_frequency_cluster_ids"]
-    )
+def _dashboard_values_response(
+    title: str, values: AgentDashboardValues
+) -> DynamicDashboardResponse:
+    """Map database aggregates without rebuilding a full evidence collection."""
     return DynamicDashboardResponse(
         title=title,
-        work_order_count=len(records),
-        multi_frequency_event_count=len(cluster_ids),
-        multi_frequency_work_order_count=sum(1 for item in records if item["is_multi_frequency"]),
-        high_frequency_event_count=len(high_cluster_ids),
-        urgent_count=sum(1 for item in records if item["is_urgent"]),
-        topic_groups=_groups(item["event_type"] or "未归类" for item in records),
-        handling_groups=_groups(item["handling_status"] for item in records),
-        location_groups=_groups(item["location"] or "未提供地点" for item in records),
-        topic_tree=_tree_groups(records, "topic"),
-        location_tree=_tree_groups(records, "location"),
-        status_tree=_tree_groups(records, "status"),
-        focus_cluster_ids=cluster_ids,
+        work_order_count=values["work_order_count"],
+        multi_frequency_event_count=values["multi_frequency_event_count"],
+        multi_frequency_work_order_count=values["multi_frequency_work_order_count"],
+        high_frequency_event_count=values["high_frequency_event_count"],
+        urgent_count=values["urgent_count"],
+        topic_groups=[AgentTopicGroup.model_validate(item) for item in values["topic_groups"]],
+        handling_groups=[
+            AgentTopicGroup.model_validate(item) for item in values["handling_groups"]
+        ],
+        location_groups=[
+            AgentTopicGroup.model_validate(item) for item in values["location_groups"]
+        ],
+        topic_tree=[],
+        location_tree=[],
+        status_tree=[],
+        focus_cluster_ids=_unique_ids(values["focus_cluster_ids"]),
         disclaimer="所有统计均基于完整查询范围，不代表行政事实认定。",
     )
 
@@ -791,6 +815,11 @@ def _tree_groups(
             )
         )
     return sorted(groups, key=lambda group: (-group.count, group.label))
+
+
+# Retained for response compatibility while the SQL tree adapter is introduced
+# incrementally; no retrieval path calls these Python aggregation helpers.
+LEGACY_PRESENTATION_HELPERS = (_apply_drilldown, _tree_groups)
 
 
 def _evidence_answer(

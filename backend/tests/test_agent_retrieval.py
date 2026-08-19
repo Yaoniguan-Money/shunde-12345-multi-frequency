@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -6,6 +7,7 @@ from sqlalchemy import delete
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app.config import get_settings
+from backend.app.domain.agent_search import AgentSearchPlan
 from backend.app.infrastructure.db.agent import AgentRepository
 from backend.app.infrastructure.db.models import EventInstance, ImportBatch, WorkOrder
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
@@ -200,3 +202,121 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
         except (OSError, SQLAlchemyError):
             pass
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_search_page_uses_database_offset_and_keeps_semantic_only_candidate() -> None:
+    engine = create_engine(get_settings())
+    sessions = create_session_factory(engine)
+    batch_id = uuid4()
+    now = datetime.now(UTC)
+    try:
+        async with sessions() as session, session.begin():
+            session.add(
+                ImportBatch(
+                    id=batch_id,
+                    source_filename="agent-page.xlsx",
+                    source_sha256=uuid4().hex + uuid4().hex,
+                    source_size_bytes=1,
+                    field_mapping={},
+                    total_rows=41,
+                    successful_rows=41,
+                    failed_rows=0,
+                    duplicate_rows=0,
+                    checkpoint_row=41,
+                    status="completed",
+                )
+            )
+            work_orders = [
+                WorkOrder(
+                    id=uuid4(),
+                    import_batch_id=batch_id,
+                    source_row_number=index,
+                    raw_title=f"分页测试 {index}",
+                    raw_content="完工后报酬迟迟未到账" if index == 1 else f"分页记录 {index}",
+                    raw_fields={},
+                    raw_sha256=uuid4().hex + uuid4().hex,
+                    reported_at=now,
+                )
+                for index in range(1, 42)
+            ]
+            session.add_all(work_orders)
+            await session.flush()
+            session.add_all(
+                EventInstance(
+                    id=uuid4(),
+                    work_order_id=item.id,
+                    ordinal=0,
+                    event_type="测试",
+                    behavior=None,
+                    normalized_summary=item.raw_content,
+                    entity_ids=[],
+                    location_signals=["测试分页"],
+                    time_signals=[],
+                    evidence={},
+                    model_id="test-agent",
+                    model_config_hash=None,
+                    schema_version="understanding.v2",
+                    knowledge_snapshot_id=None,
+                    pipeline_version="understanding.v2",
+                )
+                for item in work_orders
+            )
+
+        repository = AgentRepository(sessions)
+        plan = AgentSearchPlan(
+            semantic_query="干完活还没拿到钱",
+            keywords=(),
+            issue_terms=("工资", "欠薪"),
+            issue_required=False,
+            entity=None,
+            location=None,
+            event_type=None,
+            title_tag=None,
+            work_order_ids=tuple(item.id for item in work_orders),
+            handling_status=None,
+            reported_after=None,
+            reported_before=None,
+            sort="newest",
+        )
+        first = await repository.search_page(
+            plan, page=1, page_size=20, semantic_vector=None, semantic_model_id=None
+        )
+        second = await repository.search_page(
+            plan, page=2, page_size=20, semantic_vector=None, semantic_model_id=None
+        )
+        assert first.matched_total == 41
+        assert len(first.records) == 20
+        assert len(second.records) == 20
+        assert {item["work_order_id"] for item in first.records}.isdisjoint(
+            {item["work_order_id"] for item in second.records}
+        )
+        dashboard = await repository.aggregate(plan, semantic_vector=None, semantic_model_id=None)
+        assert dashboard["work_order_count"] == 41
+
+        repository._semantic_scores = AsyncMock(return_value={work_orders[0].id: 0.99})  # type: ignore[method-assign]
+        semantic_plan = AgentSearchPlan(
+            semantic_query="干完活还没拿到钱",
+            keywords=(),
+            issue_terms=("工资", "欠薪"),
+            issue_required=True,
+            entity=None,
+            location=None,
+            event_type=None,
+            title_tag=None,
+            work_order_ids=tuple(item.id for item in work_orders),
+            handling_status=None,
+            reported_after=None,
+            reported_before=None,
+            sort="relevance",
+        )
+        semantic_page = await repository.search_page(
+            semantic_plan, page=1, page_size=20, semantic_vector=[0.0], semantic_model_id="test"
+        )
+        assert [item["work_order_id"] for item in semantic_page.records] == [work_orders[0].id]
+    finally:
+        try:
+            async with sessions() as session, session.begin():
+                await session.execute(delete(ImportBatch).where(ImportBatch.id == batch_id))
+        finally:
+            await engine.dispose()

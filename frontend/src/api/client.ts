@@ -18,6 +18,16 @@ export class ApiError extends Error {
   }
 }
 
+export class ApiTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`请求超时（${Math.round(timeoutMs / 1000)} 秒）`);
+    this.name = "ApiTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export type ResponseType = "json" | "blob" | "text";
 
 interface RequestOptions {
@@ -25,6 +35,7 @@ interface RequestOptions {
   body?: BodyInit | Record<string, unknown> | null;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  timeoutMs?: number;
   searchParams?: Record<string, string | number | boolean | null | undefined>;
   responseType?: ResponseType;
 }
@@ -54,6 +65,7 @@ async function parseErrorBody(response: Response): Promise<unknown> {
 
 /** 从 FastAPI 错误响应里提取用户可读消息。 */
 export function describeApiError(error: unknown): string {
+  if (error instanceof ApiTimeoutError) return error.message;
   if (error instanceof ApiError) {
     const detail = error.detail;
     if (detail && typeof detail === "object") {
@@ -83,6 +95,7 @@ export async function apiRequest<T>(
     body,
     headers,
     signal,
+    timeoutMs,
     searchParams,
     responseType = "json",
   } = options;
@@ -110,12 +123,27 @@ export async function apiRequest<T>(
     }
   }
 
-  const response = await fetch(url, {
-    method,
-    signal,
-    headers: finalHeaders,
-    body: requestBody,
-  });
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  const timeoutId = timeoutMs == null
+    ? null
+    : window.setTimeout(() => controller.abort(new ApiTimeoutError(timeoutMs)), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      signal: controller.signal,
+      headers: finalHeaders,
+      body: requestBody,
+    });
+  } catch (error) {
+    if (controller.signal.reason instanceof ApiTimeoutError) throw controller.signal.reason;
+    throw error;
+  } finally {
+    if (timeoutId != null) window.clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abort);
+  }
 
   if (!response.ok) {
     const detail = await parseErrorBody(response);

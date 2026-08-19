@@ -1,5 +1,17 @@
 # CURRENT_STATE.md
 
+## Agent Retrieval Core RC (2026-08-19)
+
+- `PARTIAL`: Query results now compile one `AgentSearchPlan`, retain the original
+  `semantic_query`, preserve semantic candidates independently of complete-scope
+  counting, and execute page count plus `LIMIT/OFFSET` before full projections.
+- `PARTIAL`: Dashboard totals/groups now use database aggregates and cluster
+  membership rows rather than a complete `AgentRecord` list. Tree SQL leaf
+  samples remain to be completed before claiming the RC fully shipped.
+- `DONE`: Dashboard failure is isolated from successful `/agent/query` results;
+  Agent-only timeout classification is configured; `scripts/start-agent-demo.ps1`
+  validates the dedicated `shunde_agent_demo_v2` database before startup.
+
 更新日期：2026-08-19（Asia/Shanghai）
 
 > 2026-08-19 Agent Demo 分支补充：`agent-demo-v2` 从稳定 V2 `6e2150e` 创建，未合并 WP2/WP3/V3 链路。新增的 Agent 独立表和 API 运行于可丢弃的本地数据库副本 `shunde_agent_demo_v2`，源库未回迁/降级。主场景、Workset、确认式批量操作、AuditLog 和动态看板已按 100 条真实 V2 演示数据 smoke；详情见 `docs/AGENT_DEMO_PROGRESS.md`。已兼容机器现有的 `SHUNDE_AI_DEEPSEEK_*` 用户级配置，并以真实请求完成 DeepSeek Planner 和 Analysis Composer。地点、主体、工单 ID、状态、时间现为 retrieval hard scope；存在 scope 时 pgvector 不得越界，V2 embedding 链保持不变。

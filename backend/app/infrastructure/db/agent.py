@@ -14,11 +14,12 @@ from datetime import UTC, date, datetime
 from typing import TypedDict, cast
 from uuid import UUID
 
-from sqlalchemy import Select, Text, or_, select
+from sqlalchemy import Select, Text, asc, case, desc, func, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
+from backend.app.domain.agent_search import AgentPage, AgentSearchPlan
 from backend.app.domain.catalog import (
     is_high_frequency_work_order_count,
     rolling_window_max_distinct_work_orders,
@@ -231,6 +232,308 @@ class AgentRepository:
                 title_tag=title_tag,
                 semantic_scores=semantic_scores,
             )
+
+    async def search_page(
+        self,
+        plan: AgentSearchPlan,
+        *,
+        page: int,
+        page_size: int,
+        semantic_vector: list[float] | None,
+        semantic_model_id: str | None,
+        drilldown: object | None = None,
+    ) -> AgentPage[AgentRecord]:
+        """Return one database page; full work-order projections never cross this seam."""
+        async with self._session_factory() as session:
+            semantic_scores = await self._semantic_scores(
+                session, semantic_vector, semantic_model_id, max(page_size * 6, 120)
+            )
+            ids = self._matching_ids_statement(plan, semantic_scores, drilldown)
+            matching = ids.distinct().subquery()
+            total = int((await session.scalar(select(func.count()).select_from(matching))) or 0)
+            if total == 0:
+                return AgentPage(0, [], len(semantic_scores))
+            score_case = case(
+                {key: int(value * 100) for key, value in semantic_scores.items()},
+                value=matching.c.id,
+                else_=0,
+            )
+            ordering = (
+                desc(score_case)
+                if plan.sort == "relevance"
+                else desc(WorkOrder.created_at)
+                if plan.sort == "newest"
+                else asc(WorkOrder.created_at)
+            )
+            page_ids = list(
+                (
+                    await session.scalars(
+                        select(matching.c.id)
+                        .join(WorkOrder, WorkOrder.id == matching.c.id)
+                        .order_by(
+                            ordering,
+                            desc(WorkOrder.created_at),
+                            WorkOrder.id,
+                        )
+                        .offset((page - 1) * page_size)
+                        .limit(page_size)
+                    )
+                ).all()
+            )
+            records = await self._projections(
+                session,
+                page_ids,
+                plan.keywords,
+                None,
+                issue_terms=plan.issue_terms,
+                issue_required=plan.issue_required,
+                title_tag=plan.title_tag,
+                location=plan.location,
+                entity=plan.entity,
+                required_work_order_ids=set(plan.work_order_ids),
+                handling_status=plan.handling_status,
+                semantic_scores=semantic_scores,
+            )
+            return AgentPage(total, records, len(semantic_scores))
+
+    async def aggregate(
+        self,
+        plan: AgentSearchPlan,
+        *,
+        semantic_vector: list[float] | None,
+        semantic_model_id: str | None,
+        drilldown: object | None = None,
+    ) -> AgentDashboardValues:
+        """Compute dashboard groups in SQL without materialising AgentRecord values."""
+        async with self._session_factory() as session:
+            semantic_scores = await self._semantic_scores(
+                session, semantic_vector, semantic_model_id, 120
+            )
+            matching = (
+                self._matching_ids_statement(plan, semantic_scores, drilldown).distinct().subquery()
+            )
+            total = int((await session.scalar(select(func.count()).select_from(matching))) or 0)
+            if total == 0:
+                return {
+                    "work_order_count": 0,
+                    "multi_frequency_event_count": 0,
+                    "multi_frequency_work_order_count": 0,
+                    "high_frequency_event_count": 0,
+                    "urgent_count": 0,
+                    "topic_groups": [],
+                    "handling_groups": [],
+                    "location_groups": [],
+                    "focus_cluster_ids": [],
+                }
+            topic_rows = (
+                await session.execute(
+                    select(func.coalesce(EventInstance.event_type, "未归类"), func.count())
+                    .select_from(matching)
+                    .outerjoin(
+                        EventInstance,
+                        (EventInstance.work_order_id == matching.c.id)
+                        & (EventInstance.pipeline_version == "understanding.v2")
+                        & (EventInstance.ordinal == 0),
+                    )
+                    .group_by(EventInstance.event_type)
+                    .order_by(desc(func.count()))
+                    .limit(8)
+                )
+            ).all()
+            location_expression = func.coalesce(
+                EventInstance.location_signals[0].as_string(), "未提供地点"
+            )
+            location_rows = (
+                await session.execute(
+                    select(location_expression, func.count())
+                    .select_from(matching)
+                    .outerjoin(
+                        EventInstance,
+                        (EventInstance.work_order_id == matching.c.id)
+                        & (EventInstance.pipeline_version == "understanding.v2")
+                        & (EventInstance.ordinal == 0),
+                    )
+                    .group_by(EventInstance.location_signals)
+                    .order_by(desc(func.count()))
+                    .limit(8)
+                )
+            ).all()
+            latest_handling = (
+                select(
+                    WorkOrderHandlingRecord.work_order_id,
+                    func.max(WorkOrderHandlingRecord.created_at).label("created_at"),
+                )
+                .group_by(WorkOrderHandlingRecord.work_order_id)
+                .subquery()
+            )
+            status_rows = (
+                await session.execute(
+                    select(
+                        func.coalesce(WorkOrderHandlingRecord.new_status, "unhandled"),
+                        func.count(),
+                    )
+                    .select_from(matching)
+                    .outerjoin(latest_handling, latest_handling.c.work_order_id == matching.c.id)
+                    .outerjoin(
+                        WorkOrderHandlingRecord,
+                        (WorkOrderHandlingRecord.work_order_id == latest_handling.c.work_order_id)
+                        & (WorkOrderHandlingRecord.created_at == latest_handling.c.created_at),
+                    )
+                    .group_by(WorkOrderHandlingRecord.new_status)
+                    .order_by(desc(func.count()))
+                    .limit(8)
+                )
+            ).all()
+            urgent_count = int(
+                (
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(matching.join(WorkOrder, WorkOrder.id == matching.c.id))
+                        .where(_title_tag_condition("急"))
+                    )
+                )
+                or 0
+            )
+            candidate_cluster_ids = list(
+                (
+                    await session.scalars(
+                        select(EventClusterMember.event_cluster_id)
+                        .join(
+                            EventInstance,
+                            EventInstance.id == EventClusterMember.event_instance_id,
+                        )
+                        .where(
+                            EventInstance.work_order_id.in_(select(matching.c.id)),
+                            EventInstance.pipeline_version == "understanding.v2",
+                        )
+                        .distinct()
+                    )
+                ).all()
+            )
+            members_by_cluster: dict[UUID, list[tuple[str, date | None]]] = {}
+            if candidate_cluster_ids:
+                membership_rows = await session.execute(
+                    select(
+                        EventClusterMember.event_cluster_id,
+                        WorkOrder.root_work_order_number,
+                        WorkOrder.id,
+                        WorkOrder.reported_at,
+                    )
+                    .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+                    .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
+                    .where(
+                        EventClusterMember.event_cluster_id.in_(candidate_cluster_ids),
+                        EventInstance.pipeline_version == "understanding.v2",
+                    )
+                )
+                for cluster_id, root_number, work_order_id, reported_at in membership_rows.all():
+                    members_by_cluster.setdefault(cluster_id, []).append(
+                        (
+                            root_number or str(work_order_id),
+                            reported_at.date() if reported_at else None,
+                        )
+                    )
+            valid_cluster_ids = [
+                cluster_id
+                for cluster_id, members in members_by_cluster.items()
+                if len({root for root, _ in members}) >= 2
+            ]
+            high_cluster_ids = [
+                cluster_id
+                for cluster_id in valid_cluster_ids
+                if is_high_frequency_work_order_count(
+                    rolling_window_max_distinct_work_orders(members_by_cluster[cluster_id])
+                )
+            ]
+            return {
+                "work_order_count": total,
+                "multi_frequency_event_count": len(valid_cluster_ids),
+                "multi_frequency_work_order_count": int(
+                    (
+                        await session.scalar(
+                            select(func.count(func.distinct(EventInstance.work_order_id)))
+                            .join(
+                                EventClusterMember,
+                                EventClusterMember.event_instance_id == EventInstance.id,
+                            )
+                            .where(
+                                EventInstance.work_order_id.in_(select(matching.c.id)),
+                                EventClusterMember.event_cluster_id.in_(valid_cluster_ids),
+                            )
+                        )
+                    )
+                    or 0
+                ),
+                "high_frequency_event_count": len(high_cluster_ids),
+                "urgent_count": urgent_count,
+                "topic_groups": [
+                    {"label": str(label), "count": int(count)} for label, count in topic_rows
+                ],
+                "handling_groups": [
+                    {"label": str(label), "count": int(count)} for label, count in status_rows
+                ],
+                "location_groups": [
+                    {"label": str(label), "count": int(count)} for label, count in location_rows
+                ],
+                "focus_cluster_ids": valid_cluster_ids,
+            }
+
+    def _matching_ids_statement(
+        self,
+        plan: AgentSearchPlan,
+        semantic_scores: dict[UUID, float],
+        drilldown: object | None,
+    ) -> Select[tuple[UUID]]:
+        """Shared predicate semantics; callers choose their own SQL projection."""
+        statement = (
+            select(WorkOrder.id)
+            .outerjoin(
+                EventInstance,
+                (EventInstance.work_order_id == WorkOrder.id)
+                & (EventInstance.pipeline_version == "understanding.v2"),
+            )
+            .outerjoin(EntityMention, EntityMention.work_order_id == WorkOrder.id)
+            .outerjoin(CanonicalEntity, CanonicalEntity.id == EntityMention.canonical_entity_id)
+        )
+        hard_conditions: list[ColumnElement[bool]] = []
+        if plan.work_order_ids:
+            hard_conditions.append(WorkOrder.id.in_(plan.work_order_ids))
+        if plan.reported_after is not None:
+            hard_conditions.append(WorkOrder.reported_at >= plan.reported_after)
+        if plan.reported_before is not None:
+            hard_conditions.append(WorkOrder.reported_at <= plan.reported_before)
+        if plan.location:
+            hard_conditions.append(_location_condition(plan.location))
+        if plan.entity:
+            hard_conditions.append(_entity_condition(plan.entity))
+        if plan.handling_status:
+            hard_conditions.append(_handling_status_condition(plan.handling_status))
+        if plan.title_tag:
+            hard_conditions.append(_title_tag_condition(plan.title_tag))
+        if hard_conditions:
+            statement = statement.where(*hard_conditions)
+        else:
+            recall_conditions = [_text_condition(term) for term in plan.keywords]
+            semantic_ids = tuple(semantic_scores)
+            if recall_conditions or semantic_ids:
+                statement = statement.where(or_(*recall_conditions, WorkOrder.id.in_(semantic_ids)))
+        if plan.issue_required:
+            lexical = [_text_condition(term) for term in plan.issue_terms]
+            semantic_ids = tuple(
+                key for key, score in semantic_scores.items() if score >= _ISSUE_SEMANTIC_MIN_SCORE
+            )
+            statement = statement.where(or_(*lexical, WorkOrder.id.in_(semantic_ids)))
+        if drilldown is not None:
+            topic = getattr(drilldown, "topic", None)
+            location = getattr(drilldown, "location", None)
+            handling_status = getattr(drilldown, "handling_status", None)
+            if topic:
+                statement = statement.where(EventInstance.event_type == topic)
+            if location:
+                statement = statement.where(_location_condition(location))
+            if handling_status:
+                statement = statement.where(_handling_status_condition(handling_status))
+        return statement
 
     async def _semantic_scores(
         self,

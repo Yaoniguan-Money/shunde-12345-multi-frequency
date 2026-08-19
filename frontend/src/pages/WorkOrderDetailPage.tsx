@@ -176,6 +176,7 @@ export function WorkOrderDetailPage(): JSX.Element {
             <div className="detail-return-actions">
               {fromAssistant ? <button type="button" className="btn btn--primary" onClick={() => navigate("/assistant")}>← 返回智能研判</button> : null}
               <button type="button" className="btn btn--secondary" onClick={() => navigate("/")}>返回研判总览</button>
+              <button type="button" className="btn btn--secondary" onClick={() => navigate("/work-orders")}>返回工单列表</button>
             </div>
           }
         />

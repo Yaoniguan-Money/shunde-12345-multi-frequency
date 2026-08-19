@@ -263,6 +263,7 @@ export interface AgentTimeRange {
 }
 
 export interface AgentQueryDSL {
+  semantic_query?: string | null;
   intent: string;
   time_range: AgentTimeRange | null;
   keywords: string[];

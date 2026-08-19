@@ -1,5 +1,18 @@
 # TRAE_HANDOFF.md
 
+## Agent Retrieval Core RC handoff（2026-08-19）
+
+- `POST /agent/query`、`/agent/query/results` 与 `/agent/dashboard` 现在以同一
+  `AgentSearchPlan` 解释地点、实体、时间、状态、主题和排序；前端不得重建或放宽
+  这些约束。
+- 查询页使用后端真分页；Dashboard 的总数与问题/地点/状态分组来自 SQL 聚合。
+  Dashboard 不可用时，TRAE 必须保留主查询的答案和工单列表，并明确显示洞察不可用。
+- `semantic_query` 是原始自然语言语义，不能由前端替换为关键词字典。
+- **当前限制：关系树 SQL 聚合和真实 sample leaves 尚未完成，API 返回空 tree。**
+  TRAE 不得用静态节点、随机节点或伪造工单补齐视觉树；应呈现可理解的真实空状态。
+- Demo 一律通过 `scripts/start-agent-demo.ps1` 启动，脚本会预检
+  `shunde_agent_demo_v2`；不要假设通用启动脚本连接该数据库。
+
 # 角色定义
 
 **Codex = 硬装**：架构、数据、API、数据库、模型/知识库 adapter、任务恢复、测试、Git、性能门禁。  
