@@ -267,6 +267,7 @@ export interface AgentQueryDSL {
   time_range: AgentTimeRange | null;
   keywords: string[];
   topic: string | null;
+  issue_required: boolean;
   entity: string | null;
   location: string | null;
   event_type: string | null;
@@ -305,6 +306,7 @@ export interface AgentQueryResponse {
   handling_groups: AgentTopicGroup[];
   work_orders: AgentWorkOrderResult[];
   cluster_ids: UUID[];
+  retrieval_trace: Record<string, unknown>[];
 }
 
 export interface WorksetResponse {

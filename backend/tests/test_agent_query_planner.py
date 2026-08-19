@@ -33,20 +33,49 @@ def test_engineering_payment_query_is_compiled_to_controlled_dsl() -> None:
     assert plan.time_range is not None
     assert plan.time_range.value == "last_30_days"
     assert "工程款" in plan.keywords
+    assert plan.issue_required is True
 
 
-def test_follow_up_preserves_result_scope_and_applies_status_filter() -> None:
+def test_constraint_follow_up_inherits_scope_without_locking_prior_result_ids() -> None:
     previous = _service()._rules_plan(  # noqa: SLF001 - validates the controlled planner boundary.
         AgentQueryRequest(query="最近一个月有哪些工程款投诉？")
     )
     plan = _service()._rules_plan(  # noqa: SLF001 - validates the controlled planner boundary.
         AgentQueryRequest(
-            query="只看还没处理的",
+            query="那最近一个月呢？",
             previous_query_snapshot=previous,
             previous_work_order_ids=["51dee877-ba24-4834-aa61-39978bb2d480"],
         )
     )
 
     assert plan.intent == "refine_previous"
-    assert plan.handling_status == "unhandled"
-    assert plan.work_order_ids == [UUID("51dee877-ba24-4834-aa61-39978bb2d480")]
+    assert plan.time_range is not None
+    assert plan.time_range.value == "last_30_days"
+    assert plan.topic == "工程款"
+    assert plan.issue_required is True
+    assert plan.work_order_ids == []
+
+
+def test_location_and_explicit_issue_are_both_constraints() -> None:
+    plan = _service()._rules_plan(  # noqa: SLF001 - controlled planner contract.
+        AgentQueryRequest(query="大良有没有拖欠工资的情况")
+    )
+
+    assert plan.location == "大良"
+    assert plan.topic == "工资"
+    assert plan.issue_required is True
+
+
+def test_result_reference_follow_up_keeps_prior_evidence_ids() -> None:
+    prior = _service()._rules_plan(AgentQueryRequest(query="大良有没有拖欠工资"))
+    result_id = UUID("51dee877-ba24-4834-aa61-39978bb2d480")
+    plan = _service()._rules_plan(
+        AgentQueryRequest(
+            query="这几单处理了吗？",
+            previous_query_snapshot=prior,
+            previous_work_order_ids=[result_id],
+        )
+    )
+
+    assert plan.intent == "refine_previous"
+    assert plan.work_order_ids == [result_id]

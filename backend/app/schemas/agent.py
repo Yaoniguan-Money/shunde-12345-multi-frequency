@@ -25,6 +25,10 @@ def _empty_uuids() -> list[UUID]:
     return []
 
 
+def _empty_trace() -> list[dict[str, object]]:
+    return []
+
+
 class AgentTimeRange(BaseModel):
     kind: Literal["relative", "absolute"]
     value: str | None = Field(default=None, max_length=32)
@@ -37,6 +41,9 @@ class AgentQueryDSL(BaseModel):
     time_range: AgentTimeRange | None = None
     keywords: list[str] = Field(default_factory=_empty_strings, max_length=8)
     topic: str | None = Field(default=None, max_length=128)
+    # A topic mentioned by the user is a result constraint, not merely a
+    # ranking hint.  `keywords` remain broad candidate-recall terms.
+    issue_required: bool = False
     entity: str | None = Field(default=None, max_length=128)
     location: str | None = Field(default=None, max_length=128)
     event_type: str | None = Field(default=None, max_length=128)
@@ -85,6 +92,7 @@ class AgentQueryResponse(BaseModel):
     handling_groups: list[AgentTopicGroup]
     work_orders: list[AgentWorkOrderResult]
     cluster_ids: list[UUID]
+    retrieval_trace: list[dict[str, object]] = Field(default_factory=_empty_trace)
 
 
 class WorksetCreateRequest(BaseModel):

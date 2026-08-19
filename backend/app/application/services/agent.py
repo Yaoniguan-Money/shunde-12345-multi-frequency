@@ -87,17 +87,19 @@ class AgentOrchestrator:
     async def query(self, request: AgentQueryRequest) -> AgentQueryResponse:
         rules_plan = self._rules_plan(request)
         compiled, planner_mode = await self._plan_with_llm(request.query, rules_plan)
-        created_after, created_before = _compile_time_range(compiled.time_range)
+        reported_after, reported_before = _compile_time_range(compiled.time_range)
         vector, embedding_model_id = await self._semantic_vector(request.query)
         records = await self._repository.retrieve(
             keywords=_retrieval_terms(compiled),
+            issue_terms=_issue_terms(compiled),
+            issue_required=compiled.issue_required,
             entity=compiled.entity,
             location=compiled.location,
             event_type=compiled.event_type,
             work_order_ids=tuple(compiled.work_order_ids),
             handling_status=compiled.handling_status,
-            created_after=created_after,
-            created_before=created_before,
+            reported_after=reported_after,
+            reported_before=reported_before,
             limit=compiled.limit,
             semantic_vector=vector,
             semantic_model_id=embedding_model_id,
@@ -108,7 +110,7 @@ class AgentOrchestrator:
         cluster_ids = list(
             dict.fromkeys(cluster_id for item in work_orders for cluster_id in item.cluster_ids)
         )
-        factual_summary = _evidence_answer(len(work_orders), topic_groups, cluster_ids)
+        factual_summary = _evidence_answer(records, topic_groups, cluster_ids)
         answer = await compose_evidence_answer(
             planner_llm=self._planner_llm,
             query=request.query,
@@ -126,6 +128,9 @@ class AgentOrchestrator:
             handling_groups=handling_groups,
             work_orders=work_orders,
             cluster_ids=cluster_ids,
+            retrieval_trace=[item["retrieval_trace"] for item in records]
+            if self._settings.environment != "production"
+            else [],
         )
 
     async def create_workset(self, request: WorksetCreateRequest) -> WorksetResponse:
@@ -207,22 +212,24 @@ class AgentOrchestrator:
         text = request.query.strip()
         prior = request.previous_query_snapshot
         keywords = _keywords(text)
+        follow_up = _follow_up_kind(text)
+        continue_constraints = prior is not None and follow_up in {"constraints", "results"}
+        inherited = prior if continue_constraints and prior is not None else AgentQueryDSL()
         plan = AgentQueryDSL(
-            intent="refine_previous"
-            if _is_follow_up(text) and request.previous_work_order_ids
-            else "search_work_orders",
-            time_range=_time_range(text)
-            or (prior.time_range if prior and _is_follow_up(text) else None),
-            keywords=keywords or (prior.keywords if prior and _is_follow_up(text) else []),
-            topic=_topic(text) or (prior.topic if prior and _is_follow_up(text) else None),
-            entity=prior.entity if prior and _is_follow_up(text) else None,
-            location=_location(text) or (prior.location if prior and _is_follow_up(text) else None),
-            event_type=prior.event_type if prior and _is_follow_up(text) else None,
-            handling_status=_handling_status(text)
-            or (prior.handling_status if prior and _is_follow_up(text) else None),
+            intent="refine_previous" if continue_constraints else "search_work_orders",
+            time_range=_time_range(text) or inherited.time_range,
+            keywords=keywords or inherited.keywords,
+            topic=_topic(text) or inherited.topic,
+            issue_required=bool(_topic(text)) or (inherited.issue_required),
+            entity=inherited.entity,
+            location=_location(text) or inherited.location,
+            event_type=inherited.event_type,
+            handling_status=_handling_status(text) or inherited.handling_status,
             sort="newest" if "最新" in text else "relevance",
             limit=request.limit,
-            work_order_ids=request.previous_work_order_ids if _is_follow_up(text) else [],
+            # Only an explicit result reference is bound to the prior evidence
+            # set. Constraint follow-ups must query the full legal scope again.
+            work_order_ids=request.previous_work_order_ids if follow_up == "results" else [],
         )
         return plan
 
@@ -233,7 +240,8 @@ class AgentOrchestrator:
             return rules_plan, "rules"
         prompt = (
             "将用户问题解析为受控 12345 工单查询 DSL。只能填写给定字段，绝不生成 SQL。"
-            "用户明确提及的地点、主体、工单号、办理状态和时间都是硬筛选条件，"
+            "用户明确提及的地点、主体、工单号、办理状态、时间和问题类别都是硬筛选条件。"
+            "例如“大良有没有拖欠工资”是大良范围内的欠薪问题，不是先查大良再按欠薪排序。"
             "location 应保留用户的开放文本地点原样（道路、小区、学校、园区、项目等均可），"
             "不得将地点写入 topic 或 keywords。"
             "不确定则保留 null 或空数组。时间相对值使用 last_7_days、last_30_days。\n"
@@ -245,6 +253,7 @@ class AgentOrchestrator:
                 "intent": {"type": "string"},
                 "keywords": {"type": "array", "items": {"type": "string"}},
                 "topic": {"type": ["string", "null"]},
+                "issue_required": {"type": "boolean"},
                 "entity": {"type": ["string", "null"]},
                 "location": {"type": ["string", "null"]},
                 "event_type": {"type": ["string", "null"]},
@@ -311,6 +320,7 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         "intent",
         "keywords",
         "topic",
+        "issue_required",
         "entity",
         "location",
         "event_type",
@@ -319,6 +329,10 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         "time_range",
     }
     patch = {key: value for key, value in values.items() if key in allowed}
+    if base.issue_required:
+        # The model may refine vocabulary but cannot relax an issue that the
+        # deterministic parser identified as an explicit user constraint.
+        patch["issue_required"] = True
     if "location" in patch and not _is_location_candidate(patch["location"]):
         patch.pop("location")
     if base.location and not patch.get("location"):
@@ -374,7 +388,7 @@ def _keywords(text: str) -> list[str]:
 def _topic(text: str) -> str | None:
     if any(item in text for item in ("工程款", "项目款", "施工费用", "尾款")):
         return "工程款"
-    if "工资" in text or "欠薪" in text:
+    if any(item in text for item in ("工资", "欠薪", "薪资", "劳动报酬", "结清")):
         return "工资"
     if "噪音" in text:
         return "噪音"
@@ -384,18 +398,24 @@ def _topic(text: str) -> str | None:
 def _retrieval_terms(plan: AgentQueryDSL) -> tuple[str, ...]:
     expansions = {
         "工程款": ("工程款", "项目款", "施工费用", "尾款", "劳务费", "工资", "拖欠"),
-        "工资": ("工资", "欠薪", "劳务费", "拖欠"),
+        "工资": ("工资", "欠薪", "薪资", "劳务费", "拖欠", "结清", "未支付", "劳动报酬"),
         "噪音": ("噪音", "噪声", "扰民"),
     }
     terms = [*plan.keywords, *(expansions.get(plan.topic, ()) if plan.topic else ())]
     return tuple(dict.fromkeys(term for term in terms if term))
 
 
+def _issue_terms(plan: AgentQueryDSL) -> tuple[str, ...]:
+    if not plan.issue_required:
+        return ()
+    return _retrieval_terms(plan)
+
+
 def _location(text: str) -> str | None:
     normalized = re.sub(r"[，。！？、,.!?]", " ", text).strip()
     prefix_match = re.match(
         r"(?:请问|帮我看看|查询|了解)?(?P<location>[\u4e00-\u9fffA-Za-z0-9·]{2,40}?)"
-        r"(?:最近|近来|这段时间|有什么|发生了什么|相关工单|的情况)",
+        r"(?:最近|近来|这段时间|有什么|有没有|是否有|发生了什么|相关工单|的情况)",
         normalized,
     )
     if prefix_match:
@@ -437,8 +457,12 @@ def _handling_status(text: str) -> Literal["unhandled", "investigating", "resolv
     return None
 
 
-def _is_follow_up(text: str) -> bool:
-    return any(item in text for item in ("这些", "刚才", "只看", "其中", "上一步"))
+def _follow_up_kind(text: str) -> Literal["none", "constraints", "results"]:
+    if any(item in text for item in ("这几单", "这些工单", "它们", "其中这些")):
+        return "results"
+    if any(item in text for item in ("这些", "刚才", "只看", "其中", "上一步", "那最近", "那近")):
+        return "constraints"
+    return "none"
 
 
 def _work_order_result(value: AgentRecord) -> AgentWorkOrderResult:
@@ -446,8 +470,8 @@ def _work_order_result(value: AgentRecord) -> AgentWorkOrderResult:
         work_order_id=value["work_order_id"],
         external_work_order_number=value["external_work_order_number"],
         title=value["title"],
-        reported_at=None,
-        time_label="系统入库时间",
+        reported_at=value["reported_at"],
+        time_label="业务受理时间" if value["reported_at"] is not None else "业务时间未知",
         normalized_summary=value["normalized_summary"],
         location=value["location"],
         event_type=value["event_type"],
@@ -464,14 +488,20 @@ def _groups(values: Iterable[str]) -> list[AgentTopicGroup]:
     ]
 
 
-def _evidence_answer(total: int, topics: list[AgentTopicGroup], cluster_ids: list[UUID]) -> str:
+def _evidence_answer(
+    records: list[AgentRecord], topics: list[AgentTopicGroup], cluster_ids: list[UUID]
+) -> str:
+    total = len(records)
     if total == 0:
         return "该条件下未检索到记录；可尝试放宽时间、地点或关键词。"
     topic_text = "、".join(f"{item.label} {item.count} 条" for item in topics[:3]) or "待归类"
     cluster_text = f"，其中关联多频事件 {len(cluster_ids)} 个" if cluster_ids else ""
+    first = records[0]
+    core = first["title"] or first["normalized_summary"] or "一条可核查工单"
     return (
-        f"系统检索到 {total} 条相关投诉记录，主要涉及：{topic_text}{cluster_text}。"
-        "以下每条均可回到真实工单核查。"
+        f"有。当前检索范围内找到 {total} 条直接相关工单，主要涉及：{topic_text}{cluster_text}。\n\n"
+        f"核心工单：{core}\n"
+        "当前数据只能确认上述投诉记录，不能据此认定该问题具有普遍性。"
     )
 
 

@@ -22,14 +22,15 @@ async def compose_evidence_answer(
     records: list[AgentRecord],
     factual_summary: str,
 ) -> str:
-    """Add clearly-labelled AI analysis without changing evidence-backed facts."""
-    if planner_llm is None or not records:
+    """Use the final evidence set; analysis is opt-in rather than mandatory."""
+    if planner_llm is None or not records or not _asks_for_analysis(query):
         return factual_summary
     evidence = [_evidence_item(record) for record in records[:_MAX_EVIDENCE_ITEMS]]
     prompt = (
         "你是12345工单研判助手。只依据给出的真实工单证据写简洁中文研判。"
         "不得增加不存在的地点、工单、数量、因果或政府处置事实。"
-        "可能原因必须是推测，建议必须标注为 AI 建议；不能把投诉内容表述为行政事实认定。\n"
+        "只有用户明确要求分析、原因或建议时才输出这些内容。可能原因必须是推测，"
+        "建议必须标注为 AI 建议；不能把投诉内容表述为行政事实认定。\n"
         f"用户问题：{query}\n"
         f"真实证据（最多{_MAX_EVIDENCE_ITEMS}条）：{json.dumps(evidence, ensure_ascii=False)}"
     )
@@ -96,3 +97,7 @@ def _text(value: object) -> str | None:
         return None
     cleaned = " ".join(value.split())[:_MAX_COMPOSER_TEXT]
     return cleaned or None
+
+
+def _asks_for_analysis(query: str) -> bool:
+    return any(token in query for token in ("为什么", "原因", "分析", "建议", "怎么处理", "优先"))
