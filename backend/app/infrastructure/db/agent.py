@@ -20,6 +20,8 @@ from sqlalchemy.sql.elements import ColumnElement
 from backend.app.infrastructure.db.models import (
     AgentActionPreview,
     AuditLog,
+    CanonicalEntity,
+    EntityMention,
     EventCluster,
     EventClusterMember,
     EventInstance,
@@ -38,7 +40,9 @@ class AgentRecord(TypedDict):
     title: str | None
     created_at: datetime
     normalized_summary: str | None
+    raw_content: str
     location: str | None
+    location_signals: list[str]
     event_type: str | None
     handling_status: str
     cluster_ids: list[UUID]
@@ -77,55 +81,93 @@ class AgentRepository:
         location: str | None,
         event_type: str | None,
         work_order_ids: tuple[UUID, ...],
+        handling_status: str | None,
         created_after: datetime | None,
         created_before: datetime | None,
         limit: int,
         semantic_vector: list[float] | None,
         semantic_model_id: str | None,
     ) -> list[AgentRecord]:
-        """Return a bounded, merged V2 projection, ranked by retrieval evidence."""
-        terms = tuple(
-            term for term in (*keywords, entity or "", location or "", event_type or "") if term
+        """Retrieve within hard scope before applying text or semantic relevance."""
+        terms = tuple(term for term in (*keywords, event_type or "") if term)
+        has_hard_scope = bool(
+            location
+            or entity
+            or work_order_ids
+            or handling_status
+            or created_after is not None
+            or created_before is not None
         )
         async with self._session_factory() as session:
-            conditions: list[ColumnElement[bool]] = []
+            scope_conditions: list[ColumnElement[bool]] = []
             if work_order_ids:
-                conditions.append(WorkOrder.id.in_(work_order_ids))
+                scope_conditions.append(WorkOrder.id.in_(work_order_ids))
             if created_after is not None:
-                conditions.append(WorkOrder.created_at >= created_after)
+                scope_conditions.append(WorkOrder.created_at >= created_after)
             if created_before is not None:
-                conditions.append(WorkOrder.created_at <= created_before)
-            if terms:
-                term_conditions: list[ColumnElement[bool]] = []
-                for term in terms:
-                    pattern = f"%{term}%"
-                    term_conditions.append(
-                        or_(
-                            WorkOrder.external_work_order_number.ilike(pattern),
-                            WorkOrder.raw_title.ilike(pattern),
-                            WorkOrder.raw_content.ilike(pattern),
-                            EventInstance.normalized_summary.ilike(pattern),
-                            EventInstance.event_type.ilike(pattern),
-                            sql_cast(EventInstance.location_signals, Text).ilike(pattern),
+                scope_conditions.append(WorkOrder.created_at <= created_before)
+            if location:
+                scope_conditions.append(_location_condition(location))
+            if entity:
+                scope_conditions.append(_entity_condition(entity))
+            if handling_status:
+                scope_conditions.append(_handling_status_condition(handling_status))
+
+            statement = (
+                select(WorkOrder.id)
+                .outerjoin(
+                    EventInstance,
+                    (EventInstance.work_order_id == WorkOrder.id)
+                    & (EventInstance.pipeline_version == "understanding.v2"),
+                )
+                .outerjoin(EntityMention, EntityMention.work_order_id == WorkOrder.id)
+                .outerjoin(CanonicalEntity, CanonicalEntity.id == EntityMention.canonical_entity_id)
+            )
+            if has_hard_scope:
+                scoped_statement = statement.where(*scope_conditions).distinct()
+                structured_scope_ids = cast(
+                    list[UUID],
+                    (await session.scalars(scoped_statement.limit(max(limit * 8, 200)))).all(),
+                )
+                if not structured_scope_ids:
+                    return []
+                semantic_ids = await self._semantic_ids(
+                    session,
+                    semantic_vector,
+                    semantic_model_id,
+                    max(limit * 3, 40),
+                    allowed_work_order_ids=structured_scope_ids,
+                )
+                return await self._projections(
+                    session,
+                    _unique_ids((*structured_scope_ids, *semantic_ids)),
+                    terms,
+                    limit,
+                    location=location,
+                    entity=entity,
+                    required_work_order_ids=set(work_order_ids),
+                    handling_status=handling_status,
+                    semantic_ids=set(semantic_ids),
+                )
+
+            text_conditions = [_text_condition(term) for term in terms]
+            text_ids: list[UUID] = []
+            if text_conditions:
+                text_ids = cast(
+                    list[UUID],
+                    (
+                        await session.scalars(
+                            statement.where(or_(*text_conditions))
+                            .distinct()
+                            .limit(max(limit * 4, 80))
                         )
-                    )
-                conditions.append(or_(*term_conditions))
-            statement = select(WorkOrder.id).outerjoin(
-                EventInstance,
-                (EventInstance.work_order_id == WorkOrder.id)
-                & (EventInstance.pipeline_version == "understanding.v2"),
-            )
-            if conditions:
-                statement = statement.where(*conditions)
-            text_ids = cast(
-                list[UUID],
-                (await session.scalars(statement.distinct().limit(max(limit * 4, 80)))).all(),
-            )
+                    ).all(),
+                )
             semantic_ids = await self._semantic_ids(
                 session, semantic_vector, semantic_model_id, max(limit * 3, 40)
             )
             ids = _unique_ids((*text_ids, *semantic_ids))
-            if not ids and not terms and not work_order_ids:
+            if not ids and not terms:
                 ids = cast(
                     list[UUID],
                     (
@@ -134,7 +176,9 @@ class AgentRepository:
                         )
                     ).all(),
                 )
-            return await self._projections(session, ids, terms, limit, set(semantic_ids))
+            return await self._projections(
+                session, ids, terms, limit, semantic_ids=set(semantic_ids)
+            )
 
     async def _semantic_ids(
         self,
@@ -142,11 +186,14 @@ class AgentRepository:
         vector: list[float] | None,
         model_id: str | None,
         limit: int,
+        allowed_work_order_ids: list[UUID] | None = None,
     ) -> list[UUID]:
         if vector is None or model_id is None:
             return []
+        if allowed_work_order_ids is not None and not allowed_work_order_ids:
+            return []
         distance = WorkOrderEmbedding.embedding.cosine_distance(vector).label("distance")
-        rows = await session.execute(
+        statement = (
             select(WorkOrderEmbedding.work_order_id)
             .where(
                 WorkOrderEmbedding.model_id == model_id,
@@ -155,6 +202,11 @@ class AgentRepository:
             .order_by(distance)
             .limit(limit)
         )
+        if allowed_work_order_ids is not None:
+            statement = statement.where(
+                WorkOrderEmbedding.work_order_id.in_(allowed_work_order_ids)
+            )
+        rows = await session.execute(statement)
         return [cast(UUID, row[0]) for row in rows.all()]
 
     async def _projections(
@@ -163,6 +215,10 @@ class AgentRepository:
         ids: Iterable[UUID],
         terms: tuple[str, ...],
         limit: int,
+        location: str | None = None,
+        entity: str | None = None,
+        required_work_order_ids: set[UUID] | None = None,
+        handling_status: str | None = None,
         semantic_ids: set[UUID] | None = None,
     ) -> list[AgentRecord]:
         id_list = _unique_ids(ids)
@@ -188,6 +244,20 @@ class AgentRepository:
         event_by_work_order: dict[UUID, list[EventInstance]] = {}
         for event in event_rows:
             event_by_work_order.setdefault(event.work_order_id, []).append(event)
+        entity_rows = await session.execute(
+            select(
+                EntityMention.work_order_id,
+                EntityMention.mention_text,
+                CanonicalEntity.standard_name,
+            )
+            .outerjoin(CanonicalEntity, CanonicalEntity.id == EntityMention.canonical_entity_id)
+            .where(EntityMention.work_order_id.in_(id_list))
+        )
+        entity_text_by_work_order: dict[UUID, list[str]] = {}
+        for work_order_id, mention_text, standard_name in entity_rows.all():
+            entity_text_by_work_order.setdefault(work_order_id, []).extend(
+                value for value in (mention_text, standard_name) if value
+            )
         cluster_rows = await session.execute(
             select(EventInstance.work_order_id, EventCluster.id)
             .join(EventClusterMember, EventClusterMember.event_instance_id == EventInstance.id)
@@ -201,13 +271,42 @@ class AgentRepository:
         results: list[AgentRecord] = []
         for work_order in work_orders:
             events = event_by_work_order.get(work_order.id, [])
+            entity_text = " ".join(entity_text_by_work_order.get(work_order.id, []))
+            raw_search_text = " ".join(
+                [work_order.raw_title or "", work_order.raw_content]
+            ).casefold()
+            location_signal_text = " ".join(
+                signal for event in events for signal in event.location_signals
+            ).casefold()
             search_text = " ".join(
                 [work_order.raw_title or "", work_order.raw_content]
-                + [f"{event.normalized_summary} {event.event_type or ''}" for event in events]
+                + [
+                    f"{event.normalized_summary} {event.event_type or ''} "
+                    f"{' '.join(event.location_signals)}"
+                    for event in events
+                ]
+                + [entity_text]
             ).casefold()
             matched = [term for term in terms if term.casefold() in search_text]
+            hard_location_match = bool(location) and (
+                location.casefold() in raw_search_text
+                or location.casefold() in location_signal_text
+            )
+            hard_entity_match = bool(entity) and entity.casefold() in search_text
+            hard_work_order_match = (
+                required_work_order_ids is None
+                or not required_work_order_ids
+                or work_order.id in required_work_order_ids
+            )
+            if location and not hard_location_match:
+                continue
+            if entity and not hard_entity_match:
+                continue
             cluster_ids = _unique_ids(clusters_by_work_order.get(work_order.id, []))
             primary = events[0] if events else None
+            current_status = status_map.get(work_order.id, "unhandled")
+            if handling_status and current_status != handling_status:
+                continue
             results.append(
                 {
                     "work_order_id": work_order.id,
@@ -215,19 +314,30 @@ class AgentRepository:
                     "title": work_order.raw_title,
                     "created_at": work_order.created_at,
                     "normalized_summary": primary.normalized_summary if primary else None,
+                    "raw_content": work_order.raw_content,
                     "location": _first_location(events),
+                    "location_signals": _location_signals(events),
                     "event_type": primary.event_type if primary else None,
-                    "handling_status": status_map.get(work_order.id, "unhandled"),
+                    "handling_status": current_status,
                     "cluster_ids": cluster_ids,
                     "is_multi_frequency": bool(cluster_ids),
                     "retrieval_evidence": _evidence_labels(
-                        matched, bool(events), work_order.id in (semantic_ids or set())
+                        matched=matched,
+                        location=location,
+                        raw_location_match=bool(location)
+                        and location.casefold() in raw_search_text,
+                        v2_location_match=bool(location)
+                        and location.casefold() in location_signal_text,
+                        hard_entity_match=hard_entity_match,
+                        hard_work_order_match=hard_work_order_match,
+                        is_semantic_candidate=work_order.id in (semantic_ids or set()),
                     ),
                     "rank": (
-                        len(matched) * 10
-                        + (3 if events else 0)
-                        + (2 if cluster_ids else 0)
-                        + (1 if work_order.id in (semantic_ids or set()) else 0)
+                        (1000 if hard_location_match else 0)
+                        + (400 if hard_entity_match else 0)
+                        + (200 if hard_work_order_match and required_work_order_ids else 0)
+                        + len(matched) * 20
+                        + (5 if work_order.id in (semantic_ids or set()) else 0)
                     ),
                 }
             )
@@ -471,18 +581,89 @@ def _unique_ids(values: Iterable[UUID]) -> list[UUID]:
 
 
 def _first_location(events: list[EventInstance]) -> str | None:
-    for event in events:
-        if event.location_signals:
-            return str(event.location_signals[0])
-    return None
+    return _location_signals(events)[0] if _location_signals(events) else None
 
 
-def _evidence_labels(matched: list[str], has_event: bool, is_candidate: bool) -> list[str]:
-    labels = [f"关键词匹配：{term}" for term in matched]
-    if has_event:
-        labels.append("V2 事件摘要")
-    if is_candidate and not labels:
-        labels.append("pgvector 语义候选")
+def _location_signals(events: list[EventInstance]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            str(signal)
+            for event in events
+            for signal in event.location_signals
+            if str(signal).strip()
+        )
+    )
+
+
+def _text_condition(term: str) -> ColumnElement[bool]:
+    pattern = f"%{term}%"
+    return or_(
+        WorkOrder.external_work_order_number.ilike(pattern),
+        WorkOrder.raw_title.ilike(pattern),
+        WorkOrder.raw_content.ilike(pattern),
+        EventInstance.normalized_summary.ilike(pattern),
+        EventInstance.event_type.ilike(pattern),
+        sql_cast(EventInstance.location_signals, Text).ilike(pattern),
+    )
+
+
+def _location_condition(location: str) -> ColumnElement[bool]:
+    pattern = f"%{location}%"
+    return or_(
+        WorkOrder.raw_title.ilike(pattern),
+        WorkOrder.raw_content.ilike(pattern),
+        sql_cast(EventInstance.location_signals, Text).ilike(pattern),
+    )
+
+
+def _entity_condition(entity: str) -> ColumnElement[bool]:
+    pattern = f"%{entity}%"
+    return or_(
+        WorkOrder.raw_title.ilike(pattern),
+        WorkOrder.raw_content.ilike(pattern),
+        EventInstance.normalized_summary.ilike(pattern),
+        EntityMention.mention_text.ilike(pattern),
+        CanonicalEntity.standard_name.ilike(pattern),
+    )
+
+
+def _handling_status_condition(status: str) -> ColumnElement[bool]:
+    latest_status = (
+        select(WorkOrderHandlingRecord.new_status)
+        .where(WorkOrderHandlingRecord.work_order_id == WorkOrder.id)
+        .order_by(WorkOrderHandlingRecord.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    if status == "unhandled":
+        return or_(latest_status.is_(None), latest_status == "unhandled")
+    return latest_status == status
+
+
+def _evidence_labels(
+    *,
+    matched: list[str],
+    location: str | None,
+    raw_location_match: bool,
+    v2_location_match: bool,
+    hard_entity_match: bool,
+    hard_work_order_match: bool,
+    is_semantic_candidate: bool,
+) -> list[str]:
+    labels: list[str] = []
+    if location:
+        labels.append(f"地点命中：{location}")
+        if raw_location_match:
+            labels.append("原文命中")
+        if v2_location_match:
+            labels.append("V2地点信号命中")
+    if hard_entity_match:
+        labels.append("主体硬匹配")
+    if hard_work_order_match:
+        labels.append("指定工单范围")
+    labels.extend(f"关键词匹配：{term}" for term in matched)
+    if is_semantic_candidate:
+        labels.append("语义相关")
     return labels or ["数据库结构化记录"]
 
 

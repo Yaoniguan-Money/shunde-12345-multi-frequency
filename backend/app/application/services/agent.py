@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
+from backend.app.application.services.agent_composer import compose_evidence_answer
 from backend.app.config import Settings
 from backend.app.domain.ports.analysis import LLMProvider
 from backend.app.domain.types import EmbeddingRequest, LLMRequest, ProviderRoute
@@ -94,6 +95,7 @@ class AgentOrchestrator:
             location=compiled.location,
             event_type=compiled.event_type,
             work_order_ids=tuple(compiled.work_order_ids),
+            handling_status=compiled.handling_status,
             created_after=created_after,
             created_before=created_before,
             limit=compiled.limit,
@@ -106,7 +108,13 @@ class AgentOrchestrator:
         cluster_ids = list(
             dict.fromkeys(cluster_id for item in work_orders for cluster_id in item.cluster_ids)
         )
-        answer = _evidence_answer(len(work_orders), topic_groups, cluster_ids)
+        factual_summary = _evidence_answer(len(work_orders), topic_groups, cluster_ids)
+        answer = await compose_evidence_answer(
+            planner_llm=self._planner_llm,
+            query=request.query,
+            records=records,
+            factual_summary=factual_summary,
+        )
         return AgentQueryResponse(
             original_query=request.query,
             compiled_query=compiled,
@@ -225,6 +233,9 @@ class AgentOrchestrator:
             return rules_plan, "rules"
         prompt = (
             "将用户问题解析为受控 12345 工单查询 DSL。只能填写给定字段，绝不生成 SQL。"
+            "用户明确提及的地点、主体、工单号、办理状态和时间都是硬筛选条件，"
+            "location 应保留用户的开放文本地点原样（道路、小区、学校、园区、项目等均可），"
+            "不得将地点写入 topic 或 keywords。"
             "不确定则保留 null 或空数组。时间相对值使用 last_7_days、last_30_days。\n"
             f"用户问题：{query}\n规则初稿：{rules_plan.model_dump_json()}"
         )
@@ -308,6 +319,12 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         "time_range",
     }
     patch = {key: value for key, value in values.items() if key in allowed}
+    if "location" in patch and not _is_location_candidate(patch["location"]):
+        patch.pop("location")
+    if base.location and not patch.get("location"):
+        patch.pop("location", None)
+    if base.entity and not patch.get("entity"):
+        patch.pop("entity", None)
     if "time_range" in patch and isinstance(patch["time_range"], dict):
         raw_time = cast(dict[str, object], patch["time_range"])
         if raw_time.get("value") not in {"last_7_days", "last_30_days"}:
@@ -333,7 +350,7 @@ def _compile_time_range(value: AgentTimeRange | None) -> tuple[datetime | None, 
 def _time_range(text: str) -> AgentTimeRange | None:
     if any(token in text for token in ("这一周", "最近一周", "近一周", "7天")):
         return AgentTimeRange(kind="relative", value="last_7_days")
-    if any(token in text for token in ("最近一个月", "近一个月", "30天")):
+    if any(token in text for token in ("最近一个月", "近一个月", "30天", "最近", "近来")):
         return AgentTimeRange(kind="relative", value="last_30_days")
     return None
 
@@ -375,8 +392,39 @@ def _retrieval_terms(plan: AgentQueryDSL) -> tuple[str, ...]:
 
 
 def _location(text: str) -> str | None:
-    match = re.search(r"(金域滨江|龙江|大良|容桂|陈村|勒流|北滘|杏坛|均安)", text)
-    return match.group(1) if match else None
+    normalized = re.sub(r"[，。！？、,.!?]", " ", text).strip()
+    prefix_match = re.match(
+        r"(?:请问|帮我看看|查询|了解)?(?P<location>[\u4e00-\u9fffA-Za-z0-9·]{2,40}?)"
+        r"(?:最近|近来|这段时间|有什么|发生了什么|相关工单|的情况)",
+        normalized,
+    )
+    if prefix_match:
+        candidate = prefix_match.group("location").strip(" 的在关于")
+        if _is_location_candidate(candidate):
+            return candidate
+    suffix_match = re.search(
+        r"(?P<location>[\u4e00-\u9fffA-Za-z0-9·]{1,24}"
+        r"(?:大道|中路|东路|西路|南路|北路|路|街|巷|桥|学校|小区|园区|工业园|项目|广场|社区|村|苑))",
+        normalized,
+    )
+    if suffix_match:
+        candidate = suffix_match.group("location")
+        if _is_location_candidate(candidate):
+            return candidate
+    return None
+
+
+def _is_location_candidate(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    candidate = value.strip()
+    if len(candidate) < 2 or len(candidate) > 128:
+        return False
+    if candidate in {"最近", "近来", "这段时间", "有什么", "发生了什么", "相关工单"}:
+        return False
+    return _topic(candidate) is None and not any(
+        token in candidate for token in ("拖欠", "欠薪", "工程款", "项目款", "工资")
+    )
 
 
 def _handling_status(text: str) -> Literal["unhandled", "investigating", "resolved"] | None:

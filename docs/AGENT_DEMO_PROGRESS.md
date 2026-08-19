@@ -7,8 +7,9 @@
 - `agent-demo-v2` 已从稳定 V2 commit `6e2150e24457c6d59b6c380f589e4f64660b8884` 创建；V3/frontend-redesign 未跟踪文件未被删除、覆盖或纳入提交。
 - V2 只读 baseline smoke 通过：数据库返回 100 张真实工单、205 个 V2 `EventInstance`、6 个多频簇；金域滨江一期艾灸馆簇仍在。
 - 新增受控 `AgentQueryDSL`，LLM 只可返回意图和筛选槽位，后端只编译固定 SQLAlchemy 查询，绝不执行 LLM SQL。
-- Hybrid Retrieval 已组合工单结构化字段、原始标题/正文、V2 `normalized_summary` / 事件类型 / 地点、簇关联，且在已有 embedding 模型可用时复用 pgvector 语义候选。它不调用 SameEventMatcher，也不改变 V2 召回或聚类。
-- `/agent/query` 返回真实工单、检索依据、V2 多频簇链接、可核查统计与“群众投诉不等于行政认定”提示。
+- Hybrid Retrieval 已组合工单结构化字段、原始标题/正文、V2 `normalized_summary` / 事件类型 / 地点、簇关联，且在已有 embedding 模型可用时复用 pgvector 语义候选。`location` / `entity` / 工单 ID / 办理状态 / 时间是硬 scope；存在任一条件时，向量检索只在该 scope 内排序，绝不以全库语义候选补足。
+- 地点按开放文本处理，不依赖顺德地点枚举；每张地点查询结果都必须有原文或 V2 `location_signals` 证据。`retrieval_evidence` 明确标注地点命中、原文命中、V2地点信号命中和语义相关。
+- `/agent/query` 返回真实工单、检索依据、V2 多频簇链接、可核查统计与“群众投诉不等于行政认定”提示。最终 Top-N 还会交给 DeepSeek 生成带“AI研判 / AI推测 / AI建议”边界的摘要，真实工单卡和链接始终保留。
 - Workset 已落库，含原始问题、DSL 快照、工单/簇 ID、创建人和审计；不是浏览器内存状态。
 - 批量操作为 Preview → Confirm → Execute → `AuditLog`，对 WorkOrder 追加独立不可变 `WorkOrderHandlingRecord`，不改原文和 V2 研判结果；CSV 导出同样需要确认。
 - 执行预览必须属于 URL 指定的 Workset，不能使用另一个 Workset 的 preview ID 跨范围执行。
@@ -43,6 +44,10 @@ uv run pyright backend                       PASS — 0 errors
 Agent Alembic current                         PASS — e4f5a6b7c8d9 (head)
 Agent follow-up “只看还没处理的”              PASS — 在上一轮真实范围内筛选
 Agent AuditLog                                PASS — 1 条 batch action 审计记录
+地点 hard-scope：美的大道最近有什么？          PASS — 1 条；每条具地点、原文或 V2地点信号证据
+地点 hard-scope：金域滨江最近有什么？          PASS — 10 条；没有无地点证据的混入结果
+无地点 topic：最近有什么工程款拖欠？           PASS — location=null、10 条、全库语义相关证据可用
+DeepSeek Analysis Composer                    PASS — 真实地点结果含 AI研判、AI推测、AI建议标签
 ```
 
 ## 尚未完成 / 运行说明

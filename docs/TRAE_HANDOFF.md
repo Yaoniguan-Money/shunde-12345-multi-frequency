@@ -42,6 +42,12 @@ TRAE 不得把这两个目录复制进 Git，不得修改原 Excel，也不得�
 
 ## AI understanding / retrieval（当前为可运行的后端合同）
 
+### Agent 检索与研判合同（agent-demo-v2）
+
+- `POST /agent/query` 的 `compiled_query.location`、`entity`、`work_order_ids`、`handling_status` 和 `time_range` 都是硬约束。前端不得把地点降级为标签或以页面端相似度扩展结果。
+- 地点结果卡必须逐条呈现后端的 `retrieval_evidence`。有地点约束时，卡片必须至少含“地点命中：…”及“原文命中”或“V2地点信号命中”；没有这些证据的卡片不应出现。
+- `answer` 中的“AI研判 / 可能原因（AI推测）/ 建议首先核查（AI建议）”只解释当前返回的真实证据，不能改写为行政事实。卡片及 `/work-orders/{id}` 链接必须继续保留。
+
 - 未配置环境时默认模型运行时仍是 Ollama `http://127.0.0.1:11434`；结构化抽取使用 `qwen2.5:3b`，向量使用 `nomic-embed-text`（768 维）。比赛 Demo 显式设置 `SHUNDE_AI_PROVIDER_MODE=remote` 后使用 Qwen `qwen-plus` + `qwen3.7-text-embedding`（1024 维）。生产 local adapter 拒绝云端 URL，不做隐式云回退。
 - Provider 模式由 `SHUNDE_AI_PROVIDER_MODE=local|remote|hybrid` 显式选择，默认 `local`。remote 使用通用 OpenAI-compatible adapter，API key 只来自环境变量；hybrid 的 `AUTO`/`LOCAL` 走本地，只有显式 `REMOTE` route 才走远端。AI trace 包含 `provider / model_id / model_config_hash / schema_version / pipeline_version`。
 - 远端验证命令：`uv run python scripts/remote_provider_smoke.py`。该命令只发送合成 JSON，不发送政府工单；未配置 key 时状态为 `BLOCKED`。2026-08-15 已用 Qwen `qwen-plus` 实际通过 health 与结构化 JSON，provider trace 为 `remote-openai-compatible`。
