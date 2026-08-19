@@ -14,6 +14,8 @@ AgentIntent = Literal[
     "preview_batch_action",
 ]
 HandlingStatus = Literal["unhandled", "investigating", "resolved"]
+AgentFrequencyFilter = Literal["all", "multi_frequency", "high_frequency"]
+AgentPageSize = Literal[20, 50, 100]
 AgentAggregation = Literal[
     "none",
     "count",
@@ -34,6 +36,10 @@ def _empty_uuids() -> list[UUID]:
 
 
 def _empty_trace() -> list[dict[str, object]]:
+    return []
+
+
+def _empty_tree_groups() -> list["AgentTreeGroup"]:
     return []
 
 
@@ -63,7 +69,7 @@ class AgentQueryDSL(BaseModel):
     handling_status: HandlingStatus | None = None
     cluster_status: str | None = Field(default=None, max_length=32)
     sort: Literal["relevance", "newest", "oldest"] = "relevance"
-    limit: int = Field(default=20, ge=1, le=50)
+    limit: int = Field(default=20, ge=1, le=100)
     work_order_ids: list[UUID] = Field(default_factory=_empty_uuids, max_length=100)
 
 
@@ -72,7 +78,7 @@ class AgentQueryRequest(BaseModel):
     previous_query: str | None = Field(default=None, max_length=500)
     previous_query_snapshot: AgentQueryDSL | None = None
     previous_work_order_ids: list[UUID] = Field(default_factory=_empty_uuids, max_length=100)
-    limit: int = Field(default=20, ge=1, le=50)
+    limit: AgentPageSize = 20
 
 
 class AgentWorkOrderResult(BaseModel):
@@ -89,12 +95,31 @@ class AgentWorkOrderResult(BaseModel):
     handling_status: str
     cluster_ids: list[UUID]
     is_multi_frequency: bool
+    is_high_frequency: bool
     retrieval_evidence: list[str]
 
 
 class AgentTopicGroup(BaseModel):
     label: str
     count: int
+
+
+class AgentTreeChild(BaseModel):
+    """A complete second-level aggregate with navigable example leaves."""
+
+    label: str
+    count: int
+    work_orders: list[AgentWorkOrderResult]
+
+
+class AgentTreeGroup(BaseModel):
+    """A complete first-level aggregate for one relationship-tree view."""
+
+    label: str
+    count: int
+    urgent_count: int
+    multi_frequency_count: int
+    children: list[AgentTreeChild]
 
 
 class AgentQueryResponse(BaseModel):
@@ -104,11 +129,37 @@ class AgentQueryResponse(BaseModel):
     answer: str
     disclaimer: str
     total: int
+    matched_total: int
+    page: int
+    page_size: int
     topic_groups: list[AgentTopicGroup]
     handling_groups: list[AgentTopicGroup]
     work_orders: list[AgentWorkOrderResult]
     cluster_ids: list[UUID]
     retrieval_trace: list[dict[str, object]] = Field(default_factory=_empty_trace)
+
+
+class AgentDrilldown(BaseModel):
+    """A deterministic refinement of one already-compiled query scope."""
+
+    topic: str | None = Field(default=None, max_length=128)
+    location: str | None = Field(default=None, max_length=256)
+    handling_status: HandlingStatus | None = None
+    frequency: AgentFrequencyFilter = "all"
+
+
+class AgentQueryResultsRequest(BaseModel):
+    compiled_query: AgentQueryDSL
+    page: int = Field(default=1, ge=1)
+    page_size: AgentPageSize = 20
+    drilldown: AgentDrilldown = Field(default_factory=AgentDrilldown)
+
+
+class AgentQueryResultsResponse(BaseModel):
+    matched_total: int
+    page: int
+    page_size: int
+    items: list[AgentWorkOrderResult]
 
 
 class WorksetCreateRequest(BaseModel):
@@ -175,6 +226,8 @@ class BatchActionExecuteResponse(BaseModel):
 class DynamicDashboardRequest(BaseModel):
     work_order_ids: list[UUID] = Field(default_factory=_empty_uuids, max_length=100)
     cluster_ids: list[UUID] = Field(default_factory=_empty_uuids, max_length=100)
+    compiled_query: AgentQueryDSL | None = None
+    drilldown: AgentDrilldown | None = None
     title: str = Field(default="临时研判看板", min_length=1, max_length=255)
 
 
@@ -182,10 +235,15 @@ class DynamicDashboardResponse(BaseModel):
     title: str
     work_order_count: int
     multi_frequency_event_count: int
+    multi_frequency_work_order_count: int
+    high_frequency_event_count: int
     urgent_count: int
     handling_groups: list[AgentTopicGroup]
     topic_groups: list[AgentTopicGroup]
     location_groups: list[AgentTopicGroup]
+    topic_tree: list[AgentTreeGroup] = Field(default_factory=_empty_tree_groups)
+    location_tree: list[AgentTreeGroup] = Field(default_factory=_empty_tree_groups)
+    status_tree: list[AgentTreeGroup] = Field(default_factory=_empty_tree_groups)
     focus_cluster_ids: list[UUID]
     disclaimer: str
 

@@ -10,6 +10,8 @@ from backend.app.application.services.agent import AgentCommandError
 from backend.app.schemas.agent import (
     AgentQueryRequest,
     AgentQueryResponse,
+    AgentQueryResultsRequest,
+    AgentQueryResultsResponse,
     BatchActionExecuteRequest,
     BatchActionExecuteResponse,
     BatchActionPayload,
@@ -31,6 +33,13 @@ async def query_agent(
     request: AgentQueryRequest, service: AgentOrchestratorDependency
 ) -> AgentQueryResponse:
     return await service.query(request)
+
+
+@router.post("/agent/query/results", response_model=AgentQueryResultsResponse)
+async def query_agent_results(
+    request: AgentQueryResultsRequest, service: AgentOrchestratorDependency
+) -> AgentQueryResultsResponse:
+    return await service.query_results(request)
 
 
 @router.post("/worksets", response_model=WorksetResponse, status_code=status.HTTP_201_CREATED)
@@ -108,4 +117,6 @@ async def generate_dashboard(
         title=request.title,
         work_order_ids=tuple(request.work_order_ids),
         cluster_ids=tuple(request.cluster_ids),
+        compiled_query=request.compiled_query,
+        drilldown=request.drilldown,
     )

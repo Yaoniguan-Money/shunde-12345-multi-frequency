@@ -283,6 +283,20 @@ export interface AgentQueryDSL {
 
 export interface AgentTopicGroup { label: string; count: number; }
 
+export interface AgentTreeChild {
+  label: string;
+  count: number;
+  work_orders: AgentWorkOrderResult[];
+}
+
+export interface AgentTreeGroup {
+  label: string;
+  count: number;
+  urgent_count: number;
+  multi_frequency_count: number;
+  children: AgentTreeChild[];
+}
+
 export interface AgentWorkOrderResult {
   work_order_id: UUID;
   external_work_order_number: string | null;
@@ -297,6 +311,7 @@ export interface AgentWorkOrderResult {
   handling_status: string;
   cluster_ids: UUID[];
   is_multi_frequency: boolean;
+  is_high_frequency: boolean;
   retrieval_evidence: string[];
 }
 
@@ -307,11 +322,28 @@ export interface AgentQueryResponse {
   answer: string;
   disclaimer: string;
   total: number;
+  matched_total: number;
+  page: number;
+  page_size: number;
   topic_groups: AgentTopicGroup[];
   handling_groups: AgentTopicGroup[];
   work_orders: AgentWorkOrderResult[];
   cluster_ids: UUID[];
   retrieval_trace: Record<string, unknown>[];
+}
+
+export interface AgentDrilldown {
+  topic?: string | null;
+  location?: string | null;
+  handling_status?: AgentHandlingStatus | null;
+  frequency?: "all" | "multi_frequency" | "high_frequency";
+}
+
+export interface AgentQueryResultsResponse {
+  matched_total: number;
+  page: number;
+  page_size: number;
+  items: AgentWorkOrderResult[];
 }
 
 export interface WorksetResponse {
@@ -355,10 +387,15 @@ export interface DynamicDashboardResponse {
   title: string;
   work_order_count: number;
   multi_frequency_event_count: number;
+  multi_frequency_work_order_count: number;
+  high_frequency_event_count: number;
   urgent_count: number;
   handling_groups: AgentTopicGroup[];
   topic_groups: AgentTopicGroup[];
   location_groups: AgentTopicGroup[];
+  topic_tree: AgentTreeGroup[];
+  location_tree: AgentTreeGroup[];
+  status_tree: AgentTreeGroup[];
   focus_cluster_ids: UUID[];
   disclaimer: string;
 }

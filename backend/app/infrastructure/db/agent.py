@@ -10,7 +10,7 @@ import logging
 import re
 from collections import Counter
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import TypedDict, cast
 from uuid import UUID
 
@@ -19,6 +19,10 @@ from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
+from backend.app.domain.catalog import (
+    is_high_frequency_work_order_count,
+    rolling_window_max_distinct_work_orders,
+)
 from backend.app.domain.title_tags import parse_title_tags
 from backend.app.infrastructure.db.models import (
     AgentActionPreview,
@@ -60,6 +64,8 @@ class AgentRecord(TypedDict):
     handling_status: str
     cluster_ids: list[UUID]
     is_multi_frequency: bool
+    high_frequency_cluster_ids: list[UUID]
+    is_high_frequency: bool
     retrieval_evidence: list[str]
     retrieval_trace: dict[str, object]
     rank: int
@@ -77,6 +83,8 @@ class AgentActionSnapshot(TypedDict):
 class AgentDashboardValues(TypedDict):
     work_order_count: int
     multi_frequency_event_count: int
+    multi_frequency_work_order_count: int
+    high_frequency_event_count: int
     urgent_count: int
     topic_groups: list[dict[str, object]]
     handling_groups: list[dict[str, object]]
@@ -197,7 +205,10 @@ class AgentRepository:
             semantic_scores = await self._semantic_scores(
                 session, semantic_vector, semantic_model_id, max((limit or 20) * 3, 40)
             )
-            ids = _unique_ids((*text_ids, *semantic_scores))
+            # A complete Query Scope is reproducible from the controlled DSL.
+            # Vector recall only ranks that scope; it cannot add a page-only
+            # candidate that later pagination or dashboard requests cannot reproduce.
+            ids = _unique_ids((*text_ids, *semantic_scores)) if not complete_scope else text_ids
             if not ids and not terms:
                 ids = cast(
                     list[UUID],
@@ -312,11 +323,48 @@ class AgentRepository:
             select(EventInstance.work_order_id, EventCluster.id)
             .join(EventClusterMember, EventClusterMember.event_instance_id == EventInstance.id)
             .join(EventCluster, EventCluster.id == EventClusterMember.event_cluster_id)
-            .where(EventInstance.work_order_id.in_(id_list))
+            .where(
+                EventInstance.work_order_id.in_(id_list),
+                EventInstance.pipeline_version == "understanding.v2",
+            )
         )
         clusters_by_work_order: dict[UUID, list[UUID]] = {}
         for work_order_id, cluster_id in cluster_rows.all():
             clusters_by_work_order.setdefault(work_order_id, []).append(cluster_id)
+        candidate_cluster_ids = _unique_ids(
+            cluster_id for values in clusters_by_work_order.values() for cluster_id in values
+        )
+        cluster_members: dict[UUID, list[tuple[str, date | None]]] = {}
+        if candidate_cluster_ids:
+            membership_rows = await session.execute(
+                select(
+                    EventClusterMember.event_cluster_id,
+                    WorkOrder.root_work_order_number,
+                    WorkOrder.id,
+                    WorkOrder.reported_at,
+                )
+                .join(EventInstance, EventInstance.id == EventClusterMember.event_instance_id)
+                .join(WorkOrder, WorkOrder.id == EventInstance.work_order_id)
+                .where(
+                    EventClusterMember.event_cluster_id.in_(candidate_cluster_ids),
+                    EventInstance.pipeline_version == "understanding.v2",
+                )
+            )
+            for cluster_id, root_number, work_order_id, reported_at in membership_rows.all():
+                cluster_members.setdefault(cluster_id, []).append(
+                    (root_number or str(work_order_id), reported_at.date() if reported_at else None)
+                )
+        valid_cluster_ids = {
+            cluster_id
+            for cluster_id, members in cluster_members.items()
+            if len({root_identity for root_identity, _ in members}) >= 2
+        }
+        high_frequency_cluster_ids = {
+            cluster_id
+            for cluster_id, members in cluster_members.items()
+            if cluster_id in valid_cluster_ids
+            and is_high_frequency_work_order_count(rolling_window_max_distinct_work_orders(members))
+        }
         status_map = await self._latest_statuses(session, id_list)
         results: list[AgentRecord] = []
         for work_order in work_orders:
@@ -365,7 +413,14 @@ class AgentRepository:
                 continue
             if entity and not hard_entity_match:
                 continue
-            cluster_ids = _unique_ids(clusters_by_work_order.get(work_order.id, []))
+            cluster_ids = [
+                cluster_id
+                for cluster_id in _unique_ids(clusters_by_work_order.get(work_order.id, []))
+                if cluster_id in valid_cluster_ids
+            ]
+            high_cluster_ids = [
+                cluster_id for cluster_id in cluster_ids if cluster_id in high_frequency_cluster_ids
+            ]
             primary = events[0] if events else None
             current_status = status_map.get(work_order.id, "unhandled")
             if handling_status and current_status != handling_status:
@@ -405,6 +460,8 @@ class AgentRepository:
                     "handling_status": current_status,
                     "cluster_ids": cluster_ids,
                     "is_multi_frequency": bool(cluster_ids),
+                    "high_frequency_cluster_ids": high_cluster_ids,
+                    "is_high_frequency": bool(high_cluster_ids),
                     "retrieval_evidence": _evidence_labels(
                         matched=matched,
                         location=location,
@@ -677,6 +734,14 @@ class AgentRepository:
                 "work_order_count": len(projections),
                 "multi_frequency_event_count": len(
                     _unique_ids(item for row in projections for item in row["cluster_ids"])
+                ),
+                "multi_frequency_work_order_count": sum(
+                    1 for row in projections if row["is_multi_frequency"]
+                ),
+                "high_frequency_event_count": len(
+                    _unique_ids(
+                        item for row in projections for item in row["high_frequency_cluster_ids"]
+                    )
                 ),
                 "urgent_count": sum(1 for row in projections if row["is_urgent"]),
                 "topic_groups": _counter_groups(

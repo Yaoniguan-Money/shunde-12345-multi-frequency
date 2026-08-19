@@ -19,11 +19,16 @@ from backend.app.infrastructure.ai.factory import AIProviderBundle, build_provid
 from backend.app.infrastructure.ai.remote import RemoteOpenAICompatibleLLMProvider
 from backend.app.infrastructure.db.agent import AgentDashboardValues, AgentRecord, AgentRepository
 from backend.app.schemas.agent import (
+    AgentDrilldown,
     AgentQueryDSL,
     AgentQueryRequest,
     AgentQueryResponse,
+    AgentQueryResultsRequest,
+    AgentQueryResultsResponse,
     AgentTimeRange,
     AgentTopicGroup,
+    AgentTreeChild,
+    AgentTreeGroup,
     AgentWorkOrderResult,
     BatchActionPayload,
     BatchActionPreviewResponse,
@@ -90,37 +95,10 @@ class AgentOrchestrator:
     async def query(self, request: AgentQueryRequest) -> AgentQueryResponse:
         rules_plan = self._rules_plan(request)
         compiled, planner_mode = await self._plan_with_llm(request, rules_plan)
-        reported_after, reported_before = _compile_time_range(compiled.time_range)
-        complete_scope = compiled.aggregation != "none"
-        # A statistic must be calculated from its complete structured scope, not
-        # from semantic Top-N recall. Semantic retrieval remains evidence for
-        # ordinary list/search answers only.
-        vector, embedding_model_id = (
-            (None, None) if complete_scope else await self._semantic_vector(request.query)
-        )
-        records = await self._repository.retrieve(
-            keywords=_retrieval_terms(compiled),
-            issue_terms=_issue_terms(compiled),
-            issue_required=compiled.issue_required,
-            entity=compiled.entity,
-            location=compiled.location,
-            event_type=compiled.event_type,
-            title_tag=compiled.title_tag,
-            work_order_ids=tuple(compiled.work_order_ids),
-            handling_status=compiled.handling_status,
-            reported_after=reported_after,
-            reported_before=reported_before,
-            limit=None if complete_scope else compiled.limit,
-            semantic_vector=vector,
-            semantic_model_id=embedding_model_id,
-            complete_scope=complete_scope,
-        )
+        records = await self._scope_records(compiled)
         total = len(records)
-        # The UI keeps large evidence sets collapsed as message attachments;
-        # retain the complete, auditable set so an operator can expand it or
-        # create a workset without re-running a different query.
-        evidence_records = records
-        work_orders = [_work_order_result(item) for item in evidence_records]
+        page_records = records[: request.limit]
+        work_orders = [_work_order_result(item) for item in page_records]
         topic_groups = _groups(item["event_type"] or "未归类" for item in records)
         handling_groups = _groups(item["handling_status"] for item in records)
         cluster_ids = list(
@@ -152,9 +130,24 @@ class AgentOrchestrator:
             handling_groups=handling_groups,
             work_orders=work_orders,
             cluster_ids=cluster_ids,
-            retrieval_trace=[item["retrieval_trace"] for item in evidence_records]
+            matched_total=total,
+            page=1,
+            page_size=request.limit,
+            retrieval_trace=[item["retrieval_trace"] for item in page_records]
             if self._settings.environment != "production"
             else [],
+        )
+
+    async def query_results(self, request: AgentQueryResultsRequest) -> AgentQueryResultsResponse:
+        records = _apply_drilldown(
+            await self._scope_records(request.compiled_query), request.drilldown
+        )
+        start = (request.page - 1) * request.page_size
+        return AgentQueryResultsResponse(
+            matched_total=len(records),
+            page=request.page,
+            page_size=request.page_size,
+            items=[_work_order_result(item) for item in records[start : start + request.page_size]],
         )
 
     async def create_workset(self, request: WorksetCreateRequest) -> WorksetResponse:
@@ -265,13 +258,25 @@ class AgentOrchestrator:
         return await self._repository.execute_preview(workset_id, preview_id, actor_id)
 
     async def dashboard(
-        self, *, title: str, work_order_ids: tuple[UUID, ...], cluster_ids: tuple[UUID, ...]
+        self,
+        *,
+        title: str,
+        work_order_ids: tuple[UUID, ...],
+        cluster_ids: tuple[UUID, ...],
+        compiled_query: AgentQueryDSL | None = None,
+        drilldown: AgentDrilldown | None = None,
     ) -> DynamicDashboardResponse:
+        if compiled_query is not None:
+            return _dashboard_response(
+                title, _apply_drilldown(await self._scope_records(compiled_query), drilldown)
+            )
         values: AgentDashboardValues = await self._repository.dashboard(work_order_ids, cluster_ids)
         return DynamicDashboardResponse(
             title=title,
             work_order_count=values["work_order_count"],
             multi_frequency_event_count=values["multi_frequency_event_count"],
+            multi_frequency_work_order_count=values["multi_frequency_work_order_count"],
+            high_frequency_event_count=values["high_frequency_event_count"],
             urgent_count=values["urgent_count"],
             topic_groups=[AgentTopicGroup.model_validate(item) for item in values["topic_groups"]],
             handling_groups=[
@@ -280,8 +285,33 @@ class AgentOrchestrator:
             location_groups=[
                 AgentTopicGroup.model_validate(item) for item in values["location_groups"]
             ],
+            topic_tree=[],
+            location_tree=[],
+            status_tree=[],
             focus_cluster_ids=values["focus_cluster_ids"],
             disclaimer="所有统计均基于当前查询或工作集的真实工单范围，不代表行政事实认定。",
+        )
+
+    async def _scope_records(self, compiled: AgentQueryDSL) -> list[AgentRecord]:
+        """The durable scope never inherits a page limit from the UI."""
+        reported_after, reported_before = _compile_time_range(compiled.time_range)
+        vector, embedding_model_id = await self._semantic_vector(_scope_query_text(compiled))
+        return await self._repository.retrieve(
+            keywords=_retrieval_terms(compiled),
+            issue_terms=_issue_terms(compiled),
+            issue_required=compiled.issue_required,
+            entity=compiled.entity,
+            location=compiled.location,
+            event_type=compiled.event_type,
+            title_tag=compiled.title_tag,
+            work_order_ids=tuple(compiled.work_order_ids),
+            handling_status=compiled.handling_status,
+            reported_after=reported_after,
+            reported_before=reported_before,
+            limit=None,
+            semantic_vector=vector,
+            semantic_model_id=embedding_model_id,
+            complete_scope=True,
         )
 
     def _rules_plan(self, request: AgentQueryRequest) -> AgentQueryDSL:
@@ -642,14 +672,125 @@ def _work_order_result(value: AgentRecord) -> AgentWorkOrderResult:
         handling_status=str(value["handling_status"]),
         cluster_ids=value["cluster_ids"],
         is_multi_frequency=bool(value["is_multi_frequency"]),
+        is_high_frequency=bool(value["is_high_frequency"]),
         retrieval_evidence=value["retrieval_evidence"],
     )
 
 
 def _groups(values: Iterable[str]) -> list[AgentTopicGroup]:
     return [
-        AgentTopicGroup(label=label, count=count) for label, count in Counter(values).most_common(8)
+        AgentTopicGroup(label=label, count=count) for label, count in Counter(values).most_common()
     ]
+
+
+def _unique_ids(values: Iterable[UUID]) -> list[UUID]:
+    return list(dict.fromkeys(values))
+
+
+def _scope_query_text(compiled: AgentQueryDSL) -> str:
+    """Stable semantic-ranking input reconstructed solely from the controlled DSL."""
+    return " ".join(
+        value
+        for value in (
+            compiled.topic,
+            compiled.event_type,
+            compiled.entity,
+            compiled.location,
+            *compiled.keywords,
+        )
+        if value
+    )
+
+
+def _apply_drilldown(
+    records: list[AgentRecord], drilldown: AgentDrilldown | None
+) -> list[AgentRecord]:
+    if drilldown is None:
+        return records
+    return [
+        record
+        for record in records
+        if (drilldown.topic is None or (record["event_type"] or "未归类") == drilldown.topic)
+        and (
+            drilldown.location is None or (record["location"] or "未提供地点") == drilldown.location
+        )
+        and (
+            drilldown.handling_status is None
+            or record["handling_status"] == drilldown.handling_status
+        )
+        and (
+            drilldown.frequency == "all"
+            or (drilldown.frequency == "multi_frequency" and record["is_multi_frequency"])
+            or (drilldown.frequency == "high_frequency" and record["is_high_frequency"])
+        )
+    ]
+
+
+def _dashboard_response(title: str, records: list[AgentRecord]) -> DynamicDashboardResponse:
+    cluster_ids = _unique_ids(cluster_id for item in records for cluster_id in item["cluster_ids"])
+    high_cluster_ids = _unique_ids(
+        cluster_id for item in records for cluster_id in item["high_frequency_cluster_ids"]
+    )
+    return DynamicDashboardResponse(
+        title=title,
+        work_order_count=len(records),
+        multi_frequency_event_count=len(cluster_ids),
+        multi_frequency_work_order_count=sum(1 for item in records if item["is_multi_frequency"]),
+        high_frequency_event_count=len(high_cluster_ids),
+        urgent_count=sum(1 for item in records if item["is_urgent"]),
+        topic_groups=_groups(item["event_type"] or "未归类" for item in records),
+        handling_groups=_groups(item["handling_status"] for item in records),
+        location_groups=_groups(item["location"] or "未提供地点" for item in records),
+        topic_tree=_tree_groups(records, "topic"),
+        location_tree=_tree_groups(records, "location"),
+        status_tree=_tree_groups(records, "status"),
+        focus_cluster_ids=cluster_ids,
+        disclaimer="所有统计均基于完整查询范围，不代表行政事实认定。",
+    )
+
+
+def _tree_groups(
+    records: list[AgentRecord], mode: Literal["topic", "location", "status"]
+) -> list[AgentTreeGroup]:
+    """Build complete scope aggregates; only leaf examples are intentionally capped."""
+    grouped: dict[str, dict[str, list[AgentRecord]]] = {}
+    for record in records:
+        topic = record["event_type"] or "未归类"
+        location = record["location"] or "未提供地点"
+        status = _handling_label(record["handling_status"])
+        primary, child = (
+            (topic, location)
+            if mode == "topic"
+            else (location, topic)
+            if mode == "location"
+            else (status, topic)
+        )
+        grouped.setdefault(primary, {}).setdefault(child, []).append(record)
+
+    groups: list[AgentTreeGroup] = []
+    for label, children in grouped.items():
+        all_records = [record for values in children.values() for record in values]
+        groups.append(
+            AgentTreeGroup(
+                label=label,
+                count=len(all_records),
+                urgent_count=sum(1 for record in all_records if record["is_urgent"]),
+                multi_frequency_count=sum(
+                    1 for record in all_records if record["is_multi_frequency"]
+                ),
+                children=[
+                    AgentTreeChild(
+                        label=child_label,
+                        count=len(child_records),
+                        work_orders=[_work_order_result(record) for record in child_records[:3]],
+                    )
+                    for child_label, child_records in sorted(
+                        children.items(), key=lambda item: (-len(item[1]), item[0])
+                    )
+                ],
+            )
+        )
+    return sorted(groups, key=lambda group: (-group.count, group.label))
 
 
 def _evidence_answer(

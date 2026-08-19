@@ -28,6 +28,9 @@ const FIRST_RESPONSE = {
   answer: "有。当前检索范围内找到 1 条直接相关工单。",
   disclaimer: "测试免责声明",
   total: 1,
+  matched_total: 1,
+  page: 1,
+  page_size: 20,
   topic_groups: [{ label: "欠薪", count: 1 }],
   handling_groups: [{ label: "unhandled", count: 1 }],
   work_orders: [{
@@ -44,6 +47,7 @@ const FIRST_RESPONSE = {
     handling_status: "unhandled",
     cluster_ids: [],
     is_multi_frequency: false,
+    is_high_frequency: false,
     retrieval_evidence: ["地点命中：大良"],
   }],
   cluster_ids: [],
@@ -54,10 +58,15 @@ const DASHBOARD_RESPONSE = {
   title: "当前查询洞察",
   work_order_count: 1,
   multi_frequency_event_count: 0,
+  multi_frequency_work_order_count: 0,
+  high_frequency_event_count: 0,
   urgent_count: 0,
   handling_groups: [{ label: "unhandled", count: 1 }],
   topic_groups: [{ label: "欠薪", count: 1 }],
   location_groups: [{ label: "大良", count: 1 }],
+  topic_tree: [],
+  location_tree: [],
+  status_tree: [],
   focus_cluster_ids: [],
   disclaimer: "测试免责声明",
 };
@@ -94,4 +103,27 @@ test("keeps query context in memory and does not auto-select retrieved work orde
   expect(await screen.findByText("最近一个月没有记录。")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole("heading", { name: "那最近一个月呢？" })).toBeInTheDocument());
   expect(queryCalls).toBe(2);
+});
+
+test("pages the compiled scope without clearing a cross-page selection", async () => {
+  const secondPageItem = { ...FIRST_RESPONSE.work_orders[0], work_order_id: "22222222-2222-2222-2222-222222222222", title: "第二页真实工单" };
+  const requestPaths: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    requestPaths.push(url);
+    if (url.includes("/worksets")) return new Response(JSON.stringify({ items: [], total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("/agent/dashboard")) return new Response(JSON.stringify({ ...DASHBOARD_RESPONSE, work_order_count: 21 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("/agent/query/results")) return new Response(JSON.stringify({ matched_total: 21, page: 2, page_size: 20, items: [secondPageItem] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...FIRST_RESPONSE, total: 21, matched_total: 21 }), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+
+  render(<MemoryRouter><AssistantPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "容桂有什么事情" }));
+  expect(await screen.findByRole("checkbox", { name: "选择" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "选择" }));
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+
+  expect((await screen.findAllByText("第二页真实工单")).length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "建立工作集 · 1" })).toBeInTheDocument();
+  expect(requestPaths.some((path) => path.includes("/agent/query/results"))).toBe(true);
 });

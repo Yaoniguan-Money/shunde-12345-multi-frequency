@@ -1,7 +1,9 @@
 import { apiRequest } from "./client";
 import type {
   AgentQueryDSL,
+  AgentDrilldown,
   AgentQueryResponse,
+  AgentQueryResultsResponse,
   BatchActionExecuteResponse,
   BatchActionPreviewResponse,
   DynamicDashboardResponse,
@@ -19,6 +21,15 @@ export function queryAgent(body: {
   limit?: number;
 }, signal?: AbortSignal): Promise<AgentQueryResponse> {
   return apiRequest<AgentQueryResponse>("/agent/query", { method: "POST", body, signal });
+}
+
+export function queryAgentResults(body: {
+  compiled_query: AgentQueryDSL;
+  page: number;
+  page_size: number;
+  drilldown?: AgentDrilldown;
+}): Promise<AgentQueryResultsResponse> {
+  return apiRequest<AgentQueryResultsResponse>("/agent/query/results", { method: "POST", body });
 }
 
 export function createWorkset(body: {
@@ -56,8 +67,10 @@ export function executeWorksetAction(worksetId: UUID, body: { preview_id: UUID; 
 
 export function generateAgentDashboard(body: {
   title: string;
-  work_order_ids: UUID[];
-  cluster_ids: UUID[];
+  work_order_ids?: UUID[];
+  cluster_ids?: UUID[];
+  compiled_query?: AgentQueryDSL;
+  drilldown?: AgentDrilldown;
 }): Promise<DynamicDashboardResponse> {
   return apiRequest<DynamicDashboardResponse>("/agent/dashboard", { method: "POST", body });
 }

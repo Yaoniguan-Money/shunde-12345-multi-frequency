@@ -232,3 +232,11 @@ Agent 仅查询 V2 已有工单、事件、pgvector embedding 和 cluster；禁�
 - `context_mode`：`new_scope / refine_scope / reference_results`。只有 `reference_results` 才绑定上一轮 `work_order_ids`；`refine_scope` 必须重查完整 scope。
 
 V3 工作区 UI 使用“当前分析 / 工作集”两个 Tab。当前分析可将真实 `work_orders` 渲染为可勾选紧凑卡片，并用同一响应范围的 dashboard 完成图表、关系树和点击下钻；工作集必须使用 workspace 恢复接口，不得常驻窄右栏。任何写入仍维持预览→确认→执行流程。
+
+### Agent RC 完整范围合同
+
+- `POST /agent/query` 的 `matched_total` 是完整 compiled DSL scope 的数量；`work_orders` 只是首个 `page/page_size` 片段，不能据此重新计算看板。
+- `POST /agent/query/results` 请求 `compiled_query / page / page_size / drilldown`，page size 只可为 20、50、100；响应 `matched_total` 和 `items` 用于实际分页。
+- `POST /agent/dashboard` 应传 `compiled_query` 和同一 `drilldown`，绝不能传当前页 ID 代替查询范围。指标：`multi_frequency_event_count`、`multi_frequency_work_order_count`、`high_frequency_event_count` 含义不同，禁止互换或前端重算。
+- 关系树 `topic_tree/location_tree/status_tree` 的一、二级 `count` 均是完整范围聚合；`work_orders` 是可跳转的少量样例叶子。分类截断必须显示“显示 x / 共 y”，二级“查看全部”必须触发完整范围 drilldown + 分页。
+- 跨页勾选建立 Workset 时保留已选 work order IDs 及后端返回的有效 `cluster_ids`；切页、展开图表或 drilldown 不能静默清空选择。

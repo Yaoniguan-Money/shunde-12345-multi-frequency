@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import type { JSX } from "react";
+import { useRef, useState } from "react";
+import type { JSX, Ref } from "react";
 import { useGSAP } from "@gsap/react";
 import { gsap } from "gsap";
 
@@ -9,8 +9,8 @@ gsap.registerPlugin(useGSAP);
 
 export type MetricTone = "blue" | "orange" | "red" | "green" | "slate";
 
-export function MetricCard({ label, value, tone, detail }: {
-  label: string; value: number; tone: MetricTone; detail: string;
+export function MetricCard({ label, value, tone, detail, onClick }: {
+  label: string; value: number; tone: MetricTone; detail: string; onClick?: () => void;
 }): JSX.Element {
   const root = useRef<HTMLElement>(null);
   useGSAP(() => {
@@ -29,9 +29,8 @@ export function MetricCard({ label, value, tone, detail }: {
     return () => media.revert();
   }, { scope: root, dependencies: [value], revertOnUpdate: true });
 
-  return <article ref={root} className={`insight-metric insight-metric--${tone}`}>
-    <span>{label}</span><strong data-count>0</strong><small>{detail}</small>
-  </article>;
+  const content = <><span>{label}</span><strong data-count>0</strong><small>{detail}</small></>;
+  return onClick ? <button ref={root as unknown as Ref<HTMLButtonElement>} type="button" className={`insight-metric insight-metric--${tone} insight-metric--button`} title={detail} onClick={onClick}>{content}</button> : <article ref={root} className={`insight-metric insight-metric--${tone}`} title={detail}>{content}</article>;
 }
 
 export function AnimatedBarChart({ title, items, onSelect, activeLabel, emptyMessage }: {
@@ -42,7 +41,9 @@ export function AnimatedBarChart({ title, items, onSelect, activeLabel, emptyMes
   emptyMessage: string;
 }): JSX.Element {
   const root = useRef<HTMLElement>(null);
+  const [expanded, setExpanded] = useState(false);
   const max = Math.max(...items.map((item) => item.count), 1);
+  const visibleItems = expanded ? items : items.slice(0, 8);
   useGSAP(() => {
     const media = gsap.matchMedia();
     media.add({ all: "(min-width: 0px)", reduceMotion: "(prefers-reduced-motion: reduce)" }, (context) => {
@@ -60,9 +61,9 @@ export function AnimatedBarChart({ title, items, onSelect, activeLabel, emptyMes
   return <section ref={root} className="insight-chart" aria-label={title}>
     <div className="insight-chart__head"><h3>{title}</h3><span>点击下钻</span></div>
     {items.length === 0 ? <p className="insight-chart__empty">{emptyMessage}</p> : <div className="animated-bar-chart">
-      {items.slice(0, 8).map((item) => <button key={item.label} className={`animated-bar-chart__row ${activeLabel === item.label ? "is-active" : ""}`} onClick={() => onSelect(item.label)} title={`${item.label}：${item.count} 条`}>
+      {visibleItems.map((item) => <button key={item.label} className={`animated-bar-chart__row ${activeLabel === item.label ? "is-active" : ""}`} onClick={() => onSelect(item.label)} title={`${item.label}：${item.count} 条`}>
         <span className="animated-bar-chart__label">{item.label}</span><span className="animated-bar-chart__track"><i className="animated-bar-chart__fill" style={{ width: `${(item.count / max) * 100}%` }} /></span><b>{item.count}</b>
-      </button>)}
+      </button>)}{items.length > 8 ? <button className="animated-bar-chart__expand" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : `展开全部（显示 ${visibleItems.length} / 共 ${items.length} 类）`}</button> : <span className="animated-bar-chart__count">显示 {visibleItems.length} / 共 {items.length} 类</span>}
     </div>}
   </section>;
 }

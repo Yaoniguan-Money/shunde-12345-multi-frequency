@@ -18,6 +18,8 @@
 - 当前查询区域已升级为“当前查询洞察”：真实问题/地点横向条形图、状态环图、核心数字、确定事实优先级和工单关系树均由同一查询范围 API 驱动，图表与关系节点可下钻到工单卡片。
 - 工作集不再是窄抽屉：`GET /worksets` 恢复最近工作集，`GET /worksets/{id}/workspace` 恢复持久化成员和实时状态统计；页面提供全宽“当前分析 / 工作集”研判工作区。
 - 看板新增 `urgent_count`，它仅统计后端 `is_urgent` 的确定性标题标签，不创建风险分数或预测。
+- RC 已将完整查询 scope 与当前页分离：`/agent/query` 返回 `matched_total`；`POST /agent/query/results` 以 compiled DSL、drilldown 与 20/50/100 分页读取结果；`POST /agent/dashboard` 以同一 DSL 做完整范围统计，禁止用当前页 ID 代替范围。
+- RC 多频/高频数字与 Catalog root-work-order / 三日规则一致，分别展示有效多频事件、涉及多频工单和高频事件；关系树的一、二级计数来自完整范围，叶子跳转工单详情并可下钻回完整分页结果。
 
 ## 本地数据边界
 

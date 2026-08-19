@@ -469,3 +469,16 @@ pnpm --dir frontend build                    PASS — Vite 8.2.1
 | 真实 smoke / 视觉检查 | DONE | 容桂范围：20 条工单、4 个多频事件、4 个急单；1440 视觉检查通过，1280 无横向溢出。 |
 
 本轮没有引入假数据、趋势或风险预测；`urgent_count` 仅来自后端 `is_urgent`。验证：frontend lint / 8 files、34 tests / build 均 PASS；backend Ruff、format、Pyright 与 74 tests PASS（保留 1 条既有 SQLAlchemy cartesian-product warning）。
+
+## Government Demo RC 范围与分页修复（2026-08-19）
+
+| 项目 | 状态 | 实际结果 |
+|---|---|---|
+| 查询范围与当前页 | DONE | `/agent/query` 返回 `matched_total/page/page_size`；新增 `/agent/query/results` 以已编译 DSL、页码、20/50/100 page size 和确定性 drilldown 读取完整范围，未再把 Top-20 当成完整结果。 |
+| 看板统计 | DONE | `/agent/dashboard` 接收 compiled DSL，统计完整 scope（及显式 drilldown），不再由当前页 work-order IDs 驱动。 |
+| 多频/高频 | DONE | Agent projection 复用 Catalog 的 root-work-order 与三日频次规则；单工单或无效 cluster 不会被标为多频。看板分列多频事件、涉及多频工单和高频事件。 |
+| 可探索性 | DONE | 问题/地点图表和关系树提供全量分类展开提示；树的一、二级计数基于完整 scope，叶子直接跳转工单，二级“查看全部”进入完整范围分页。 |
+| 跨页工作集 | DONE | 前端保留跨页勾选的工单 ID 和对应有效 cluster IDs；切换筛选/分页不会清空已选集合。 |
+| 查询说明 | DONE | 当前分析展示由 compiled DSL 直接映射的“本次理解”（地点、问题、时间、关键词），不使用不可审计的补写解释。 |
+
+验证（2026-08-19）：`uv run ruff check .` PASS；`uv run ruff format --check .` PASS（168 files）；`uv run pyright backend` PASS（0 errors）；`uv run pytest -q` PASS（74 passed，保留 1 条既有 SQLAlchemy cartesian-product warning）；`pnpm --dir frontend lint` PASS；`pnpm --dir frontend test --run` PASS（8 files / 35 tests）；`pnpm --dir frontend build` PASS。真实浏览器 smoke：容桂完整范围 27 条，分页 2 页；跨页选择保留；“涉及多频工单”下钻为 7 条；实时指标多频事件 4、涉及多频工单 7、高频事件 0。
