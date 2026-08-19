@@ -421,3 +421,7 @@ repair_event_semantics.py                    PASS — orphan refs=0, v2 dated/un
 | 迁移 | DONE | `b2c3d4e5f6a7` 增加 root identity 并兼容既有 `reported_at`；同时补回缺失历史 revision marker，最终 head=`c3d4e5f6a7b8` |
 
 验证：`uv run alembic upgrade head` PASS；`uv run pytest -q` 64 passed（1 个既有 SQLAlchemy cartesian-product warning）；Ruff、format、Pyright、frontend lint/test/build 与 `scripts/check.ps1` 均 PASS。覆盖子单、两独立主单、三单三日、美涂士三单欠薪、正文历史日期、长期重复非高频、实体/地点不同但项目一致，以及混合候选召回。
+
+## 重研判运行状态（2026-08-19）
+
+`BLOCKED`：已对真实 100 条批次提交 `analysis-job bd9ec2ac-2edb-4454-8516-f307695becac`，选择模式为 `recurrence_candidates`，实际选中 10 条。远端 Qwen 在第一条 understanding 请求返回 HTTP 400 `Arrearage`（账户欠费/访问被拒），任务未产生新的事件、边或 cluster。未切换本地模型、云端替代账号或 mock 结果；恢复条件是远端账户/额度恢复后重新提交任务。
