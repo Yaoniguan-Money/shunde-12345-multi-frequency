@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from backend.app.application.services.agent_composer import compose_evidence_answer
 from backend.app.config import Settings
 from backend.app.domain.ports.analysis import LLMProvider
+from backend.app.domain.title_tags import TITLE_TAG_WHITELIST
 from backend.app.domain.types import EmbeddingRequest, LLMRequest, ProviderRoute
 from backend.app.infrastructure.ai.factory import AIProviderBundle, build_provider_bundle
 from backend.app.infrastructure.ai.remote import RemoteOpenAICompatibleLLMProvider
@@ -86,9 +87,15 @@ class AgentOrchestrator:
 
     async def query(self, request: AgentQueryRequest) -> AgentQueryResponse:
         rules_plan = self._rules_plan(request)
-        compiled, planner_mode = await self._plan_with_llm(request.query, rules_plan)
+        compiled, planner_mode = await self._plan_with_llm(request, rules_plan)
         reported_after, reported_before = _compile_time_range(compiled.time_range)
-        vector, embedding_model_id = await self._semantic_vector(request.query)
+        complete_scope = compiled.aggregation != "none"
+        # A statistic must be calculated from its complete structured scope, not
+        # from semantic Top-N recall. Semantic retrieval remains evidence for
+        # ordinary list/search answers only.
+        vector, embedding_model_id = (
+            (None, None) if complete_scope else await self._semantic_vector(request.query)
+        )
         records = await self._repository.retrieve(
             keywords=_retrieval_terms(compiled),
             issue_terms=_issue_terms(compiled),
@@ -96,21 +103,36 @@ class AgentOrchestrator:
             entity=compiled.entity,
             location=compiled.location,
             event_type=compiled.event_type,
+            title_tag=compiled.title_tag,
             work_order_ids=tuple(compiled.work_order_ids),
             handling_status=compiled.handling_status,
             reported_after=reported_after,
             reported_before=reported_before,
-            limit=compiled.limit,
+            limit=None if complete_scope else compiled.limit,
             semantic_vector=vector,
             semantic_model_id=embedding_model_id,
+            complete_scope=complete_scope,
         )
-        work_orders = [_work_order_result(item) for item in records]
-        topic_groups = _groups(item.event_type or "未归类" for item in work_orders)
-        handling_groups = _groups(item.handling_status for item in work_orders)
+        total = len(records)
+        # The UI keeps large evidence sets collapsed as message attachments;
+        # retain the complete, auditable set so an operator can expand it or
+        # create a workset without re-running a different query.
+        evidence_records = records
+        work_orders = [_work_order_result(item) for item in evidence_records]
+        topic_groups = _groups(item["event_type"] or "未归类" for item in records)
+        handling_groups = _groups(item["handling_status"] for item in records)
         cluster_ids = list(
-            dict.fromkeys(cluster_id for item in work_orders for cluster_id in item.cluster_ids)
+            dict.fromkeys(cluster_id for item in records for cluster_id in item["cluster_ids"])
         )
-        factual_summary = _evidence_answer(records, topic_groups, cluster_ids)
+        factual_summary = _evidence_answer(
+            compiled,
+            request.query,
+            total,
+            records,
+            topic_groups,
+            handling_groups,
+            cluster_ids,
+        )
         answer = await compose_evidence_answer(
             planner_llm=self._planner_llm,
             query=request.query,
@@ -123,12 +145,12 @@ class AgentOrchestrator:
             planner_mode=planner_mode,
             answer=answer,
             disclaimer="结果来自当前工单与 V2 事件记录；群众投诉内容不等同于行政事实认定。",
-            total=len(work_orders),
+            total=total,
             topic_groups=topic_groups,
             handling_groups=handling_groups,
             work_orders=work_orders,
             cluster_ids=cluster_ids,
-            retrieval_trace=[item["retrieval_trace"] for item in records]
+            retrieval_trace=[item["retrieval_trace"] for item in evidence_records]
             if self._settings.environment != "production"
             else [],
         )
@@ -211,41 +233,58 @@ class AgentOrchestrator:
     def _rules_plan(self, request: AgentQueryRequest) -> AgentQueryDSL:
         text = request.query.strip()
         prior = request.previous_query_snapshot
-        keywords = _keywords(text)
-        follow_up = _follow_up_kind(text)
-        continue_constraints = prior is not None and follow_up in {"constraints", "results"}
-        inherited = prior if continue_constraints and prior is not None else AgentQueryDSL()
+        context_mode = _context_mode(text, prior)
+        inherited = prior if context_mode != "new_scope" and prior is not None else AgentQueryDSL()
+        explicit_topic = _topic(text)
         plan = AgentQueryDSL(
-            intent="refine_previous" if continue_constraints else "search_work_orders",
+            intent="refine_previous" if context_mode != "new_scope" else "search_work_orders",
             time_range=_time_range(text) or inherited.time_range,
-            keywords=keywords or inherited.keywords,
-            topic=_topic(text) or inherited.topic,
-            issue_required=bool(_topic(text)) or (inherited.issue_required),
+            keywords=_keywords(text) or inherited.keywords,
+            topic=explicit_topic or inherited.topic,
+            title_tag=_title_tag(text) or inherited.title_tag,
+            # Aggregation describes this utterance's answer shape, not the
+            # durable active scope. A later time/status refinement starts with
+            # a fresh answer intent unless it asks to count/group again.
+            aggregation=_aggregation(text) or "none",
+            context_mode=context_mode,
+            issue_required=bool(explicit_topic) or inherited.issue_required,
             entity=inherited.entity,
             location=_location(text) or inherited.location,
             event_type=inherited.event_type,
             handling_status=_handling_status(text) or inherited.handling_status,
             sort="newest" if "最新" in text else "relevance",
             limit=request.limit,
-            # Only an explicit result reference is bound to the prior evidence
-            # set. Constraint follow-ups must query the full legal scope again.
-            work_order_ids=request.previous_work_order_ids if follow_up == "results" else [],
+            # Only a result reference is bound to the prior evidence set.
+            # Scope refinements must rerun on the complete legal scope.
+            work_order_ids=(
+                request.previous_work_order_ids if context_mode == "reference_results" else []
+            ),
         )
         return plan
 
     async def _plan_with_llm(
-        self, query: str, rules_plan: AgentQueryDSL
+        self, request: AgentQueryRequest, rules_plan: AgentQueryDSL
     ) -> tuple[AgentQueryDSL, Literal["llm", "rules"]]:
         if self._planner_llm is None:
             return rules_plan, "rules"
+        prior_dsl = (
+            request.previous_query_snapshot.model_dump_json()
+            if request.previous_query_snapshot
+            else "无"
+        )
         prompt = (
             "将用户问题解析为受控 12345 工单查询 DSL。只能填写给定字段，绝不生成 SQL。"
             "用户明确提及的地点、主体、工单号、办理状态、时间和问题类别都是硬筛选条件。"
             "例如“大良有没有拖欠工资”是大良范围内的欠薪问题，不是先查大良再按欠薪排序。"
             "location 应保留用户的开放文本地点原样（道路、小区、学校、园区、项目等均可），"
             "不得将地点写入 topic 或 keywords。"
-            "不确定则保留 null 或空数组。时间相对值使用 last_7_days、last_30_days。\n"
-            f"用户问题：{query}\n规则初稿：{rules_plan.model_dump_json()}"
+            "不确定则保留 null 或空数组。时间相对值使用 last_7_days、last_30_days。"
+            "title_tag=急 仅表示标题的确定性急标签；aggregation 表示统计方式。"
+            "必须判断 context_mode：新范围、继续收窄范围、或引用上一轮结果。\n"
+            f"上一轮用户问题：{request.previous_query or '无'}\n"
+            f"上一轮 DSL：{prior_dsl}\n"
+            f"上一轮证据工单 IDs：{[str(item) for item in request.previous_work_order_ids]}\n"
+            f"当前用户问题：{request.query}\n规则初稿：{rules_plan.model_dump_json()}"
         )
         schema: dict[str, object] = {
             "type": "object",
@@ -253,6 +292,9 @@ class AgentOrchestrator:
                 "intent": {"type": "string"},
                 "keywords": {"type": "array", "items": {"type": "string"}},
                 "topic": {"type": ["string", "null"]},
+                "title_tag": {"type": ["string", "null"]},
+                "aggregation": {"type": "string"},
+                "context_mode": {"type": "string"},
                 "issue_required": {"type": "boolean"},
                 "entity": {"type": ["string", "null"]},
                 "location": {"type": ["string", "null"]},
@@ -320,6 +362,9 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         "intent",
         "keywords",
         "topic",
+        "title_tag",
+        "aggregation",
+        "context_mode",
         "issue_required",
         "entity",
         "location",
@@ -333,6 +378,16 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         # The model may refine vocabulary but cannot relax an issue that the
         # deterministic parser identified as an explicit user constraint.
         patch["issue_required"] = True
+    # Deterministic parsing owns hard title tags, aggregation phrases and
+    # context inheritance. The model sees the full turn context to help with
+    # underspecified language, but cannot relax these safe boundaries.
+    if base.title_tag:
+        patch["title_tag"] = base.title_tag
+    if base.aggregation != "none":
+        patch["aggregation"] = base.aggregation
+    patch["context_mode"] = base.context_mode
+    if base.context_mode == "reference_results":
+        patch["work_order_ids"] = [str(item) for item in base.work_order_ids]
     if "location" in patch and not _is_location_candidate(patch["location"]):
         patch.pop("location")
     if base.location and not patch.get("location"):
@@ -412,10 +467,12 @@ def _issue_terms(plan: AgentQueryDSL) -> tuple[str, ...]:
 
 
 def _location(text: str) -> str | None:
+    if any(item in text for item in ("全区", "全市", "全镇", "全域")):
+        return None
     normalized = re.sub(r"[，。！？、,.!?]", " ", text).strip()
     prefix_match = re.match(
         r"(?:请问|帮我看看|查询|了解)?(?P<location>[\u4e00-\u9fffA-Za-z0-9·]{2,40}?)"
-        r"(?:最近|近来|这段时间|有什么|有没有|是否有|发生了什么|相关工单|的情况)",
+        r"(?:最近|近来|这段时间|有什么|有没有|是否有|有几条|有多少|多少条|发生了什么|相关工单|的情况)",
         normalized,
     )
     if prefix_match:
@@ -457,12 +514,63 @@ def _handling_status(text: str) -> Literal["unhandled", "investigating", "resolv
     return None
 
 
-def _follow_up_kind(text: str) -> Literal["none", "constraints", "results"]:
-    if any(item in text for item in ("这几单", "这些工单", "它们", "其中这些")):
-        return "results"
+def _context_mode(
+    text: str, prior: AgentQueryDSL | None
+) -> Literal["new_scope", "refine_scope", "reference_results"]:
+    """Classify a turn by scope semantics, with old phrase rules only as fallback."""
+    if prior is None:
+        return "new_scope"
+    if any(item in text for item in ("全区", "全市", "全镇", "全域")):
+        return "new_scope"
+    if _explicit_result_reference(text):
+        return "reference_results"
+    # A newly named location creates a new scope. Otherwise a deterministic
+    # filter/aggregation modifier refines the active scope.
+    if _location(text):
+        return "new_scope"
+    if any(
+        (
+            _time_range(text) is not None,
+            _title_tag(text) is not None,
+            _topic(text) is not None,
+            _handling_status(text) is not None,
+            _aggregation(text) is not None,
+            _follow_up_kind(text) == "constraints",
+        )
+    ):
+        return "refine_scope"
+    return "new_scope"
+
+
+def _explicit_result_reference(text: str) -> bool:
+    return any(item in text for item in ("这几单", "这些工单", "这些急单", "它们", "其中这些"))
+
+
+def _follow_up_kind(text: str) -> Literal["none", "constraints"]:
+    """Legacy phrase fallback; primary planning uses `_context_mode` above."""
     if any(item in text for item in ("这些", "刚才", "只看", "其中", "上一步", "那最近", "那近")):
         return "constraints"
     return "none"
+
+
+def _title_tag(text: str) -> str | None:
+    if any(token in text for token in ("急单", "急件", "紧急工单", "【急】", "（急）", "(急)")):
+        return "急" if "急" in TITLE_TAG_WHITELIST else None
+    return None
+
+
+def _aggregation(
+    text: str,
+) -> Literal["count", "group_by_topic", "group_by_status", "group_by_location"] | None:
+    if any(token in text for token in ("哪类最多", "什么问题最多", "哪种投诉最多")):
+        return "group_by_topic"
+    if any(token in text for token in ("处理了吗", "办理情况", "处理情况", "哪些已处理")):
+        return "group_by_status"
+    if any(token in text for token in ("几条", "多少条", "有多少", "总共有多少")):
+        return "count"
+    if any(token in text for token in ("哪个地方最多", "哪里最多")):
+        return "group_by_location"
+    return None
 
 
 def _work_order_result(value: AgentRecord) -> AgentWorkOrderResult:
@@ -470,6 +578,8 @@ def _work_order_result(value: AgentRecord) -> AgentWorkOrderResult:
         work_order_id=value["work_order_id"],
         external_work_order_number=value["external_work_order_number"],
         title=value["title"],
+        title_tags=value["title_tags"],
+        is_urgent=value["is_urgent"],
         reported_at=value["reported_at"],
         time_label="业务受理时间" if value["reported_at"] is not None else "业务时间未知",
         normalized_summary=value["normalized_summary"],
@@ -489,11 +599,44 @@ def _groups(values: Iterable[str]) -> list[AgentTopicGroup]:
 
 
 def _evidence_answer(
-    records: list[AgentRecord], topics: list[AgentTopicGroup], cluster_ids: list[UUID]
+    plan: AgentQueryDSL,
+    query: str,
+    total: int,
+    records: list[AgentRecord],
+    topics: list[AgentTopicGroup],
+    handling_groups: list[AgentTopicGroup],
+    cluster_ids: list[UUID],
 ) -> str:
-    total = len(records)
+    scope = plan.location or "当前检索范围"
+    label = "急单" if plan.title_tag == "急" else "工单"
+    if plan.aggregation == "count":
+        if total == 0:
+            return f"{scope}内没有发现{label}。"
+        return f"{scope}当前检索范围内共有 {total} 条{label}。"
+    if plan.aggregation == "group_by_status":
+        if total == 0:
+            return "引用的工单范围内没有记录。"
+        summary = "、".join(
+            f"{_handling_label(item.label)} {item.count} 条" for item in handling_groups
+        )
+        prefix = "这些" if plan.context_mode == "reference_results" else scope
+        return f"{prefix}{label}共 {total} 条，办理状态为：{summary}。"
+    if plan.aggregation in {"group_by_topic", "group_by_location"}:
+        groups = (
+            _groups(item["location"] or "未提供地点" for item in records)
+            if plan.aggregation == "group_by_location"
+            else topics
+        )
+        if total == 0:
+            return f"{scope}内没有可统计的{label}。"
+        primary = groups[0] if groups else None
+        if primary is None:
+            return f"{scope}内共有 {total} 条{label}，暂未形成可用分类。"
+        return f"{scope}内共有 {total} 条{label}，最多的是“{primary.label}”{primary.count} 条。"
     if total == 0:
         return "该条件下未检索到记录；可尝试放宽时间、地点或关键词。"
+    if any(token in query for token in ("有没有", "是否有", "有无")):
+        return f"有，目前找到 {total} 条{label}。"
     topic_text = "、".join(f"{item.label} {item.count} 条" for item in topics[:3]) or "待归类"
     cluster_text = f"，其中关联多频事件 {len(cluster_ids)} 个" if cluster_ids else ""
     first = records[0]
@@ -502,6 +645,12 @@ def _evidence_answer(
         f"有。当前检索范围内找到 {total} 条直接相关工单，主要涉及：{topic_text}{cluster_text}。\n\n"
         f"核心工单：{core}\n"
         "当前数据只能确认上述投诉记录，不能据此认定该问题具有普遍性。"
+    )
+
+
+def _handling_label(value: str) -> str:
+    return {"unhandled": "未处理", "investigating": "正在跟进", "resolved": "已解决"}.get(
+        value, value
     )
 
 

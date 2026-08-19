@@ -79,3 +79,68 @@ def test_result_reference_follow_up_keeps_prior_evidence_ids() -> None:
 
     assert plan.intent == "refine_previous"
     assert plan.work_order_ids == [result_id]
+
+
+def test_urgent_count_refines_the_active_location_scope() -> None:
+    first = _service()._rules_plan(AgentQueryRequest(query="容桂有什么事情"))
+    second = _service()._rules_plan(
+        AgentQueryRequest(query="有几条急单", previous_query_snapshot=first)
+    )
+
+    assert first.location == "容桂"
+    assert second.context_mode == "refine_scope"
+    assert second.location == "容桂"
+    assert second.title_tag == "急"
+    assert second.aggregation == "count"
+    assert second.work_order_ids == []
+
+
+def test_urgent_result_reference_uses_previous_evidence_and_groups_status() -> None:
+    prior = _service()._rules_plan(AgentQueryRequest(query="容桂有几条急单"))
+    result_id = UUID("51dee877-ba24-4834-aa61-39978bb2d480")
+
+    plan = _service()._rules_plan(
+        AgentQueryRequest(
+            query="这些急单处理了吗",
+            previous_query_snapshot=prior,
+            previous_work_order_ids=[result_id],
+        )
+    )
+
+    assert plan.context_mode == "reference_results"
+    assert plan.title_tag == "急"
+    assert plan.aggregation == "group_by_status"
+    assert plan.work_order_ids == [result_id]
+
+
+def test_time_refinement_keeps_active_urgent_scope() -> None:
+    prior = _service()._rules_plan(AgentQueryRequest(query="容桂有几条急单"))
+    plan = _service()._rules_plan(
+        AgentQueryRequest(query="那最近一个月呢", previous_query_snapshot=prior)
+    )
+
+    assert plan.context_mode == "refine_scope"
+    assert plan.location == "容桂"
+    assert plan.title_tag == "急"
+    assert plan.time_range is not None
+    assert plan.time_range.value == "last_30_days"
+
+
+def test_global_scope_explicitly_resets_previous_location() -> None:
+    prior = _service()._rules_plan(AgentQueryRequest(query="容桂有什么事情"))
+    plan = _service()._rules_plan(
+        AgentQueryRequest(query="全区有几条急单", previous_query_snapshot=prior)
+    )
+
+    assert plan.context_mode == "new_scope"
+    assert plan.location is None
+    assert plan.title_tag == "急"
+    assert plan.aggregation == "count"
+
+
+def test_direct_location_urgent_count_needs_no_history() -> None:
+    plan = _service()._rules_plan(AgentQueryRequest(query="大良有几条急单"))
+
+    assert plan.location == "大良"
+    assert plan.title_tag == "急"
+    assert plan.aggregation == "count"

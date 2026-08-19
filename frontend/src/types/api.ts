@@ -267,6 +267,9 @@ export interface AgentQueryDSL {
   time_range: AgentTimeRange | null;
   keywords: string[];
   topic: string | null;
+  title_tag: string | null;
+  aggregation: "none" | "count" | "group_by_topic" | "group_by_status" | "group_by_location";
+  context_mode: "new_scope" | "refine_scope" | "reference_results";
   issue_required: boolean;
   entity: string | null;
   location: string | null;
@@ -284,6 +287,8 @@ export interface AgentWorkOrderResult {
   work_order_id: UUID;
   external_work_order_number: string | null;
   title: string | null;
+  title_tags: string[];
+  is_urgent: boolean;
   reported_at: ISODateString | null;
   time_label: string;
   normalized_summary: string | null;

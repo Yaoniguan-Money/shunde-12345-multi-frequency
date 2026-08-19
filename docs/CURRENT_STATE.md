@@ -433,3 +433,27 @@ SameEvent 匹配边、9 个事件簇；任务 trace 为 `remote-openai-compatibl
 embedding 负责向量检索（DeepSeek `/v1/embeddings` 返回 404，未伪造或静默切换）。为避免
 证据丰富工单的 JSON 被截断，OpenAI-compatible 结构化输出上限调整为 4096 tokens，并对
 DeepSeek v4 显式关闭 thinking。原始工单保持不可变；本次导入、事件、边和簇均由真实运行写入。
+
+## 问问12345 对话 Agent 第二阶段（2026-08-19）
+
+| 项目 | 状态 | 真实结果 |
+|---|---|---|
+| 连续 scope | DONE | DSL 新增 `context_mode`，区分 `new_scope / refine_scope / reference_results`。请求向 DeepSeek planner 提供上一轮问题、DSL 与 evidence IDs；明确地点、急单标签和统计词仍由受控规则保护。 |
+| 急单 | DONE | `title_tag=急` 复用 `parse_title_tags()` 的 `【急】/（急）/(急)` 确定性规则；SQL 仅作等价预筛，逐条再次用 Catalog 解析器验证。 |
+| 统计 | DONE | `aggregation=count/group_by_topic/group_by_status/group_by_location`；统计基于完整合法 scope，不以 Top-20 结果计数。 |
+| 对话 UI | DONE | `/assistant` 为单主栏消息流；工单/多频事件是消息附件，20 条默认仅显示查看入口；工作集改为按需抽屉，composer 固定在底部。 |
+| 真实四轮 smoke | DONE | 容桂查询为 20 条；急单为 `refine_scope`、容桂、`title_tag=急`、`count`、4 条；“这些急单”只引用该 4 条并显示未处理 4 条；“那最近一个月”保留容桂+急单和 `last_30_days`，真实业务时间缺失故为 0。 |
+
+本轮未修改 SameEvent、EventGraph、多频聚类、高频公式、root work order identity、embedding 聚类主链、V2 understanding 或原始工单。
+
+### 本轮门禁
+
+```text
+scripts/check.ps1                            PASS — backend 74 passed（1 个既有 SQLAlchemy cartesian-product warning）
+uv run ruff check .                          PASS
+uv run ruff format --check .                 PASS — 168 files already formatted
+uv run pyright backend                       PASS — 0 errors, 0 warnings
+pnpm --dir frontend test --run               PASS — 8 files, 34 tests
+pnpm --dir frontend lint                     PASS
+pnpm --dir frontend build                    PASS — Vite 8.2.1
+```

@@ -7,17 +7,19 @@ to the V2 understanding, same-event, or clustering tables.
 import csv
 import io
 import logging
+import re
 from collections import Counter
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import TypedDict, cast
 from uuid import UUID
 
-from sqlalchemy import Text, or_, select
+from sqlalchemy import Select, Text, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
+from backend.app.domain.title_tags import parse_title_tags
 from backend.app.infrastructure.db.models import (
     AgentActionPreview,
     AuditLog,
@@ -46,6 +48,8 @@ class AgentRecord(TypedDict):
     work_order_id: UUID
     external_work_order_number: str | None
     title: str | None
+    title_tags: list[str]
+    is_urgent: bool
     created_at: datetime
     reported_at: datetime | None
     normalized_summary: str | None
@@ -92,19 +96,22 @@ class AgentRepository:
         entity: str | None,
         location: str | None,
         event_type: str | None,
+        title_tag: str | None,
         work_order_ids: tuple[UUID, ...],
         handling_status: str | None,
         reported_after: datetime | None,
         reported_before: datetime | None,
-        limit: int,
+        limit: int | None,
         semantic_vector: list[float] | None,
         semantic_model_id: str | None,
+        complete_scope: bool = False,
     ) -> list[AgentRecord]:
         """Scope, recall, gate relevance, then rank the current V2 projection."""
         terms = tuple(term for term in (*keywords, event_type or "") if term)
         has_hard_scope = bool(
             location
             or entity
+            or title_tag
             or work_order_ids
             or handling_status
             or reported_after is not None
@@ -127,6 +134,8 @@ class AgentRepository:
                 scope_conditions.append(_entity_condition(entity))
             if handling_status:
                 scope_conditions.append(_handling_status_condition(handling_status))
+            if title_tag:
+                scope_conditions.append(_title_tag_condition(title_tag))
 
             statement = (
                 select(WorkOrder.id)
@@ -140,9 +149,11 @@ class AgentRepository:
             )
             if has_hard_scope:
                 scoped_statement = statement.where(*scope_conditions).distinct()
+                if not complete_scope:
+                    scoped_statement = scoped_statement.limit(max((limit or 20) * 8, 200))
                 structured_scope_ids = cast(
                     list[UUID],
-                    (await session.scalars(scoped_statement.limit(max(limit * 8, 200)))).all(),
+                    (await session.scalars(scoped_statement)).all(),
                 )
                 if not structured_scope_ids:
                     return []
@@ -150,7 +161,7 @@ class AgentRepository:
                     session,
                     semantic_vector,
                     semantic_model_id,
-                    max(limit * 3, 40),
+                    max((limit or 20) * 3, 40),
                     allowed_work_order_ids=structured_scope_ids,
                 )
                 return await self._projections(
@@ -160,6 +171,7 @@ class AgentRepository:
                     limit,
                     issue_terms=issue_terms,
                     issue_required=issue_required,
+                    title_tag=title_tag,
                     location=location,
                     entity=entity,
                     required_work_order_ids=set(work_order_ids),
@@ -174,14 +186,15 @@ class AgentRepository:
                     list[UUID],
                     (
                         await session.scalars(
-                            statement.where(or_(*text_conditions))
-                            .distinct()
-                            .limit(max(limit * 4, 80))
+                            _limit_statement(
+                                statement.where(or_(*text_conditions)).distinct(),
+                                None if complete_scope else max((limit or 20) * 4, 80),
+                            )
                         )
                     ).all(),
                 )
             semantic_scores = await self._semantic_scores(
-                session, semantic_vector, semantic_model_id, max(limit * 3, 40)
+                session, semantic_vector, semantic_model_id, max((limit or 20) * 3, 40)
             )
             ids = _unique_ids((*text_ids, *semantic_scores))
             if not ids and not terms:
@@ -189,7 +202,10 @@ class AgentRepository:
                     list[UUID],
                     (
                         await session.scalars(
-                            select(WorkOrder.id).order_by(WorkOrder.created_at.desc()).limit(limit)
+                            _limit_statement(
+                                select(WorkOrder.id).order_by(WorkOrder.created_at.desc()),
+                                None if complete_scope else limit,
+                            )
                         )
                     ).all(),
                 )
@@ -200,6 +216,7 @@ class AgentRepository:
                 limit,
                 issue_terms=issue_terms,
                 issue_required=issue_required,
+                title_tag=title_tag,
                 semantic_scores=semantic_scores,
             )
 
@@ -239,9 +256,10 @@ class AgentRepository:
         session: AsyncSession,
         ids: Iterable[UUID],
         terms: tuple[str, ...],
-        limit: int,
+        limit: int | None,
         issue_terms: tuple[str, ...] = (),
         issue_required: bool = False,
+        title_tag: str | None = None,
         location: str | None = None,
         entity: str | None = None,
         required_work_order_ids: set[UUID] | None = None,
@@ -302,6 +320,9 @@ class AgentRepository:
         results: list[AgentRecord] = []
         for work_order in work_orders:
             events = event_by_work_order.get(work_order.id, [])
+            title_tags = parse_title_tags(work_order.raw_title)
+            if title_tag and title_tag not in title_tags:
+                continue
             entity_text = " ".join(entity_text_by_work_order.get(work_order.id, []))
             raw_search_text = " ".join(
                 [work_order.raw_title or "", work_order.raw_content]
@@ -371,6 +392,8 @@ class AgentRepository:
                     "work_order_id": work_order.id,
                     "external_work_order_number": work_order.external_work_order_number,
                     "title": work_order.raw_title,
+                    "title_tags": list(title_tags),
+                    "is_urgent": "急" in title_tags,
                     "created_at": work_order.created_at,
                     "reported_at": work_order.reported_at,
                     "normalized_summary": primary.normalized_summary if primary else None,
@@ -416,7 +439,7 @@ class AgentRepository:
             "Agent relevance gate completed",
             extra={"final_evidence_count": len(results), "limit": limit},
         )
-        return results[:limit]
+        return results if limit is None else results[:limit]
 
     async def _latest_statuses(self, session: AsyncSession, ids: list[UUID]) -> dict[UUID, str]:
         records = (
@@ -654,6 +677,10 @@ def _unique_ids(values: Iterable[UUID]) -> list[UUID]:
     return list(dict.fromkeys(values))
 
 
+def _limit_statement(statement: Select[tuple[UUID]], limit: int | None) -> Select[tuple[UUID]]:
+    return statement.limit(limit) if limit is not None else statement
+
+
 def _first_location(events: list[EventInstance]) -> str | None:
     return _location_signals(events)[0] if _location_signals(events) else None
 
@@ -688,6 +715,13 @@ def _location_condition(location: str) -> ColumnElement[bool]:
         WorkOrder.raw_content.ilike(pattern),
         sql_cast(EventInstance.location_signals, Text).ilike(pattern),
     )
+
+
+def _title_tag_condition(title_tag: str) -> ColumnElement[bool]:
+    """SQL prefilter equivalent to the catalog's deterministic title-tag parser."""
+    escaped = re.escape(title_tag)
+    pattern = rf"(【\s*{escaped}\s*】|[（(]\s*{escaped}\s*[）)])"
+    return WorkOrder.raw_title.op("~")(pattern)
 
 
 def _entity_condition(entity: str) -> ColumnElement[bool]:

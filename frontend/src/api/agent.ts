@@ -11,6 +11,7 @@ import type {
 
 export function queryAgent(body: {
   query: string;
+  previous_query?: string;
   previous_query_snapshot?: AgentQueryDSL;
   previous_work_order_ids?: UUID[];
   limit?: number;

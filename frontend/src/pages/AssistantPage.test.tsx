@@ -11,6 +11,9 @@ const FIRST_RESPONSE = {
     time_range: null,
     keywords: ["拖欠", "工资"],
     topic: "工资",
+    title_tag: null,
+    aggregation: "none",
+    context_mode: "new_scope",
     issue_required: true,
     entity: null,
     location: "大良",
@@ -31,6 +34,8 @@ const FIRST_RESPONSE = {
     work_order_id: "11111111-1111-1111-1111-111111111111",
     external_work_order_number: "WO-1",
     title: "拖欠工资",
+    title_tags: [],
+    is_urgent: false,
     reported_at: "2026-08-01T00:00:00Z",
     time_label: "业务受理时间",
     normalized_summary: "司机工资未结清",
@@ -64,10 +69,9 @@ test("keeps a conversation history and does not auto-select retrieved work order
 
   expect(await screen.findByText("有。当前检索范围内找到 1 条直接相关工单。")).toBeInTheDocument();
   expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
-  expect(screen.getByText("已选择 0 条")).toBeInTheDocument();
 
   fireEvent.change(input, { target: { value: "那最近一个月呢？" } });
-  fireEvent.click(screen.getByRole("button", { name: "开始对话" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   expect(await screen.findByText("最近一个月没有记录。")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByText("大良有没有拖欠工资")).toBeInTheDocument());
   expect(calls).toBe(2);

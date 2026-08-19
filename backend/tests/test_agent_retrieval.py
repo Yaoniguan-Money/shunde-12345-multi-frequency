@@ -26,7 +26,7 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
             "测试大良甲",
             now,
         ),
-        ("测试大良甲噪声", "测试大良甲小区夜间噪声扰民", "噪音扰民", "测试大良甲", now),
+        ("【急】测试大良甲噪声", "测试大良甲小区夜间噪声扰民", "噪音扰民", "测试大良甲", now),
         ("测试大良甲垃圾", "测试大良甲街边垃圾未清理", "垃圾堆放", "测试大良甲", now),
         ("测试大良甲占道", "测试大良甲商户占道经营", "占道经营", "测试大良甲", now),
         ("测试大良甲时间未知", "测试大良甲历史投诉，业务受理时间缺失", "咨询", "测试大良甲", None),
@@ -100,6 +100,7 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
             entity=None,
             location="测试大良甲",
             event_type=None,
+            title_tag=None,
             work_order_ids=(),
             handling_status=None,
             reported_after=None,
@@ -118,6 +119,7 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
             entity=None,
             location="测试大良甲",
             event_type=None,
+            title_tag=None,
             work_order_ids=(),
             handling_status=None,
             reported_after=None,
@@ -128,7 +130,7 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
         )
         assert {item["title"] for item in broad} == {
             "测试大良甲拖欠工资",
-            "测试大良甲噪声",
+            "【急】测试大良甲噪声",
             "测试大良甲垃圾",
             "测试大良甲占道",
             "测试大良甲时间未知",
@@ -141,6 +143,7 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
             entity=None,
             location=None,
             event_type=None,
+            title_tag=None,
             work_order_ids=tuple(work_order.id for work_order in work_orders),
             handling_status=None,
             reported_after=None,
@@ -161,6 +164,7 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
             entity=None,
             location="测试大良甲",
             event_type=None,
+            title_tag=None,
             work_order_ids=(),
             handling_status=None,
             reported_after=now - timedelta(days=1),
@@ -170,6 +174,25 @@ async def test_explicit_issue_gate_keeps_only_location_and_issue_intersection() 
             semantic_model_id=None,
         )
         assert len(recent) == 4
+
+        urgent = await repository.retrieve(
+            keywords=(),
+            issue_terms=(),
+            issue_required=False,
+            entity=None,
+            location="测试大良甲",
+            event_type=None,
+            title_tag="急",
+            work_order_ids=(),
+            handling_status=None,
+            reported_after=None,
+            reported_before=None,
+            limit=None,
+            semantic_vector=None,
+            semantic_model_id=None,
+            complete_scope=True,
+        )
+        assert [item["title"] for item in urgent] == ["【急】测试大良甲噪声"]
     finally:
         try:
             async with sessions() as session, session.begin():

@@ -14,6 +14,14 @@ AgentIntent = Literal[
     "preview_batch_action",
 ]
 HandlingStatus = Literal["unhandled", "investigating", "resolved"]
+AgentAggregation = Literal[
+    "none",
+    "count",
+    "group_by_topic",
+    "group_by_status",
+    "group_by_location",
+]
+AgentContextMode = Literal["new_scope", "refine_scope", "reference_results"]
 BatchActionType = Literal["add_handling_record", "set_handling_status", "export_csv"]
 
 
@@ -41,6 +49,11 @@ class AgentQueryDSL(BaseModel):
     time_range: AgentTimeRange | None = None
     keywords: list[str] = Field(default_factory=_empty_strings, max_length=8)
     topic: str | None = Field(default=None, max_length=128)
+    # Title tags are deterministic catalog facts. They are never inferred from
+    # semantic retrieval or a model's guess about urgency.
+    title_tag: str | None = Field(default=None, max_length=32)
+    aggregation: AgentAggregation = "none"
+    context_mode: AgentContextMode = "new_scope"
     # A topic mentioned by the user is a result constraint, not merely a
     # ranking hint.  `keywords` remain broad candidate-recall terms.
     issue_required: bool = False
@@ -56,6 +69,7 @@ class AgentQueryDSL(BaseModel):
 
 class AgentQueryRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
+    previous_query: str | None = Field(default=None, max_length=500)
     previous_query_snapshot: AgentQueryDSL | None = None
     previous_work_order_ids: list[UUID] = Field(default_factory=_empty_uuids, max_length=100)
     limit: int = Field(default=20, ge=1, le=50)
@@ -65,6 +79,8 @@ class AgentWorkOrderResult(BaseModel):
     work_order_id: UUID
     external_work_order_number: str | None
     title: str | None
+    title_tags: list[str]
+    is_urgent: bool
     reported_at: datetime | None
     time_label: str
     normalized_summary: str | None
