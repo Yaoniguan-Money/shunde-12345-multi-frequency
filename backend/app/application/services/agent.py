@@ -466,7 +466,7 @@ def _groups(values: Iterable[str]) -> list[AgentTopicGroup]:
 
 def _evidence_answer(total: int, topics: list[AgentTopicGroup], cluster_ids: list[UUID]) -> str:
     if total == 0:
-        return "当前条件下未检索到可追溯的工单记录；可尝试放宽时间、地点或关键词。"
+        return "该条件下未检索到记录；可尝试放宽时间、地点或关键词。"
     topic_text = "、".join(f"{item.label} {item.count} 条" for item in topics[:3]) or "待归类"
     cluster_text = f"，其中关联多频事件 {len(cluster_ids)} 个" if cluster_ids else ""
     return (
