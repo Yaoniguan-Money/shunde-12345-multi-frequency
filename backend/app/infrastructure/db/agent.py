@@ -11,13 +11,15 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from uuid import UUID
 
-from sqlalchemy import Select, Text, asc, case, desc, func, or_, select
+import xlsxwriter  # type: ignore[import-untyped]
+from sqlalchemy import Select, Text, and_, asc, case, desc, false, func, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import Subquery
 
 from backend.app.domain.agent_search import AgentPage, AgentSearchPlan
 from backend.app.domain.catalog import (
@@ -91,6 +93,16 @@ class AgentDashboardValues(TypedDict):
     handling_groups: list[dict[str, object]]
     location_groups: list[dict[str, object]]
     focus_cluster_ids: list[UUID]
+    topic_tree: list[dict[str, object]]
+    location_tree: list[dict[str, object]]
+
+
+class AgentTreeSqlRow(TypedDict):
+    primary: str
+    child: str
+    count: int
+    urgent_count: int
+    multi_frequency_count: int
 
 
 class AgentRepository:
@@ -296,6 +308,51 @@ class AgentRepository:
             )
             return AgentPage(total, records, len(semantic_scores))
 
+    async def latest_reported_at(self) -> datetime | None:
+        """The moving business-time reference for relative-date Agent queries."""
+        async with self._session_factory() as session:
+            return await session.scalar(select(func.max(WorkOrder.reported_at)))
+
+    async def export_xlsx(
+        self,
+        plan: AgentSearchPlan,
+        *,
+        semantic_vector: list[float] | None,
+        semantic_model_id: str | None,
+    ) -> tuple[int, bytes]:
+        """Export every matching work order using the same predicates as paging."""
+        async with self._session_factory() as session:
+            semantic_scores = await self._semantic_scores(
+                session, semantic_vector, semantic_model_id, 120
+            )
+            matching = (
+                self._matching_ids_statement(plan, semantic_scores, None).distinct().subquery()
+            )
+            ids = list(
+                (
+                    await session.scalars(
+                        select(matching.c.id)
+                        .join(WorkOrder, WorkOrder.id == matching.c.id)
+                        .order_by(desc(WorkOrder.reported_at), WorkOrder.id)
+                    )
+                ).all()
+            )
+            records = await self._projections(
+                session,
+                ids,
+                plan.keywords,
+                None,
+                issue_terms=plan.issue_terms,
+                issue_required=plan.issue_required,
+                title_tag=plan.title_tag,
+                location=plan.location,
+                entity=plan.entity,
+                required_work_order_ids=set(plan.work_order_ids),
+                handling_status=plan.handling_status,
+                semantic_scores=semantic_scores,
+            )
+            return len(records), _xlsx_for_agent_records(records)
+
     async def aggregate(
         self,
         plan: AgentSearchPlan,
@@ -324,6 +381,8 @@ class AgentRepository:
                     "handling_groups": [],
                     "location_groups": [],
                     "focus_cluster_ids": [],
+                    "topic_tree": [],
+                    "location_tree": [],
                 }
             topic_rows = (
                 await session.execute(
@@ -445,6 +504,12 @@ class AgentRepository:
                     rolling_window_max_distinct_work_orders(members_by_cluster[cluster_id])
                 )
             ]
+            topic_tree = await self._aggregate_tree(
+                session, matching, "topic", valid_cluster_ids, semantic_scores
+            )
+            location_tree = await self._aggregate_tree(
+                session, matching, "location", valid_cluster_ids, semantic_scores
+            )
             return {
                 "work_order_count": total,
                 "multi_frequency_event_count": len(valid_cluster_ids),
@@ -476,7 +541,122 @@ class AgentRepository:
                     {"label": str(label), "count": int(count)} for label, count in location_rows
                 ],
                 "focus_cluster_ids": valid_cluster_ids,
+                "topic_tree": topic_tree,
+                "location_tree": location_tree,
             }
+
+    async def _aggregate_tree(
+        self,
+        session: AsyncSession,
+        matching: Subquery,
+        mode: str,
+        valid_cluster_ids: list[UUID],
+        semantic_scores: dict[UUID, float],
+    ) -> list[dict[str, object]]:
+        """Build a hierarchical SQL aggregate and project its real work-order leaves."""
+        matched = matching
+        location = func.coalesce(EventInstance.location_signals[0].as_string(), "未提供地点")
+        topic = func.coalesce(EventInstance.event_type, "未归类")
+        primary, child = (topic, location) if mode == "topic" else (location, topic)
+        cluster_match = (
+            EventClusterMember.event_cluster_id.in_(valid_cluster_ids)
+            if valid_cluster_ids
+            else false()
+        )
+        rows = (
+            (
+                await session.execute(
+                    select(
+                        primary.label("primary"),
+                        child.label("child"),
+                        func.count(func.distinct(matched.c.id)).label("count"),
+                        func.count(func.distinct(WorkOrder.id))
+                        .filter(_title_tag_condition("急"))
+                        .label("urgent_count"),
+                        func.count(func.distinct(WorkOrder.id))
+                        .filter(cluster_match)
+                        .label("multi_frequency_count"),
+                    )
+                    .select_from(matched)
+                    .join(WorkOrder, WorkOrder.id == matched.c.id)
+                    .outerjoin(
+                        EventInstance,
+                        (EventInstance.work_order_id == matched.c.id)
+                        & (EventInstance.pipeline_version == "understanding.v2")
+                        & (EventInstance.ordinal == 0),
+                    )
+                    .outerjoin(
+                        EventClusterMember,
+                        EventClusterMember.event_instance_id == EventInstance.id,
+                    )
+                    .group_by(EventInstance.event_type, EventInstance.location_signals)
+                    .order_by(desc(func.count(func.distinct(matched.c.id))))
+                )
+            )
+            .mappings()
+            .all()
+        )
+        grouped: dict[str, list[AgentTreeSqlRow]] = {}
+        for row in rows:
+            tree_row = cast(AgentTreeSqlRow, row)
+            grouped.setdefault(tree_row["primary"], []).append(tree_row)
+        result: list[dict[str, object]] = []
+        for primary_label, children in sorted(
+            grouped.items(), key=lambda item: (-sum(row["count"] for row in item[1]), item[0])
+        ):
+            tree_children: list[dict[str, object]] = []
+            for row in children:
+                topic_condition = (
+                    EventInstance.event_type.is_(None)
+                    if (primary_label if mode == "topic" else row["child"]) == "未归类"
+                    else EventInstance.event_type
+                    == (primary_label if mode == "topic" else row["child"])
+                )
+                location_condition = (
+                    EventInstance.location_signals[0].as_string().is_(None)
+                    if (row["child"] if mode == "topic" else primary_label) == "未提供地点"
+                    else location == (row["child"] if mode == "topic" else primary_label)
+                )
+                conditions = [
+                    topic_condition,
+                    location_condition,
+                ]
+                leaf_ids = list(
+                    (
+                        await session.scalars(
+                            select(matched.c.id)
+                            .join(WorkOrder, WorkOrder.id == matched.c.id)
+                            .outerjoin(
+                                EventInstance,
+                                (EventInstance.work_order_id == matched.c.id)
+                                & (EventInstance.pipeline_version == "understanding.v2")
+                                & (EventInstance.ordinal == 0),
+                            )
+                            .where(and_(*conditions))
+                            .distinct()
+                        )
+                    ).all()
+                )
+                leaves = await self._projections(
+                    session,
+                    leaf_ids,
+                    (),
+                    None,
+                    semantic_scores=semantic_scores,
+                )
+                tree_children.append(
+                    {"label": row["child"], "count": row["count"], "work_orders": leaves}
+                )
+            result.append(
+                {
+                    "label": primary_label,
+                    "count": sum(row["count"] for row in children),
+                    "urgent_count": sum(row["urgent_count"] for row in children),
+                    "multi_frequency_count": sum(row["multi_frequency_count"] for row in children),
+                    "children": tree_children,
+                }
+            )
+        return result
 
     def _matching_ids_statement(
         self,
@@ -528,9 +708,17 @@ class AgentRepository:
             location = getattr(drilldown, "location", None)
             handling_status = getattr(drilldown, "handling_status", None)
             if topic:
-                statement = statement.where(EventInstance.event_type == topic)
+                statement = statement.where(
+                    EventInstance.event_type.is_(None)
+                    if topic == "未归类"
+                    else EventInstance.event_type == topic
+                )
             if location:
-                statement = statement.where(_location_condition(location))
+                statement = statement.where(
+                    EventInstance.location_signals[0].as_string().is_(None)
+                    if location == "未提供地点"
+                    else _location_condition(location)
+                )
             if handling_status:
                 statement = statement.where(_handling_status_condition(handling_status))
         return statement
@@ -1059,6 +1247,8 @@ class AgentRepository:
                 "focus_cluster_ids": _unique_ids(
                     item for row in projections for item in row["cluster_ids"]
                 ),
+                "topic_tree": [],
+                "location_tree": [],
             }
 
     async def _csv_for_work_orders(self, session: AsyncSession, ids: tuple[UUID, ...]) -> str:
@@ -1078,6 +1268,72 @@ class AgentRepository:
                 ]
             )
         return output.getvalue()
+
+
+def _xlsx_for_agent_records(records: list[AgentRecord]) -> bytes:
+    """Create a readable Chinese workbook from real, already-matched records only."""
+    output = io.BytesIO()
+    workbook: Any = xlsxwriter.Workbook(output, {"in_memory": True})
+    worksheet = workbook.add_worksheet("相关工单")
+    header_format = workbook.add_format(
+        {"bold": True, "bg_color": "#DCE6F1", "border": 1, "align": "center", "valign": "vcenter"}
+    )
+    wrap_format = workbook.add_format({"text_wrap": True, "valign": "top"})
+    date_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm", "valign": "top"})
+    headers = [
+        "工单编号",
+        "工单标题",
+        "问题类型",
+        "事件摘要",
+        "地点",
+        "业务受理时间",
+        "办理状态",
+        "是否急单",
+        "是否多频",
+        "关联事件编号",
+    ]
+    for column, header in enumerate(headers):
+        worksheet.write(0, column, header, header_format)
+    worksheet.freeze_panes(1, 0)
+    worksheet.autofilter(0, 0, max(len(records), 1), len(headers) - 1)
+    worksheet.set_column(0, 0, 24)
+    worksheet.set_column(1, 1, 38)
+    worksheet.set_column(2, 2, 20)
+    worksheet.set_column(3, 3, 46)
+    worksheet.set_column(4, 4, 38)
+    worksheet.set_column(5, 5, 20)
+    worksheet.set_column(6, 8, 12)
+    worksheet.set_column(9, 9, 38)
+    status_labels = {"unhandled": "未处理", "investigating": "正在跟进", "resolved": "已解决"}
+    type_labels = {
+        "commercial_noise": "商业噪音",
+        "consumer_complaint": "消费纠纷",
+        "noise_disturbance": "噪音扰民",
+        "street_vending": "流动摊贩乱摆卖",
+        "traffic_signal_malfunction_or_inappropriateness": "交通信号设施异常",
+    }
+    for row, record in enumerate(records, start=1):
+        event_type = record["event_type"]
+        display_type = type_labels.get(event_type or "", event_type or "")
+        external_number = record["external_work_order_number"] or str(record["work_order_id"])
+        worksheet.write(row, 0, external_number, wrap_format)
+        worksheet.write(row, 1, record["title"] or "", wrap_format)
+        worksheet.write(row, 2, display_type, wrap_format)
+        worksheet.write(row, 3, record["normalized_summary"] or "", wrap_format)
+        worksheet.write(row, 4, record["location"] or "", wrap_format)
+        reported_at = record["reported_at"]
+        if reported_at is not None:
+            reported_value = reported_at.astimezone(UTC).replace(tzinfo=None)
+            worksheet.write_datetime(row, 5, reported_value, date_format)
+        else:
+            worksheet.write(row, 5, "业务时间未知", wrap_format)
+        handling_status = record["handling_status"]
+        worksheet.write(row, 6, status_labels.get(handling_status, handling_status), wrap_format)
+        worksheet.write(row, 7, "是" if record["is_urgent"] else "否", wrap_format)
+        worksheet.write(row, 8, "是" if record["is_multi_frequency"] else "否", wrap_format)
+        worksheet.write(row, 9, "、".join(str(item) for item in record["cluster_ids"]), wrap_format)
+    workbook.close()
+    return output.getvalue()
 
 
 def _unique_ids(values: Iterable[UUID]) -> list[UUID]:

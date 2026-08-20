@@ -1,13 +1,15 @@
 """HTTP boundary for the intelligent assessment assistant."""
 
 from typing import cast
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from backend.app.api.dependencies import AgentOrchestratorDependency
 from backend.app.application.services.agent import AgentCommandError
 from backend.app.schemas.agent import (
+    AgentExportRequest,
     AgentQueryRequest,
     AgentQueryResponse,
     AgentQueryResultsRequest,
@@ -40,6 +42,23 @@ async def query_agent_results(
     request: AgentQueryResultsRequest, service: AgentOrchestratorDependency
 ) -> AgentQueryResultsResponse:
     return await service.query_results(request)
+
+
+@router.post("/agent/export.xlsx")
+async def export_agent_xlsx(
+    request: AgentExportRequest, service: AgentOrchestratorDependency
+) -> Response:
+    try:
+        filename, content = await service.export_xlsx(request)
+    except AgentCommandError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.post("/worksets", response_model=WorksetResponse, status_code=status.HTTP_201_CREATED)

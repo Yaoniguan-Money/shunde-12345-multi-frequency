@@ -68,6 +68,11 @@ const DASHBOARD_RESPONSE = {
   location_tree: [],
   status_tree: [],
   focus_cluster_ids: [],
+  insight_brief: {
+    conclusion: "当前范围共检索到 1 条真实工单，问题主要集中在欠薪 1 条。",
+    evidence_points: ["欠薪 1 条", "当前仍有 1 条未处理工单"],
+    next_step: "建议优先查看多频事件与未处理工单，并通过下方关系树下钻到具体工单核查。",
+  },
   disclaimer: "测试免责声明",
 };
 
@@ -95,12 +100,11 @@ test("keeps query context in memory and does not auto-select retrieved work orde
   fireEvent.change(input, { target: { value: "大良有没有拖欠工资" } });
   fireEvent.click(screen.getByRole("button", { name: "开始研判" }));
 
-  expect(await screen.findByText("有。当前检索范围内找到 1 条直接相关工单。")).toBeInTheDocument();
+  expect(await screen.findByText("当前范围共检索到 1 条真实工单，问题主要集中在欠薪 1 条。")).toBeInTheDocument();
   expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
 
   fireEvent.change(input, { target: { value: "那最近一个月呢？" } });
   fireEvent.click(screen.getByRole("button", { name: "开始研判" }));
-  expect(await screen.findByText("最近一个月没有记录。")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole("heading", { name: "那最近一个月呢？" })).toBeInTheDocument());
   expect(queryCalls).toBe(2);
 });
@@ -126,6 +130,73 @@ test("pages the compiled scope without clearing a cross-page selection", async (
   expect((await screen.findAllByText("第二页真实工单")).length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "建立工作集 · 1" })).toBeInTheDocument();
   expect(requestPaths.some((path) => path.includes("/agent/query/results"))).toBe(true);
+});
+
+test("does not rank an absent V2 location signal as a location", async () => {
+  const dashboard = {
+    ...DASHBOARD_RESPONSE,
+    location_groups: [{ label: "未提供地点", count: 99 }, { label: "大良", count: 1 }],
+  };
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/worksets")) return new Response(JSON.stringify({ items: [], total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("/agent/dashboard")) return new Response(JSON.stringify(dashboard), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(FIRST_RESPONSE), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+
+  render(<MemoryRouter><AssistantPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "容桂有什么事情" }));
+
+  const locationChart = await screen.findByLabelText("地点分布");
+  expect(locationChart).toHaveTextContent("大良");
+  expect(locationChart).not.toHaveTextContent("未提供地点");
+});
+
+test("omits unclassified machine categories and translates known V2 topic labels", async () => {
+  const dashboard = {
+    ...DASHBOARD_RESPONSE,
+    topic_groups: [
+      { label: "未归类", count: 99 },
+      { label: "commercial_noise", count: 3 },
+      { label: "unresolved_machine_tag", count: 2 },
+      { label: "噪音扰民", count: 1 },
+    ],
+    topic_tree: [
+      { label: "未归类", count: 99, urgent_count: 0, multi_frequency_count: 0, children: [{ label: "大良", count: 99, work_orders: [] }] },
+      { label: "commercial_noise", count: 3, urgent_count: 0, multi_frequency_count: 0, children: [{ label: "大良", count: 3, work_orders: [] }] },
+      { label: "unresolved_machine_tag", count: 2, urgent_count: 0, multi_frequency_count: 0, children: [{ label: "大良", count: 2, work_orders: [] }] },
+      { label: "噪音扰民", count: 1, urgent_count: 0, multi_frequency_count: 0, children: [{ label: "大良", count: 1, work_orders: [] }] },
+    ],
+    insight_brief: {
+      conclusion: "问题主要集中在未归类 99 条和 commercial_noise 3 条。",
+      evidence_points: ["未归类 99 条", "commercial_noise 3 条"],
+      next_step: "建议核查。",
+    },
+  };
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/worksets")) return new Response(JSON.stringify({ items: [], total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("/agent/dashboard")) return new Response(JSON.stringify(dashboard), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...FIRST_RESPONSE, work_orders: [{ ...FIRST_RESPONSE.work_orders[0], event_type: "commercial_noise" }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+
+  render(<MemoryRouter><AssistantPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "容桂有什么事情" }));
+
+  const topicChart = await screen.findByLabelText("问题类型");
+  expect(topicChart).toHaveTextContent("商业噪音");
+  expect(topicChart).toHaveTextContent("噪音扰民");
+  expect(topicChart).not.toHaveTextContent("未归类");
+  expect(topicChart).not.toHaveTextContent("commercial_noise");
+  expect(topicChart).not.toHaveTextContent("unresolved_machine_tag");
+  const brief = screen.getByLabelText("完整范围研判摘要");
+  expect(brief).not.toHaveTextContent("未归类");
+  expect(brief).not.toHaveTextContent("commercial_noise");
+  const tree = screen.getByLabelText("完整查询范围工单关系树");
+  expect(tree).toHaveTextContent("商业噪音");
+  expect(tree).not.toHaveTextContent("未归类");
+  expect(tree).not.toHaveTextContent("commercial_noise");
+  expect(screen.getAllByText("商业噪音").length).toBeGreaterThan(1);
 });
 
 test("keeps aggregate filtering separate from concrete work-order and cluster links", async () => {
@@ -174,4 +245,21 @@ test("keeps successful query evidence visible when the dashboard fails", async (
   expect(await screen.findByText("有。当前检索范围内找到 1 条直接相关工单。" )).toBeInTheDocument();
   expect(await screen.findByText(/查询结果正常，统计洞察暂时不可用/)).toBeInTheDocument();
   expect(screen.getByText("拖欠工资")).toBeInTheDocument();
+});
+
+test("restores a pre-insight-brief session without crashing", async () => {
+  const legacyDashboard: Partial<typeof DASHBOARD_RESPONSE> = { ...DASHBOARD_RESPONSE };
+  delete legacyDashboard.insight_brief;
+  sessionStorage.setItem("shunde-agent-current-insight", JSON.stringify({
+    messages: [{ id: "legacy", query: FIRST_RESPONSE.original_query, response: FIRST_RESPONSE }],
+    results: { matched_total: 1, page: 1, page_size: 20, items: FIRST_RESPONSE.work_orders },
+    dashboard: legacyDashboard,
+    drilldown: { frequency: "all" },
+    selected: [],
+    selectedClusters: {},
+  }));
+
+  render(<MemoryRouter><AssistantPage /></MemoryRouter>);
+
+  expect(await screen.findByText("当前范围共检索到 1 条真实工单，问题主要集中在欠薪 1 条。")).toBeInTheDocument();
 });

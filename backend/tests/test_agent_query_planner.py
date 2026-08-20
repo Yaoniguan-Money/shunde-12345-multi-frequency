@@ -144,3 +144,15 @@ def test_direct_location_urgent_count_needs_no_history() -> None:
     assert plan.location == "大良"
     assert plan.title_tag == "急"
     assert plan.aggregation == "count"
+
+
+def test_natural_language_export_uses_a_dynamic_relative_time_scope() -> None:
+    plan = _service()._rules_plan(  # noqa: SLF001 - controlled planner contract.
+        AgentQueryRequest(query="帮我导出容桂最近3个月相关的工单情况，用表格形式")
+    )
+
+    assert plan.intent == "export_work_orders"
+    assert plan.location == "容桂"
+    assert plan.time_range is not None
+    assert plan.time_range.kind == "relative"
+    assert plan.time_range.value == "last_3_months"

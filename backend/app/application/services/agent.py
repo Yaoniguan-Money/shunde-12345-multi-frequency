@@ -21,6 +21,8 @@ from backend.app.infrastructure.ai.remote import RemoteOpenAICompatibleLLMProvid
 from backend.app.infrastructure.db.agent import AgentDashboardValues, AgentRecord, AgentRepository
 from backend.app.schemas.agent import (
     AgentDrilldown,
+    AgentExportRequest,
+    AgentInsightBrief,
     AgentQueryDSL,
     AgentQueryRequest,
     AgentQueryResponse,
@@ -97,7 +99,8 @@ class AgentOrchestrator:
         rules_plan = self._rules_plan(request)
         compiled, planner_mode = await self._plan_with_llm(request, rules_plan)
         compiled = compiled.model_copy(update={"semantic_query": request.query})
-        search_plan = _search_plan(compiled)
+        time_reference = await self._repository.latest_reported_at()
+        search_plan = _search_plan(compiled, reference_time=time_reference)
         vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
         page = await self._repository.search_page(
             search_plan,
@@ -115,21 +118,24 @@ class AgentOrchestrator:
         cluster_ids = list(
             dict.fromkeys(cluster_id for item in records for cluster_id in item["cluster_ids"])
         )
-        factual_summary = _evidence_answer(
-            compiled,
-            request.query,
-            total,
-            records,
-            topic_groups,
-            handling_groups,
-            cluster_ids,
-        )
-        answer = await compose_evidence_answer(
-            planner_llm=self._planner_llm,
-            query=request.query,
-            records=records,
-            factual_summary=factual_summary,
-        )
+        if compiled.time_range is not None and time_reference is None:
+            answer = "当前数据未提供业务受理时间，无法按相对日期筛选或导出。"
+        else:
+            factual_summary = _evidence_answer(
+                compiled,
+                request.query,
+                total,
+                records,
+                topic_groups,
+                handling_groups,
+                cluster_ids,
+            )
+            answer = await compose_evidence_answer(
+                planner_llm=self._planner_llm,
+                query=request.query,
+                records=records,
+                factual_summary=factual_summary,
+            )
         return AgentQueryResponse(
             original_query=request.query,
             compiled_query=compiled,
@@ -149,8 +155,21 @@ class AgentOrchestrator:
             else [],
         )
 
+    async def export_xlsx(self, request: AgentExportRequest) -> tuple[str, bytes]:
+        """Export the complete compiled scope; never reuse the visible page as a source."""
+        search_plan = await self._search_plan_for(request.compiled_query)
+        vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
+        count, content = await self._repository.export_xlsx(
+            search_plan,
+            semantic_vector=vector,
+            semantic_model_id=embedding_model_id,
+        )
+        if count == 0:
+            raise AgentCommandError("当前条件下没有可导出的工单")
+        return _export_filename(request.compiled_query), content
+
     async def query_results(self, request: AgentQueryResultsRequest) -> AgentQueryResultsResponse:
-        search_plan = _search_plan(request.compiled_query)
+        search_plan = await self._search_plan_for(request.compiled_query)
         vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
         page = await self._repository.search_page(
             search_plan,
@@ -284,7 +303,7 @@ class AgentOrchestrator:
         drilldown: AgentDrilldown | None = None,
     ) -> DynamicDashboardResponse:
         if compiled_query is not None:
-            search_plan = _search_plan(compiled_query)
+            search_plan = await self._search_plan_for(compiled_query)
             vector, embedding_model_id = await self._semantic_vector(search_plan.semantic_query)
             values = await self._repository.aggregate(
                 search_plan,
@@ -312,6 +331,7 @@ class AgentOrchestrator:
             location_tree=[],
             status_tree=[],
             focus_cluster_ids=values["focus_cluster_ids"],
+            insight_brief=_insight_brief(values),
             disclaimer="所有统计均基于当前查询或工作集的真实工单范围，不代表行政事实认定。",
         )
 
@@ -322,7 +342,13 @@ class AgentOrchestrator:
         inherited = prior if context_mode != "new_scope" and prior is not None else AgentQueryDSL()
         explicit_topic = _topic(text)
         plan = AgentQueryDSL(
-            intent="refine_previous" if context_mode != "new_scope" else "search_work_orders",
+            intent=(
+                "export_work_orders"
+                if _is_export_request(text)
+                else "refine_previous"
+                if context_mode != "new_scope"
+                else "search_work_orders"
+            ),
             time_range=_time_range(text) or inherited.time_range,
             keywords=_keywords(text) or inherited.keywords,
             topic=explicit_topic or inherited.topic,
@@ -363,7 +389,7 @@ class AgentOrchestrator:
             "例如“大良有没有拖欠工资”是大良范围内的欠薪问题，不是先查大良再按欠薪排序。"
             "location 应保留用户的开放文本地点原样（道路、小区、学校、园区、项目等均可），"
             "不得将地点写入 topic 或 keywords。"
-            "不确定则保留 null 或空数组。时间相对值使用 last_7_days、last_30_days。"
+            "不确定则保留 null 或空数组。相对时间必须保留规则已识别的范围，不得臆造日期。"
             "title_tag=急 仅表示标题的确定性急标签；aggregation 表示统计方式。"
             "必须判断 context_mode：新范围、继续收窄范围、或引用上一轮结果。\n"
             f"上一轮用户问题：{request.previous_query or '无'}\n"
@@ -418,6 +444,7 @@ class AgentOrchestrator:
     async def _semantic_vector(self, query: str) -> tuple[list[float] | None, str | None]:
         if self._providers is None or self._providers.plan.remote_embedding is None:
             return None, None
+
         try:
             result = await self._providers.embeddings.embed_batch(
                 (
@@ -440,6 +467,13 @@ class AgentOrchestrator:
                 },
             )
             return None, None
+
+    async def _search_plan_for(self, compiled: AgentQueryDSL) -> AgentSearchPlan:
+        """Anchor relative dates to the newest business time in the current data."""
+        return _search_plan(
+            compiled,
+            reference_time=await self._repository.latest_reported_at(),
+        )
 
 
 def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQueryDSL:
@@ -470,6 +504,10 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         patch["title_tag"] = base.title_tag
     if base.aggregation != "none":
         patch["aggregation"] = base.aggregation
+    if base.intent == "export_work_orders":
+        patch["intent"] = base.intent
+    if base.time_range is not None:
+        patch["time_range"] = base.time_range.model_dump(mode="json")
     patch["context_mode"] = base.context_mode
     if base.context_mode == "reference_results":
         patch["work_order_ids"] = [str(item) for item in base.work_order_ids]
@@ -481,7 +519,7 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         patch.pop("entity", None)
     if "time_range" in patch and isinstance(patch["time_range"], dict):
         raw_time = cast(dict[str, object], patch["time_range"])
-        if raw_time.get("value") not in {"last_7_days", "last_30_days"}:
+        if not isinstance(raw_time.get("value"), str):
             patch.pop("time_range")
     try:
         return AgentQueryDSL.model_validate({**base.model_dump(), **patch})
@@ -489,21 +527,47 @@ def _merge_llm_plan(base: AgentQueryDSL, values: dict[str, object]) -> AgentQuer
         return base
 
 
-def _compile_time_range(value: AgentTimeRange | None) -> tuple[datetime | None, datetime | None]:
+def _compile_time_range(
+    value: AgentTimeRange | None, reference_time: datetime | None = None
+) -> tuple[datetime | None, datetime | None]:
     if value is None:
         return None, None
-    now = datetime.now(UTC)
-    if value.kind == "relative":
-        if value.value == "last_7_days":
-            return now - timedelta(days=7), now
-        if value.value == "last_30_days":
-            return now - timedelta(days=30), now
+    now = reference_time or datetime.now(UTC)
+    if value.kind == "relative" and value.value:
+        if value.value == "this_month":
+            return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), now
+        if value.value == "last_month":
+            current_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            previous_month = _months_before(current_month, 1)
+            return previous_month, current_month - timedelta(microseconds=1)
+        if value.value == "this_year":
+            return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), now
+        if value.value == "last_year":
+            current_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            return (
+                current_year.replace(year=current_year.year - 1),
+                current_year - timedelta(microseconds=1),
+            )
+        days = re.fullmatch(r"last_(\d{1,3})_days", value.value)
+        if days:
+            return now - timedelta(days=int(days.group(1))), now
+        months = re.fullmatch(r"last_(\d{1,2})_months", value.value)
+        if months:
+            return _months_before(now, int(months.group(1))), now
     return value.start, value.end
 
 
-def _search_plan(compiled: AgentQueryDSL) -> AgentSearchPlan:
+def _months_before(value: datetime, months: int) -> datetime:
+    ordinal = value.year * 12 + value.month - 1 - months
+    year, month_index = divmod(ordinal, 12)
+    return value.replace(year=year, month=month_index + 1)
+
+
+def _search_plan(
+    compiled: AgentQueryDSL, reference_time: datetime | None = None
+) -> AgentSearchPlan:
     """Compile stable DSL semantics for all retrieval-core executions."""
-    reported_after, reported_before = _compile_time_range(compiled.time_range)
+    reported_after, reported_before = _compile_time_range(compiled.time_range, reference_time)
     return AgentSearchPlan(
         semantic_query=compiled.semantic_query or _scope_query_text(compiled),
         keywords=_retrieval_terms(compiled),
@@ -522,11 +586,50 @@ def _search_plan(compiled: AgentQueryDSL) -> AgentSearchPlan:
 
 
 def _time_range(text: str) -> AgentTimeRange | None:
+    if any(token in text for token in ("本月", "这个月", "当月")):
+        return AgentTimeRange(kind="relative", value="this_month")
+    if any(token in text for token in ("上个月", "上月")):
+        return AgentTimeRange(kind="relative", value="last_month")
+    if "今年" in text:
+        return AgentTimeRange(kind="relative", value="this_year")
+    if "去年" in text:
+        return AgentTimeRange(kind="relative", value="last_year")
+    days = re.search(r"(?:最近|近)(\d{1,3})天", text)
+    if days and 1 <= int(days.group(1)) <= 365:
+        return AgentTimeRange(kind="relative", value=f"last_{days.group(1)}_days")
+    months = re.search(r"(?:最近|近)(\d{1,2})个?月", text)
+    if months and 1 <= int(months.group(1)) <= 24:
+        return AgentTimeRange(kind="relative", value=f"last_{months.group(1)}_months")
     if any(token in text for token in ("这一周", "最近一周", "近一周", "7天")):
         return AgentTimeRange(kind="relative", value="last_7_days")
     if any(token in text for token in ("最近一个月", "近一个月", "30天", "最近", "近来")):
         return AgentTimeRange(kind="relative", value="last_30_days")
     return None
+
+
+def _is_export_request(text: str) -> bool:
+    return any(token in text for token in ("导出", "下载")) and any(
+        token in text for token in ("表格", "Excel", "excel", "XLSX", "xlsx", "工单")
+    )
+
+
+def _export_filename(compiled: AgentQueryDSL) -> str:
+    location = re.sub(r"[^\w\u3400-\u9fff-]", "", compiled.location or "当前范围")[:32]
+    suffix = _time_range_filename(compiled.time_range)
+    return f"{location}工单情况_{suffix}.xlsx"
+
+
+def _time_range_filename(time_range: AgentTimeRange | None) -> str:
+    if time_range is None or not time_range.value:
+        return "完整范围"
+    labels = {"this_month": "本月", "last_month": "上月", "this_year": "今年", "last_year": "去年"}
+    if time_range.value in labels:
+        return labels[time_range.value]
+    days = re.fullmatch(r"last_(\d+)_days", time_range.value)
+    if days:
+        return f"近{days.group(1)}天"
+    months = re.fullmatch(r"last_(\d+)_months", time_range.value)
+    return f"近{months.group(1)}个月" if months else "完整范围"
 
 
 def _keywords(text: str) -> list[str]:
@@ -576,7 +679,7 @@ def _location(text: str) -> str | None:
         return None
     normalized = re.sub(r"[，。！？、,.!?]", " ", text).strip()
     prefix_match = re.match(
-        r"(?:请问|帮我看看|查询|了解)?(?P<location>[\u4e00-\u9fffA-Za-z0-9·]{2,40}?)"
+        r"(?:请问|帮我看看|帮我导出|帮我下载|查询|了解)?(?P<location>[\u4e00-\u9fffA-Za-z0-9·]{2,40}?)"
         r"(?:最近|近来|这段时间|有什么|有没有|是否有|有几条|有多少|多少条|发生了什么|相关工单|的情况)",
         normalized,
     )
@@ -765,12 +868,74 @@ def _dashboard_values_response(
         location_groups=[
             AgentTopicGroup.model_validate(item) for item in values["location_groups"]
         ],
-        topic_tree=[],
-        location_tree=[],
+        topic_tree=_dashboard_tree(values["topic_tree"]),
+        location_tree=_dashboard_tree(values["location_tree"]),
         status_tree=[],
         focus_cluster_ids=_unique_ids(values["focus_cluster_ids"]),
+        insight_brief=_insight_brief(values),
         disclaimer="所有统计均基于完整查询范围，不代表行政事实认定。",
     )
+
+
+def _insight_brief(values: AgentDashboardValues) -> AgentInsightBrief:
+    """State a complete-scope conclusion using only returned SQL aggregate facts."""
+    total = values["work_order_count"]
+    topics = values["topic_groups"][:3]
+    topic_text = "、".join(f"{item['label']} {item['count']} 条" for item in topics)
+    conclusion = (
+        "当前查询范围内暂无工单。"
+        if total == 0
+        else f"当前范围共检索到 {total} 条真实工单"
+        + (f"，问题主要集中在{topic_text}。" if topic_text else "。")
+    )
+    evidence = [f"{item['label']} {item['count']} 条" for item in topics]
+    if values["multi_frequency_event_count"]:
+        evidence.append(
+            f"发现 {values['multi_frequency_event_count']} 个多频事件"
+            + (
+                f"，其中 {values['high_frequency_event_count']} 个满足高频规则"
+                if values["high_frequency_event_count"]
+                else ""
+            )
+        )
+    unhandled = next(
+        (item["count"] for item in values["handling_groups"] if item["label"] == "unhandled"),
+        0,
+    )
+    if unhandled:
+        evidence.append(f"当前仍有 {unhandled} 条未处理工单")
+    return AgentInsightBrief(
+        conclusion=conclusion,
+        evidence_points=evidence,
+        next_step=(
+            "建议优先查看多频事件与未处理工单，并通过下方关系树下钻到具体工单核查。"
+            if total
+            else "可调整地点、问题或时间范围后重新查询。"
+        ),
+    )
+
+
+def _dashboard_tree(values: list[dict[str, object]]) -> list[AgentTreeGroup]:
+    return [
+        AgentTreeGroup(
+            label=cast(str, group["label"]),
+            count=cast(int, group["count"]),
+            urgent_count=cast(int, group["urgent_count"]),
+            multi_frequency_count=cast(int, group["multi_frequency_count"]),
+            children=[
+                AgentTreeChild(
+                    label=cast(str, child["label"]),
+                    count=cast(int, child["count"]),
+                    work_orders=[
+                        _work_order_result(record)
+                        for record in cast(list[AgentRecord], child["work_orders"])
+                    ],
+                )
+                for child in cast(list[dict[str, object]], group["children"])
+            ],
+        )
+        for group in values
+    ]
 
 
 def _tree_groups(

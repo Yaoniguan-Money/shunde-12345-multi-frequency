@@ -10,6 +10,7 @@ AgentIntent = Literal[
     "search_work_orders",
     "refine_previous",
     "create_workset",
+    "export_work_orders",
     "generate_dashboard",
     "preview_batch_action",
 ]
@@ -165,6 +166,13 @@ class AgentQueryResultsResponse(BaseModel):
     items: list[AgentWorkOrderResult]
 
 
+class AgentExportRequest(BaseModel):
+    """Export the complete result set of one already compiled Agent query."""
+
+    original_query: str = Field(min_length=1, max_length=500)
+    compiled_query: AgentQueryDSL
+
+
 class WorksetCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     original_query: str = Field(min_length=1, max_length=500)
@@ -234,6 +242,14 @@ class DynamicDashboardRequest(BaseModel):
     title: str = Field(default="临时研判看板", min_length=1, max_length=255)
 
 
+class AgentInsightBrief(BaseModel):
+    """Complete-scope factual briefing assembled only from dashboard aggregates."""
+
+    conclusion: str
+    evidence_points: list[str] = Field(default_factory=_empty_strings)
+    next_step: str
+
+
 class DynamicDashboardResponse(BaseModel):
     title: str
     work_order_count: int
@@ -248,6 +264,7 @@ class DynamicDashboardResponse(BaseModel):
     location_tree: list[AgentTreeGroup] = Field(default_factory=_empty_tree_groups)
     status_tree: list[AgentTreeGroup] = Field(default_factory=_empty_tree_groups)
     focus_cluster_ids: list[UUID]
+    insight_brief: AgentInsightBrief
     disclaimer: str
 
 

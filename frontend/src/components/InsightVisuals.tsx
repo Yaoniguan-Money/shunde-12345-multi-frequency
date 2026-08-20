@@ -33,12 +33,13 @@ export function MetricCard({ label, value, tone, detail, onClick }: {
   return onClick ? <button ref={root as unknown as Ref<HTMLButtonElement>} type="button" className={`insight-metric insight-metric--${tone} insight-metric--button`} title={detail} onClick={onClick}>{content}</button> : <article ref={root} className={`insight-metric insight-metric--${tone}`} title={detail}>{content}</article>;
 }
 
-export function AnimatedBarChart({ title, items, onSelect, activeLabel, emptyMessage }: {
+export function AnimatedBarChart({ title, items, onSelect, activeLabel, emptyMessage, displayLabel }: {
   title: string;
   items: AgentTopicGroup[];
   onSelect: (label: string) => void;
   activeLabel?: string | null;
   emptyMessage: string;
+  displayLabel?: (label: string) => string;
 }): JSX.Element {
   const root = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -61,9 +62,12 @@ export function AnimatedBarChart({ title, items, onSelect, activeLabel, emptyMes
   return <section ref={root} className="insight-chart" aria-label={title}>
     <div className="insight-chart__head"><h3>{title}</h3><span>点击下钻</span></div>
     {items.length === 0 ? <p className="insight-chart__empty">{emptyMessage}</p> : <div className="animated-bar-chart">
-      {visibleItems.map((item) => <button key={item.label} className={`animated-bar-chart__row ${activeLabel === item.label ? "is-active" : ""}`} onClick={() => onSelect(item.label)} title={`${item.label}：${item.count} 条`}>
-        <span className="animated-bar-chart__label">{item.label}</span><span className="animated-bar-chart__track"><i className="animated-bar-chart__fill" style={{ width: `${(item.count / max) * 100}%` }} /></span><b>{item.count}</b>
-      </button>)}{items.length > 8 ? <button className="animated-bar-chart__expand" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : `展开全部（显示 ${visibleItems.length} / 共 ${items.length} 类）`}</button> : <span className="animated-bar-chart__count">显示 {visibleItems.length} / 共 {items.length} 类</span>}
+      {visibleItems.map((item) => {
+        const label = displayLabel?.(item.label) ?? item.label;
+        return <button key={item.label} className={`animated-bar-chart__row ${activeLabel === item.label ? "is-active" : ""}`} onClick={() => onSelect(item.label)} title={`${label}：${item.count} 条`}>
+          <span className="animated-bar-chart__label">{label}</span><span className="animated-bar-chart__track"><i className="animated-bar-chart__fill" style={{ width: `${(item.count / max) * 100}%` }} /></span><b>{item.count}</b>
+        </button>;
+      })}{items.length > 8 ? <button className="animated-bar-chart__expand" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : `展开全部（显示 ${visibleItems.length} / 共 ${items.length} 类）`}</button> : <span className="animated-bar-chart__count">显示 {visibleItems.length} / 共 {items.length} 类</span>}
     </div>}
   </section>;
 }

@@ -11,6 +11,7 @@ from backend.app.domain.agent_search import AgentSearchPlan
 from backend.app.infrastructure.db.agent import AgentRepository
 from backend.app.infrastructure.db.models import EventInstance, ImportBatch, WorkOrder
 from backend.app.infrastructure.db.session import create_engine, create_session_factory
+from backend.app.schemas.agent import AgentDrilldown
 
 
 @pytest.mark.asyncio
@@ -247,9 +248,31 @@ async def test_search_page_uses_database_offset_and_keeps_semantic_only_candidat
                     id=uuid4(),
                     work_order_id=item.id,
                     ordinal=0,
-                    event_type="测试",
+                    event_type=None if item.id == work_orders[0].id else "测试",
                     behavior=None,
                     normalized_summary=item.raw_content,
+                    entity_ids=[],
+                    location_signals=[] if item.id == work_orders[0].id else ["测试分页"],
+                    time_signals=[],
+                    evidence={},
+                    model_id="test-agent",
+                    model_config_hash=None,
+                    schema_version="understanding.v2",
+                    knowledge_snapshot_id=None,
+                    pipeline_version="understanding.v2",
+                )
+                for item in work_orders
+            )
+            # A second V2 projection for the same work order must not multiply
+            # its search-page or dashboard counts.
+            session.add(
+                EventInstance(
+                    id=uuid4(),
+                    work_order_id=work_orders[0].id,
+                    ordinal=1,
+                    event_type="测试补充",
+                    behavior=None,
+                    normalized_summary=work_orders[0].raw_content,
                     entity_ids=[],
                     location_signals=["测试分页"],
                     time_signals=[],
@@ -260,7 +283,6 @@ async def test_search_page_uses_database_offset_and_keeps_semantic_only_candidat
                     knowledge_snapshot_id=None,
                     pipeline_version="understanding.v2",
                 )
-                for item in work_orders
             )
 
         repository = AgentRepository(sessions)
@@ -293,6 +315,26 @@ async def test_search_page_uses_database_offset_and_keeps_semantic_only_candidat
         )
         dashboard = await repository.aggregate(plan, semantic_vector=None, semantic_model_id=None)
         assert dashboard["work_order_count"] == 41
+        assert sum(group["count"] for group in dashboard["topic_tree"]) == 41
+        assert (
+            sum(
+                len(child["work_orders"])
+                for group in dashboard["topic_tree"]
+                for child in group["children"]
+            )
+            == 41
+        )
+
+        missing_location = await repository.search_page(
+            plan,
+            page=1,
+            page_size=20,
+            semantic_vector=None,
+            semantic_model_id=None,
+            drilldown=AgentDrilldown(location="未提供地点"),
+        )
+        assert missing_location.matched_total == 1
+        assert [item["work_order_id"] for item in missing_location.records] == [work_orders[0].id]
 
         repository._semantic_scores = AsyncMock(return_value={work_orders[0].id: 0.99})  # type: ignore[method-assign]
         semantic_plan = AgentSearchPlan(

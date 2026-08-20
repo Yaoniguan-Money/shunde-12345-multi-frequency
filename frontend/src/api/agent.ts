@@ -40,6 +40,15 @@ export function queryAgentResults(body: {
   });
 }
 
+export function exportAgentXlsx(body: {
+  original_query: string;
+  compiled_query: AgentQueryDSL;
+}): Promise<Blob> {
+  return apiRequest<Blob>("/agent/export.xlsx", {
+    method: "POST", body, responseType: "blob", timeoutMs: AGENT_RESULTS_TIMEOUT_MS,
+  });
+}
+
 export function createWorkset(body: {
   name: string;
   original_query: string;

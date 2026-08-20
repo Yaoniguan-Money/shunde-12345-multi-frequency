@@ -398,6 +398,7 @@ export interface DynamicDashboardResponse {
   location_tree: AgentTreeGroup[];
   status_tree: AgentTreeGroup[];
   focus_cluster_ids: UUID[];
+  insight_brief: { conclusion: string; evidence_points: string[]; next_step: string };
   disclaimer: string;
 }
 

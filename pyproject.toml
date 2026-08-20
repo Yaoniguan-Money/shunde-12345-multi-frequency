@@ -17,6 +17,7 @@ dependencies = [
   "structlog>=25.4,<26",
   "fastexcel>=0.17,<1",
   "uvicorn[standard]>=0.35,<1",
+  "xlsxwriter>=3.2,<4",
 ]
 
 [dependency-groups]

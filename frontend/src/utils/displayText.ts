@@ -4,12 +4,25 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   construction_noise: "施工噪音",
   social_noise: "社会噪音",
   commercial_noise: "商业噪音",
+  consumer_complaint: "消费纠纷",
+  noise_disturbance: "噪音扰民",
+  street_vending: "流动摊贩乱摆卖",
+  traffic_signal_malfunction_or_inappropriateness: "交通信号设施异常",
   road_waterlogging: "道路积水",
   waterlogging: "积水问题",
   traffic: "交通问题",
   environmental_pollution: "环境污染",
   other: "其他问题",
 };
+
+/** Whether a V2 event type has a safe, meaningful label for the operator UI.
+ * Missing classifications and unrecognised machine tags stay available in the
+ * data layer, but must not be presented as a public-facing issue category. */
+export function isDisplayableEventType(value: string | null | undefined): boolean {
+  if (!value || value.trim() === "未归类") return false;
+  const normalized = value.trim().toLowerCase();
+  return Boolean(EVENT_TYPE_LABELS[normalized]) || /[\u3400-\u9fff]/.test(value);
+}
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "排队中",
